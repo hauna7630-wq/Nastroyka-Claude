@@ -53,8 +53,16 @@ npm run worker            # start the execution-plane worker with real adapters
 See [`docs/SPEC.md`](docs/SPEC.md) for the full specification and
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for diagrams.
 
+## Auto-orchestration (F6)
+
+`orchestrator`-type runs are decomposed into typed-agent subtasks automatically: a complexity
+gate decides single- vs multi-agent, a planner produces a validated subtask graph, and the
+orchestrator runs the subtasks as child runs (deterministic ids → idempotent across retries).
+See `src/orchestrator/*` and `docs/SPEC.md` §9.
+
 ## Status / roadmap
 
-Implemented at MVP altitude; deferred to later phases (seams left in the schema/ports):
-auto-orchestrator, vector long-term memory, observability dashboards, Stripe webhooks, and the
-SSE/WS event transport. See the phased plan in `docs/SPEC.md`.
+Implemented at MVP altitude: F1 (core runtime/state machine/ledger/DLQ) and F6 (auto-orchestrator,
+inline). Deferred to later phases (seams left in the schema/ports): vector long-term memory (F5),
+observability dashboards + control-plane API + SSE/WS events + Stripe (F4), and `code_exec`
+sandbox isolation (F3). See the phased plan in `docs/SPEC.md`.

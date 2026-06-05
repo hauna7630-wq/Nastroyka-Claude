@@ -4,6 +4,7 @@
 
 import {
   Agent,
+  AgentType,
   DeadLetterRecord,
   LedgerEntry,
   Org,
@@ -47,6 +48,12 @@ export class InMemoryRepository implements Repository {
   async getAgent(agentId: string): Promise<Agent | null> {
     return this.agents.get(agentId) ?? null;
   }
+  async findAgentByType(orgId: string, type: AgentType): Promise<Agent | null> {
+    for (const a of this.agents.values()) {
+      if (a.orgId === orgId && a.type === type) return a;
+    }
+    return null;
+  }
 
   // --- Runs ---
   async getRun(runId: string): Promise<Run | null> {
@@ -54,8 +61,17 @@ export class InMemoryRepository implements Repository {
     return r ? { ...r } : null;
   }
   async createRun(run: Run): Promise<Run> {
+    // Idempotent: never clobber an existing run (orchestration retries reuse
+    // deterministic child run ids).
+    const existing = this.runs.get(run.id);
+    if (existing) return { ...existing };
     this.runs.set(run.id, { ...run });
     return run;
+  }
+  async listChildRuns(parentRunId: string): Promise<Run[]> {
+    return [...this.runs.values()]
+      .filter((r) => r.parentRunId === parentRunId)
+      .map((r) => ({ ...r }));
   }
   async updateRunStatus(
     runId: string,

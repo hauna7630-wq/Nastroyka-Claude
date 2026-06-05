@@ -6,10 +6,9 @@
 
 import { transition } from '../domain/runStateMachine';
 import { Queue } from '../ports/queue';
-import { Repository } from '../ports/repository';
-import { executeRun, RuntimeDeps } from '../agent/runtime';
+import { dispatchRun, DispatchDeps } from '../agent/dispatch';
 
-export interface WorkerDeps extends RuntimeDeps {
+export interface WorkerDeps extends DispatchDeps {
   queue: Queue;
 }
 
@@ -19,7 +18,7 @@ export function startWorker(deps: WorkerDeps): void {
   queue.process(async (job, ctx) => {
     await repo.incrementRunAttempts(job.runId);
     try {
-      await executeRun(job.runId, deps);
+      await dispatchRun(job.runId, deps);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
 

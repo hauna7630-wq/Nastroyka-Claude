@@ -5,6 +5,7 @@
 
 import {
   Agent,
+  AgentType,
   DeadLetterRecord,
   LedgerEntry,
   Org,
@@ -17,10 +18,16 @@ export interface Repository {
   // --- Tenancy / agents ---
   getOrg(orgId: string): Promise<Org | null>;
   getAgent(agentId: string): Promise<Agent | null>;
+  // Find an agent of a given type within an org (used by the orchestrator to
+  // assign subtasks to typed agents). Returns the first match, or null.
+  findAgentByType(orgId: string, type: AgentType): Promise<Agent | null>;
 
   // --- Runs ---
   getRun(runId: string): Promise<Run | null>;
+  // Idempotent by run id: if a run with this id already exists it is returned
+  // unchanged (so orchestration retries don't reset completed child runs).
   createRun(run: Run): Promise<Run>;
+  listChildRuns(parentRunId: string): Promise<Run[]>;
   updateRunStatus(runId: string, status: RunStatus, patch?: Partial<Run>): Promise<void>;
   incrementRunAttempts(runId: string): Promise<number>;
 

@@ -11,6 +11,7 @@
 
 import {
   Agent,
+  AgentType,
   DeadLetterRecord,
   LedgerEntry,
   Org,
@@ -57,26 +58,32 @@ export class PrismaRepository implements Repository {
     };
   }
 
+  async findAgentByType(orgId: string, type: AgentType): Promise<Agent | null> {
+    const a = await this.db.agent.findFirst({
+      where: { orgId, type },
+      include: { currentVersion: true },
+    });
+    if (!a) return null;
+    return {
+      id: a.id,
+      orgId: a.orgId,
+      name: a.name,
+      type: a.type,
+      systemPrompt: a.currentVersion?.systemPrompt ?? '',
+    };
+  }
+
   async getRun(runId: string): Promise<Run | null> {
     const r = await this.db.run.findUnique({ where: { id: runId } });
-    return r
-      ? {
-          id: r.id,
-          orgId: r.orgId,
-          agentId: r.agentId,
-          status: r.status,
-          input: r.input,
-          output: r.output ?? undefined,
-          error: r.error ?? undefined,
-          creditsUsed: r.creditsUsed,
-          attempts: r.attempts,
-        }
-      : null;
+    return r ? this.mapRun(r) : null;
   }
 
   async createRun(run: Run): Promise<Run> {
-    await this.db.run.create({
-      data: {
+    // Idempotent by id (orchestration retries reuse deterministic child ids).
+    await this.db.run.upsert({
+      where: { id: run.id },
+      update: {},
+      create: {
         id: run.id,
         orgId: run.orgId,
         agentId: run.agentId,
@@ -84,9 +91,30 @@ export class PrismaRepository implements Repository {
         input: run.input as any,
         creditsUsed: run.creditsUsed,
         attempts: run.attempts,
+        parentRunId: run.parentRunId,
       },
     });
     return run;
+  }
+
+  async listChildRuns(parentRunId: string): Promise<Run[]> {
+    const rows = await this.db.run.findMany({ where: { parentRunId } });
+    return rows.map((r: any) => this.mapRun(r));
+  }
+
+  private mapRun(r: any): Run {
+    return {
+      id: r.id,
+      orgId: r.orgId,
+      agentId: r.agentId,
+      status: r.status,
+      input: r.input,
+      output: r.output ?? undefined,
+      error: r.error ?? undefined,
+      creditsUsed: r.creditsUsed,
+      attempts: r.attempts,
+      parentRunId: r.parentRunId ?? undefined,
+    };
   }
 
   async updateRunStatus(

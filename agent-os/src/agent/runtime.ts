@@ -179,7 +179,7 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
   }
 }
 
-function toPrompt(input: unknown): string {
+export function toPrompt(input: unknown): string {
   if (input && typeof input === 'object' && 'prompt' in input) {
     return String((input as { prompt: unknown }).prompt);
   }

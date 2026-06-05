@@ -101,3 +101,31 @@ flowchart TD
 Idempotency note: because step indices and tool-call ids are deterministic, re-executing a Run on
 retry re-charges the **same** `(runId, stepIndex, toolCallId)` keys, which the ledger collapses to
 a single charge — so retries never double-bill.
+
+## 5. Auto-orchestration (F6)
+
+The worker dispatches by agent type: `orchestrator` runs go to the orchestrator, everything else
+to the single-agent runtime.
+
+```mermaid
+flowchart TD
+  J["dispatchRun(parent)"] --> T{"agent.type == orchestrator?"}
+  T -- no --> RT["executeRun (single agent)"]
+  T -- yes --> CX{"shouldOrchestrate(task)?"}
+  CX -- no --> ONE["1 subtask\n(default-typed agent)"]
+  CX -- yes --> PLAN["planner.plan(task)\n→ typed subtask graph"]
+  ONE --> ORD["topological order"]
+  PLAN --> ORD
+  ORD --> LOOP["for each subtask in order"]
+  LOOP --> ASSIGN["findAgentByType(orgId, subtask.type)"]
+  ASSIGN --> CHILD["createRun(parentId::subtaskId)\nexecuteRun(child)  %% inline"]
+  CHILD --> DEP["thread output into dependents"]
+  DEP --> LOOP
+  LOOP --> AGG["aggregate child outputs\nparent.creditsUsed = Σ children"]
+  AGG --> OK["transition running → succeeded"]
+```
+
+Child run ids are deterministic (`parentId::subtaskId`). On an orchestration retry, completed
+children are terminal and skipped (idempotent, no re-billing); only unfinished subtasks re-run.
+In production (post-F4) the inline `executeRun(child)` becomes an async `queue.enqueue(child)`
+coordinated by the event bus.

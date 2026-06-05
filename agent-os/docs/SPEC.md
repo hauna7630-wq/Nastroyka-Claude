@@ -88,16 +88,32 @@ The worker retries transient failures up to `maxAttempts`; on exhaustion it perf
 Phase 5 adds short-term run context injection, long-term vector recall, and episodic
 summaries of prior Runs.
 
-## 9. Orchestration **[Phase 6]**
+## 9. Orchestration **[F6 — implemented at MVP altitude]**
 
 Open design question surfaced in the review: **who controls orchestration?**
 
 - **A — User-driven**: the user composes/sequences agents.
-- **B — System-driven (target)**: an `orchestrator`-type agent decomposes a task above a
-  complexity threshold into subtasks and assigns them to typed agents dynamically.
+- **B — System-driven (implemented)**: an `orchestrator`-type run is gated on a **complexity
+  estimate**; above the threshold the system asks a **planner** for a typed-agent subtask graph,
+  then executes the subtasks as **child runs** assigned to agents by `AgentType`.
 
-The MVP ships the `orchestrator` AgentType and the typed-agent vocabulary so the system can grow
-toward (B) without a schema migration. The default today is single-agent (A).
+How it works (`src/orchestrator/*`, dispatched from the worker via `src/agent/dispatch.ts`):
+
+1. **Complexity gate** (`complexity.ts`): `shouldOrchestrate(task)` — below threshold, a single
+   default-typed agent handles the task (fast path).
+2. **Planner** (`planner.ts`): `StaticPlanner` (deterministic) or `ModelPlanner` (asks the model
+   for a validated JSON plan). Plans are normalized and topologically sorted; cycles/invalid
+   agent types are rejected.
+3. **Execution** (`orchestrator.ts`): subtasks run in dependency order; each upstream output is
+   threaded into its dependents. Child run ids are deterministic
+   (`<parentRunId>::<subtaskId>`), so an **orchestration retry reuses completed children** —
+   idempotent, no double-billing — and re-runs only what hadn't succeeded.
+4. **Aggregation**: child outputs are collected into the parent run's output; the parent's
+   `creditsUsed` is the roll-up of child run credits.
+
+MVP boundary: children execute **inline**. Production (after F4) would enqueue each child onto
+the Queue and coordinate completion via the event bus; the inline form keeps F6 testable today.
+Nested orchestration (an orchestrator subtask) is intentionally not spawned.
 
 ## 10. Observability **[Phase 4]**
 
@@ -112,11 +128,14 @@ F2 Persistence (Prisma/Postgres) + queue (BullMQ/Redis) + real model   depends o
 F3 Tool sandbox isolation (code_exec)                                   depends on F1
 F4 Control-plane API + events (SSE/WS) + observability + Stripe         depends on F2
 F5 Agent memory (vector long-term, episodic)                           depends on F2
-F6 Auto-orchestrator (system-driven multi-agent)                       depends on F4, F5
+F6 Auto-orchestrator (system-driven multi-agent)  [MVP — this repo]     full form depends on F4, F5
 ```
 
 Rules: a phase cannot start before its dependencies are complete and tested (e.g. F4 requires a
-correct ledger from F2; F6 requires the event bus from F4 and memory from F5).
+correct ledger from F2). **F6 is implemented ahead of F4/F5 at MVP altitude**: subtasks run
+inline and synchronously rather than via the event bus + queue, and agent memory is not yet
+wired. The full system-driven form (async child dispatch, memory-aware planning) lands once
+F4/F5 exist.
 
 ## 12. Out of scope (MVP)
 

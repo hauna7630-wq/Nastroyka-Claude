@@ -45,6 +45,8 @@ export interface Run {
   error?: string;
   creditsUsed: number;
   attempts: number;
+  // Set when this run is a subtask spawned by an orchestrator run (F6).
+  parentRunId?: string;
 }
 
 export interface Step {

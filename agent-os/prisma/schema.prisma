@@ -144,10 +144,16 @@ model Run {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
+  // Orchestration (F6): subtask runs link back to their orchestrator run.
+  parentRunId String?
+  parent      Run?      @relation("RunChildren", fields: [parentRunId], references: [id], onDelete: Cascade)
+  children    Run[]     @relation("RunChildren")
+
   steps       Step[]
   ledger      CreditLedger[]
 
   @@index([orgId, status])
+  @@index([parentRunId])
 }
 
 model Step {

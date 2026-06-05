@@ -15,6 +15,7 @@ import { WorkerDeps } from './worker/worker';
 import { PrismaRepository, PrismaClientLike } from './adapters/repo.prisma';
 import { BullMQQueue } from './adapters/queue.bullmq';
 import { AnthropicModelProvider } from './adapters/model.anthropic';
+import { ModelPlanner } from './orchestrator/planner';
 
 export function buildToolRegistry(): ToolRegistry {
   const tools = new ToolRegistry();
@@ -43,6 +44,8 @@ export function buildApp(): App {
   });
   const tools = buildToolRegistry();
   const ledger = new Ledger(repo);
+  // F6: the orchestrator decomposes complex tasks into typed-agent subtasks.
+  const planner = new ModelPlanner(model);
 
   return {
     workerDeps: {
@@ -52,6 +55,7 @@ export function buildApp(): App {
       tools,
       ledger,
       allowlistDomains: config.allowlistDomains,
+      planner,
     },
   };
 }
