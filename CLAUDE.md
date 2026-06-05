@@ -4,7 +4,7 @@
 > документ: я (Claude) обновляю его сам по мере изменений в проекте.
 > Правила сопровождения — в разделе [«Как я поддерживаю этот файл»](#как-я-поддерживаю-этот-файл).
 >
-> Последнее обновление: 2026-06-05
+> Последнее обновление: 2026-06-05 (добавлен каркас server/web/admin)
 
 ---
 
@@ -19,19 +19,54 @@
 
 ## Структура
 
+Репозиторий — монорепозиторий с тремя приложениями (`server/`, `web/`, `admin/`)
+плюс учебные утилиты в корневых `src/`/`tests/`. Подробности — `docs/ARCHITECTURE.md`.
+
 ```
-src/
+server/                — Backend API (Express, CommonJS)
+  src/
+    server.js, app.js          — точка входа и сборка приложения
+    routes/                    — index, bookings, cottages, auth, admin
+    controllers/               — bookings/cottages/auth
+    services/                  — bookingService, cottageService
+    middleware/                — auth, errorHandler
+    models/                    — Booking, Cottage, User
+    config/, utils/
+  tests/
+
+web/                   — Публичный сайт (React/Next.js)
+  pages/               — index, about, cottages, prices, booking, gallery, contacts
+  components/          — Header, Footer, CottageCard, BookingForm
+  styles/              — globals.css, theme.css
+  public/              — images/, fonts/
+  lib/api.js           — клиент к backend
+  tests/
+
+admin/                 — Профессиональная админ-панель (React)
+  src/
+    pages/             — Dashboard, Bookings, Cottages, Clients, Settings
+    components/         — Sidebar, Topbar, DataTable
+    layouts/AdminLayout, hooks/useAuth
+    api/               — client, auth
+    styles/admin.css
+  tests/
+
+docs/ARCHITECTURE.md   — схема монорепозитория и связей
+
+src/                   — УЧЕБНЫЕ утилиты (не продакшен-сайт)
   api.js      — getUser (с in-memory кэшем), clearCache, paginate
   config.js   — buildConfig (merge defaults + overrides), defaults
-  queue.js    — TaskQueue, глобальный counter (increment/get/reset), randomDelay, fetchSequential
+  queue.js    — TaskQueue, глобальный counter, randomDelay, fetchSequential
   utils.js    — formatDate, sum, fetchWithTimeout, sortByField, debounce
 tests/
-  api.test.js     — тесты api.js
-  config.test.js  — тесты config.js
-  utils.test.js   — тесты utils.js
+  api.test.js, config.test.js, utils.test.js
   flaky.test.js   — НАМЕРЕННО нестабильные тесты (см. ниже)
 .github/workflows/test.yml — CI: матрица Node 18/20, npm ci, jest + jest-junit, артефакты в reports/
 ```
+
+> Текущий каркас `server/`/`web/`/`admin/` — это **стаб-файлы** (заголовки-комментарии
+> о назначении), наполнение кодом и сборка (package.json, бандлер) — следующие шаги.
+> Корневой CI пока прогоняет только `tests/` (Jest над `src/`).
 
 ## Команды
 
@@ -113,3 +148,6 @@ npx jest -t "buildConfig"      # запуск тестов по имени
 
 - **2026-06-05** — создан CLAUDE.md: первичное описание структуры, команд,
   соглашений, CI и пометка про намеренно флаки-тесты в `tests/flaky.test.js`.
+- **2026-06-05** — добавлен каркас монорепозитория: `server/` (Express API),
+  `web/` (публичный сайт), `admin/` (админ-панель), `docs/ARCHITECTURE.md`.
+  Пока стаб-файлы; корневые `src/`/`tests/` не тронуты.
