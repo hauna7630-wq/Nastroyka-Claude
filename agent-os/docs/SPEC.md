@@ -49,8 +49,15 @@ Every tool declares a security profile (`src/tools/registry.ts`):
 ```
 
 - `http_request` **[MVP]**: enforces the domain allowlist (`ALLOWLIST_DOMAINS`); denies all else.
-- `code_exec` **[Phase 3]**: disabled until a real isolate (separate process / gVisor /
-  Firecracker microVM) enforces the limits above. It refuses to run in the MVP.
+- `code_exec` **[F3 — implemented + verified]**: runs code in a real isolate via the `Sandbox`
+  port (`src/ports/sandbox.ts`). Two adapters:
+  - `SubprocessSandbox` (Linux): `unshare --net` (loopback-only network) + `prlimit` (CPU +
+    address space; Node heap via `--max-old-space-size`) + a throwaway temp dir + a `timeout`
+    wall-clock backstop. Verified live (network denied, memory ceiling, wall timeout — see §13).
+  - `DockerSandbox` (production): ephemeral container with `--network none --memory --cpus
+    --pids-limit --read-only --cap-drop ALL --user 65534 --rm`. Arg builder unit-tested; live
+    test gated on an available image.
+  With no sandbox in context the tool refuses to run (deny-by-default).
 
 ## 5. Billing — idempotent credits **[MVP]**
 
@@ -148,20 +155,19 @@ Nested orchestration (an orchestrator subtask) is intentionally not spawned.
 ```
 F1 Core runtime + state machine + ledger + DLQ   [DONE — this repo]
 F2 Persistence (Prisma/Postgres) + queue (BullMQ/Redis) + real model   [DONE — this repo]
-F3 Tool sandbox isolation (code_exec)                                   depends on F1
+F3 Tool sandbox isolation (code_exec)             [DONE — this repo]
 F4 Control-plane API + events (SSE/WS) + observability + Stripe  [DONE — this repo]  depends on F2
 F5 Agent memory (long-term + episodic recall)     [DONE — this repo]    vector store depends on F2
 F6 Auto-orchestrator (system-driven multi-agent)  [DONE — this repo]    full form depends on F4, F5
 ```
 
-Rules: a phase cannot start before its dependencies are complete and tested (e.g. F4 requires a
-correct ledger from F2). **F2 is now verified against live Postgres + Redis** (see §13): the
-Prisma schema is migrated, a run flows through the real BullMQ worker, and the trace + ledger are
-durably persisted; DB-level ledger idempotency is enforced by the unique constraint. The live
-Anthropic provider has a gated smoke (runs with `ANTHROPIC_API_KEY`). Remaining at MVP altitude:
-the event bus is in-process rather than Redis pub/sub, F6 subtasks run inline, and memory recall
-is lexical (vector swap is the documented next step). **F3** (code_exec sandbox isolation) is the
-only unstarted phase.
+All six phases are implemented in this repo. **F2 and F3 are verified against live infrastructure**
+(see §13): the Prisma schema is migrated and a run flows through the real BullMQ worker with durable
+persistence + DB-level ledger idempotency; the `code_exec` sandbox enforces network denial, a memory
+ceiling, and a wall-clock timeout under real namespaces + rlimits. The live Anthropic provider has a
+gated smoke (`ANTHROPIC_API_KEY`). Remaining MVP→production swaps (not new phases): Redis-pub/sub
+event fan-out across processes, vector/semantic memory, async orchestration child dispatch, and
+DockerSandbox where a container runtime + images are available.
 
 ## 12. Out of scope (MVP)
 
@@ -189,6 +195,9 @@ npm start                                   # worker + control-plane HTTP/SSE se
   BullMQ worker; run/steps/ledger persist in Postgres (verified from a fresh client); the ledger
   unique constraint enforces idempotency at the DB level.
 - `tests/integration/model.int.test.ts`: live Anthropic smoke, gated on `ANTHROPIC_API_KEY`.
+- `tests/integration/sandbox.int.test.ts` (F3): runs the `SubprocessSandbox` for real — python +
+  node execution, **network egress denied**, **memory ceiling enforced**, **wall-clock timeout** —
+  gated on `SANDBOX_E2E=1` (Linux + CAP_SYS_ADMIN).
 - Default `npm test` stays infra-free (integration tests are excluded via `jest.config.js`).
 
 Reliability note: the worker's retry budget is authoritative on the **run** (`Run.attempts`), not

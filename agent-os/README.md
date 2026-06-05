@@ -25,7 +25,9 @@ npm run typecheck # tsc --noEmit, incl. production adapters
 - **Idempotent ledger** (`src/billing/ledger.ts`) — a `(runId, stepIndex, toolCallId)` tuple is
   charged exactly once, even across retries.
 - **Tool registry + sandbox boundary** (`src/tools/*`) — deny-by-default network; the
-  `http_request` tool enforces a domain allowlist; `code_exec` is disabled pending a real sandbox.
+  `http_request` tool enforces a domain allowlist; `code_exec` runs in a real isolate
+  (`SubprocessSandbox`: namespaces + rlimits; or `DockerSandbox`) enforcing no-network + CPU/memory
+  + wall-timeout, and refuses to run if no sandbox is configured.
 - **Agent runtime** (`src/agent/runtime.ts`) — the tool-use loop: model → tools → step trace →
   billing, driven through the state machine.
 - **Worker + DLQ** (`src/worker/worker.ts`) — retries transient failures; dead-letters on exhaustion.
@@ -86,9 +88,10 @@ is lexical (overlap + recency) in the MVP; production swaps embeddings + pgvecto
 
 ## Status / roadmap
 
-Done in this repo: **F1** (core runtime/state machine/ledger/DLQ), **F2** (Prisma/Postgres +
-BullMQ/Redis, verified by integration tests; migrations committed), **F4** (control-plane API +
-SSE events + observability + Stripe top-ups), **F5** (agent memory recall + episodic write-back),
-and **F6** (auto-orchestrator). Remaining: **F3** (`code_exec` sandbox isolation), plus the
-documented MVP→production swaps (Redis pub/sub event fan-out, vector/semantic memory). See the
-phased plan in `docs/SPEC.md`.
+All six phases are implemented in this repo: **F1** (core runtime/state machine/ledger/DLQ),
+**F2** (Prisma/Postgres + BullMQ/Redis, verified by integration tests; migrations committed),
+**F3** (`code_exec` sandbox isolation — namespaces + rlimits, verified live), **F4** (control-plane
+API + SSE events + observability + Stripe top-ups), **F5** (agent memory recall + episodic
+write-back), and **F6** (auto-orchestrator). Remaining work is MVP→production hardening, not new
+phases: Redis pub/sub event fan-out, vector/semantic memory, async orchestration child dispatch,
+and DockerSandbox where a container runtime + images are available. See `docs/SPEC.md`.

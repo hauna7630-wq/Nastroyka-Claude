@@ -46,9 +46,9 @@ describe('tool registry', () => {
     );
   });
 
-  it('code_exec is disabled in the MVP', async () => {
+  it('code_exec refuses to run without a configured sandbox', async () => {
     await expect(
       codeExecTool.run({ language: 'node', source: '1+1' }, { allowlistDomains: [] }),
-    ).rejects.toThrow(/not enabled/);
+    ).rejects.toThrow(/disabled/);
   });
 });

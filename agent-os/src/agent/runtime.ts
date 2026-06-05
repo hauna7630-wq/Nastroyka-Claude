@@ -15,6 +15,7 @@ import { tokensToCredits, CREDITS_PER_TOOL_CALL } from '../billing/cost';
 import { Step } from '../domain/types';
 import { EventBus, emit } from '../events/bus';
 import { MemoryStore, memoryText } from '../ports/memory';
+import { Sandbox } from '../ports/sandbox';
 
 export interface RuntimeDeps {
   repo: Repository;
@@ -29,6 +30,8 @@ export interface RuntimeDeps {
   // Optional agent memory (F5). When present, relevant long-term/episodic memory
   // is recalled into the prompt and an episodic summary is written on success.
   memory?: MemoryStore;
+  // Optional code-execution sandbox (F3) made available to the code_exec tool.
+  sandbox?: Sandbox;
 }
 
 export class RunNotFoundError extends Error {
@@ -173,6 +176,7 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
         const toolStarted = Date.now();
         const result = await tools.run(call.name, call.input, {
           allowlistDomains: deps.allowlistDomains,
+          sandbox: deps.sandbox,
         });
 
         await appendStep(repo, {

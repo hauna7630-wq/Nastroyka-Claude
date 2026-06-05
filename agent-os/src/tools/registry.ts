@@ -6,6 +6,7 @@
 // production the worker runs tool bodies inside an isolate honoring these limits.
 
 import { ToolSchema } from '../ports/model';
+import { Sandbox } from '../ports/sandbox';
 
 export interface ToolSecurity {
   // Deny-by-default: tools must opt in to network access.
@@ -18,6 +19,8 @@ export interface ToolSecurity {
 
 export interface ToolContext {
   allowlistDomains: string[];
+  // F3: the isolate used by code_exec. Absent => code execution is disabled.
+  sandbox?: Sandbox;
 }
 
 export interface ToolSpec {
