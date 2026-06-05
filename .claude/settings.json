@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -Rs '{hookSpecificOutput:{hookEventName:\"SessionStart\",additionalContext:(\"# PREMIUM_UI_ENGINE.md (auto-loaded at session start)\\n\\n\" + .)}}' \"${CLAUDE_PROJECT_DIR:-.}/PREMIUM_UI_ENGINE.md\" 2>/dev/null || true",
+            "statusMessage": "Loading PREMIUM_UI_ENGINE.md..."
+          }
+        ]
+      }
+    ]
+  }
+}
