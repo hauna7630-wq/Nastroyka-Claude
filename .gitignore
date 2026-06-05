@@ -2,3 +2,4 @@ node_modules/
 reports/
 coverage/
 .env
+.claude/settings.local.json
