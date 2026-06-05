@@ -14,6 +14,7 @@ import { Ledger } from '../billing/ledger';
 import { tokensToCredits, CREDITS_PER_TOOL_CALL } from '../billing/cost';
 import { Step } from '../domain/types';
 import { EventBus, emit } from '../events/bus';
+import { MemoryStore, memoryText } from '../ports/memory';
 
 export interface RuntimeDeps {
   repo: Repository;
@@ -25,6 +26,9 @@ export interface RuntimeDeps {
   // Optional Control-Plane event bus (F4). When present, the runtime streams
   // lifecycle events for live status/observability.
   events?: EventBus;
+  // Optional agent memory (F5). When present, relevant long-term/episodic memory
+  // is recalled into the prompt and an episodic summary is written on success.
+  memory?: MemoryStore;
 }
 
 export class RunNotFoundError extends Error {
@@ -72,15 +76,31 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
   });
   emit(deps.events, 'run.started', runId, run.orgId, { attempt: run.attempts });
 
+  // F5: recall relevant long-term/episodic memory into the system prompt.
+  const task = toPrompt(run.input);
+  let system = agent.systemPrompt;
+  if (deps.memory) {
+    const recalled = await deps.memory.recall(agent.id, {
+      kinds: ['long_term', 'episodic'],
+      query: task,
+      limit: 5,
+    });
+    if (recalled.length > 0) {
+      system +=
+        '\n\n# Relevant memory\n' +
+        recalled.map((m) => `- (${m.kind}) ${memoryText(m)}`).join('\n');
+    }
+  }
+
   // Step index is deterministic across retries so ledger charges stay idempotent.
   let stepIndex = 0;
-  const messages: ModelMessage[] = [{ role: 'user', content: toPrompt(run.input) }];
+  const messages: ModelMessage[] = [{ role: 'user', content: task }];
 
   try {
     for (let iter = 0; iter < maxIterations; iter++) {
       const started = Date.now();
       const turn = await model.complete({
-        system: agent.systemPrompt,
+        system,
         messages,
         tools: tools.schemas(),
       });
@@ -131,6 +151,16 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
           meta: { creditsUsed: credits },
         });
         emit(deps.events, 'run.succeeded', runId, run.orgId, { creditsUsed: credits });
+
+        // F5: persist an episodic summary of this run for future recall.
+        if (deps.memory) {
+          await deps.memory.remember({
+            agentId: agent.id,
+            kind: 'episodic',
+            runId,
+            content: { task, summary: truncate(turn.text ?? '', 500) },
+          });
+        }
         return;
       }
 
@@ -201,6 +231,10 @@ export function toPrompt(input: unknown): string {
     return String((input as { prompt: unknown }).prompt);
   }
   return typeof input === 'string' ? input : JSON.stringify(input);
+}
+
+function truncate(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)}…`;
 }
 
 async function appendStep(repo: Repository, step: Step): Promise<void> {

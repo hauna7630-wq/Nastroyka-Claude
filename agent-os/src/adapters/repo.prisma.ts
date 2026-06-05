@@ -15,6 +15,8 @@ import {
   CreditGrant,
   DeadLetterRecord,
   LedgerEntry,
+  MemoryKind,
+  MemoryRecord,
   Org,
   Run,
   RunStatus,
@@ -28,6 +30,7 @@ export interface PrismaClientLike {
   agent: any;
   run: any;
   step: any;
+  agentMemory: any;
   creditLedger: any;
   creditGrant: any;
   deadLetter: any;
@@ -190,6 +193,32 @@ export class PrismaRepository implements Repository {
       latencyMs: s.latencyMs ?? undefined,
       tokensIn: s.tokensIn ?? undefined,
       tokensOut: s.tokensOut ?? undefined,
+    }));
+  }
+
+  async appendMemory(memory: MemoryRecord): Promise<void> {
+    await this.db.agentMemory.create({
+      data: {
+        agentId: memory.agentId,
+        kind: memory.kind,
+        content: memory.content as any,
+        runId: memory.runId,
+      },
+    });
+  }
+
+  async listMemories(agentId: string, kinds?: MemoryKind[]): Promise<MemoryRecord[]> {
+    const rows = await this.db.agentMemory.findMany({
+      where: { agentId, ...(kinds ? { kind: { in: kinds } } : {}) },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map((m: any) => ({
+      id: m.id,
+      agentId: m.agentId,
+      kind: m.kind,
+      content: m.content,
+      runId: m.runId ?? undefined,
+      createdAt: m.createdAt instanceof Date ? m.createdAt.getTime() : m.createdAt,
     }));
   }
 

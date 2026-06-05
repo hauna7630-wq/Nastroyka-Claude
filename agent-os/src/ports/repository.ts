@@ -9,6 +9,8 @@ import {
   CreditGrant,
   DeadLetterRecord,
   LedgerEntry,
+  MemoryKind,
+  MemoryRecord,
   Org,
   Run,
   RunStatus,
@@ -37,6 +39,10 @@ export interface Repository {
   // --- Steps (trace) ---
   appendStep(step: Step): Promise<void>;
   listSteps(runId: string): Promise<Step[]>;
+
+  // --- Agent memory (F5) ---
+  appendMemory(memory: MemoryRecord): Promise<void>;
+  listMemories(agentId: string, kinds?: MemoryKind[]): Promise<MemoryRecord[]>;
 
   // --- Billing (idempotent ledger) ---
   /**

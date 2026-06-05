@@ -8,6 +8,8 @@ import {
   CreditGrant,
   DeadLetterRecord,
   LedgerEntry,
+  MemoryKind,
+  MemoryRecord,
   Org,
   Run,
   RunStatus,
@@ -33,6 +35,7 @@ export class InMemoryRepository implements Repository {
   private ledger: LedgerEntry[] = [];
   private grantKeys = new Set<string>(); // key: `${source}:${externalId}`
   private deadLetters: DeadLetterRecord[] = [];
+  private memories: MemoryRecord[] = [];
   public readonly auditLog: AuditRecord[] = [];
 
   // --- Test seeding helpers (not part of the port) ---
@@ -106,6 +109,16 @@ export class InMemoryRepository implements Repository {
     return [...this.steps.values()]
       .filter((s) => s.runId === runId)
       .sort((a, b) => a.index - b.index);
+  }
+
+  // --- Agent memory ---
+  async appendMemory(memory: MemoryRecord): Promise<void> {
+    this.memories.push({ ...memory, createdAt: memory.createdAt ?? Date.now() });
+  }
+  async listMemories(agentId: string, kinds?: MemoryKind[]): Promise<MemoryRecord[]> {
+    return this.memories
+      .filter((m) => m.agentId === agentId && (!kinds || kinds.includes(m.kind)))
+      .map((m) => ({ ...m }));
   }
 
   // --- Billing (idempotent ledger) ---

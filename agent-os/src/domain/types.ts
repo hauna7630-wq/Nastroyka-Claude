@@ -86,6 +86,17 @@ export interface CreditGrant {
   amount: number; // positive credits
 }
 
+// Agent memory (F5): short-term (run-scoped), long-term (durable notes /
+// future vector knowledge), and episodic (summaries of prior runs).
+export interface MemoryRecord {
+  id?: string;
+  agentId: string;
+  kind: MemoryKind;
+  content: unknown;
+  runId?: string;
+  createdAt?: number;
+}
+
 // A single tool invocation requested by the model.
 export interface ToolCall {
   id: string;

@@ -68,10 +68,17 @@ operator requeue, and Stripe checkout + webhook (idempotent credit grants). A ze
 `http` + **SSE** server (`src/api/server.ts`) is the thin edge; lifecycle events flow over an
 event bus (`src/events/bus.ts`). See `docs/SPEC.md` §10 and the diagram in `docs/ARCHITECTURE.md`.
 
+## Agent memory (F5)
+
+Agents recall relevant `long_term` + `episodic` memory into their prompt before each run and write
+an `episodic` summary on success (`src/ports/memory.ts`, `src/adapters/memory.repo.ts`). Retrieval
+is lexical (overlap + recency) in the MVP; production swaps embeddings + pgvector behind the same
+`MemoryStore` port. Each typed agent in an orchestration recalls its own memory. See `docs/SPEC.md` §8.
+
 ## Status / roadmap
 
 Implemented at MVP altitude: **F1** (core runtime/state machine/ledger/DLQ), **F4** (control-plane
-API + SSE events + observability + Stripe top-ups), and **F6** (auto-orchestrator, inline).
-Deferred (seams left in the schema/ports): production adapters wiring (F2 — Postgres/Redis/Anthropic
-live), vector long-term + episodic memory (F5), and `code_exec` sandbox isolation (F3). See the
-phased plan in `docs/SPEC.md`.
+API + SSE events + observability + Stripe top-ups), **F5** (agent memory recall + episodic
+write-back), and **F6** (auto-orchestrator, inline). Deferred (seams left in the schema/ports):
+production adapter wiring (F2 — Postgres/Redis/Anthropic/embeddings live) and `code_exec` sandbox
+isolation (F3). See the phased plan in `docs/SPEC.md`.

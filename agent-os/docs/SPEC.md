@@ -83,11 +83,22 @@ See `prisma/schema.prisma`. Highlights:
 The worker retries transient failures up to `maxAttempts`; on exhaustion it performs
 `running → failed` and writes a `DeadLetter` record. Manual requeue UI is Phase 4.
 
-## 8. Agent memory **[Phase 5]**
+## 8. Agent memory **[F5 — implemented at MVP altitude]**
 
-`AgentMemory` exists in the schema with three kinds. The MVP runtime is stateless between Runs;
-Phase 5 adds short-term run context injection, long-term vector recall, and episodic
-summaries of prior Runs.
+`AgentMemory` (three kinds: `short_term`, `long_term`, `episodic`) is wired into the runtime via
+the `MemoryStore` port (`src/ports/memory.ts`):
+
+- **Recall**: before each run the runtime recalls relevant `long_term` + `episodic` memory for the
+  agent and injects it into the system prompt under a `# Relevant memory` heading. Because every
+  child run in an orchestration (F6) goes through the runtime, each typed agent recalls **its own**
+  memory.
+- **Write-back**: on success the runtime stores an `episodic` record (`{ task, summary }`) scoped to
+  the run, so future related runs can recall it.
+- **Retrieval**: the MVP adapter (`src/adapters/memory.repo.ts`) ranks by **lexical overlap +
+  recency** (stopword-filtered); `short_term` is hidden unless scoped to its run.
+
+MVP boundary: retrieval is lexical, not semantic. Production swaps in embeddings + pgvector behind
+the same `MemoryStore` port (the seam is already in place) — no runtime change required.
 
 ## 9. Orchestration **[F6 — implemented at MVP altitude]**
 
@@ -139,15 +150,15 @@ F1 Core runtime + state machine + ledger + DLQ   [MVP — this repo]
 F2 Persistence (Prisma/Postgres) + queue (BullMQ/Redis) + real model   depends on F1
 F3 Tool sandbox isolation (code_exec)                                   depends on F1
 F4 Control-plane API + events (SSE/WS) + observability + Stripe  [MVP — this repo]  depends on F2
-F5 Agent memory (vector long-term, episodic)                           depends on F2
+F5 Agent memory (long-term + episodic recall)     [MVP — this repo]     depends on F2 for vector store
 F6 Auto-orchestrator (system-driven multi-agent)  [MVP — this repo]     full form depends on F4, F5
 ```
 
 Rules: a phase cannot start before its dependencies are complete and tested (e.g. F4 requires a
-correct ledger from F2). **F4 and F6 are implemented ahead of F2/F5 at MVP altitude** against the
+correct ledger from F2). **F4, F5 and F6 are implemented ahead of F2 at MVP altitude** against the
 in-memory adapters: the event bus is in-process (not Redis pub/sub), F6 subtasks run inline (not
-via the queue + events), and agent memory is not yet wired. The full forms land once the
-production adapters (F2) and memory (F5) are in place.
+via the queue + events), and memory recall is lexical (not vector/semantic). The full forms land
+once the production adapters (F2 — Postgres/Redis/embeddings) are wired.
 
 ## 12. Out of scope (MVP)
 

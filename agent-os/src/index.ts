@@ -18,6 +18,7 @@ import { BullMQQueue } from './adapters/queue.bullmq';
 import { AnthropicModelProvider } from './adapters/model.anthropic';
 import { ModelPlanner } from './orchestrator/planner';
 import { InMemoryEventBus } from './events/bus';
+import { RepositoryMemoryStore } from './adapters/memory.repo';
 import { Observability } from './observability/metrics';
 import { StripePaymentProvider } from './adapters/payments.stripe';
 import { ControlPlane } from './api/controlPlane';
@@ -52,6 +53,8 @@ export function buildApp(): App {
   const ledger = new Ledger(repo);
   // F6: the orchestrator decomposes complex tasks into typed-agent subtasks.
   const planner = new ModelPlanner(model);
+  // F5: agent memory (recall into prompts, episodic write-back).
+  const memory = new RepositoryMemoryStore(repo);
   // F4: event bus + observability + billing + the control-plane API.
   const events = new InMemoryEventBus();
   const observability = new Observability(repo, ledger);
@@ -80,6 +83,7 @@ export function buildApp(): App {
       allowlistDomains: config.allowlistDomains,
       planner,
       events,
+      memory,
     },
     controlPlane,
   };
