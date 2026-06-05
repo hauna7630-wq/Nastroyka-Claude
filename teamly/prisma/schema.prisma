@@ -5,12 +5,14 @@
 // for fast reads and full-text search; PageVersion keeps the history.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
 }
 
 enum Role {
@@ -112,9 +114,27 @@ model Page {
 
   versions PageVersion[]
   comments Comment[]
+  chunks   PageChunk[]
 
   @@unique([spaceId, slug])
   @@index([spaceId, parentId])
+}
+
+// T2: embedded passages for semantic/RAG search (pgvector). Written/read via raw
+// SQL because Prisma cannot type the `vector` column. The dimension (256) matches
+// the default HashEmbedder; a real embedder requires a migration to its dim.
+model PageChunk {
+  id        String                     @id
+  pageId    String
+  page      Page                       @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  spaceId   String
+  idx       Int
+  text      String
+  embedding Unsupported("vector(256)")
+  createdAt DateTime                   @default(now())
+
+  @@index([spaceId])
+  @@index([pageId])
 }
 
 model PageVersion {

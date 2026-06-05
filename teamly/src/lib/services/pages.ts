@@ -2,6 +2,7 @@ import { prisma } from '../db';
 import { uniqueSlug } from '../slug';
 import { extractText, EMPTY_DOC } from '../tiptap';
 import { buildPageTree, FlatPage } from '../tree';
+import { indexPage } from './indexing';
 
 export async function createPage(input: {
   spaceId: string;
@@ -76,6 +77,14 @@ export async function savePageContent(input: {
       data: { title: input.title, contentJson: input.contentJson as object, contentText },
     }),
   ]);
+
+  // Re-embed the page for semantic search (T2). Best-effort: a failure here must
+  // not fail the save (the content is already committed).
+  try {
+    await indexPage(input.pageId);
+  } catch (err) {
+    console.error('indexPage failed', err);
+  }
   return version;
 }
 

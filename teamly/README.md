@@ -3,8 +3,21 @@
 A corporate **knowledge base + wiki** (Teamly analog), niche-agnostic. Built as a
 Next.js (App Router) + Prisma/Postgres + TipTap application.
 
-This is **T1 — the knowledge base module**. Roadmap: T2 — AI/RAG search & assistant,
-T3 — LMS (courses, tests, assignments).
+Modules: **T1 — knowledge base** (done), **T2 — AI/RAG search & assistant** (done),
+**T3 — LMS** (courses, tests, assignments) — next.
+
+## T2: AI search & assistant (RAG)
+
+- **Semantic search** over page content via **pgvector** (HNSW cosine index). Pages are
+  chunked, embedded, and stored on save (`PageChunk`).
+- **Grounded assistant** (`/app/spaces/[id]/ask`): retrieves the top chunks, answers **only**
+  from them with **source citations**, and **refuses** ("no hallucination") when nothing
+  relevant is found (retrieval-threshold gate). Retrieval is **space-scoped** — no cross-tenant
+  leaks.
+- **Pluggable AI** behind ports (`src/lib/ai`): offline `HashEmbedder` + `ExtractiveChatModel`
+  by default (deterministic, zero external calls), `OpenAIEmbedder` / `AnthropicChatModel` when
+  `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` are set. The pgvector column is `vector(256)` to match
+  the default embedder; a real embedder requires a migration to its dimension.
 
 ## What T1 delivers
 
@@ -49,5 +62,6 @@ npm run test:integration # DB services on live Postgres (needs DATABASE_URL)
 npm run build            # Next.js production build (typechecks all routes)
 ```
 
-Verified: unit 13/13, integration 5/5 (live Postgres), `next build` green, runtime smoke
-(login → space → editor → search) passing.
+Verified: unit 21/21, integration 9/9 (live Postgres + pgvector: KB services + RAG search,
+grounded answers, refusal, space isolation), `next build` green (7 routes), runtime smoke
+(login → space → editor → search → AI ask with citations / refusal) passing.

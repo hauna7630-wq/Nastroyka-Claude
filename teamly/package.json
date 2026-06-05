@@ -12,7 +12,8 @@
     "test:integration": "jest -c jest.integration.config.js",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:seed": "ts-node --compiler-options '{\"module\":\"commonjs\",\"moduleResolution\":\"node\"}' prisma/seed.ts"
+    "db:seed": "ts-node --compiler-options '{\"module\":\"commonjs\",\"moduleResolution\":\"node\"}' prisma/seed.ts",
+    "db:reindex": "ts-node --compiler-options '{\"module\":\"commonjs\",\"moduleResolution\":\"node\"}' prisma/reindex.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

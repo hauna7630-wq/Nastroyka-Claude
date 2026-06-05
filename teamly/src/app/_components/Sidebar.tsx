@@ -40,9 +40,14 @@ export default async function Sidebar({
       <div className="brand">Teamly</div>
 
       {activeSpaceId && (
-        <form action={`/app/spaces/${activeSpaceId}/search`} method="get" className="row" style={{ marginBottom: 8 }}>
-          <input name="q" placeholder="Поиск в базе знаний" style={{ width: '100%' }} />
-        </form>
+        <>
+          <form action={`/app/spaces/${activeSpaceId}/search`} method="get" className="row" style={{ marginBottom: 6 }}>
+            <input name="q" placeholder="Поиск в базе знаний" style={{ width: '100%' }} />
+          </form>
+          <div style={{ marginBottom: 10 }}>
+            <Link href={`/app/spaces/${activeSpaceId}/ask`}>🤖 Спросить ИИ</Link>
+          </div>
+        </>
       )}
 
       {spacesByWs.map(({ w, spaces }) => (
