@@ -12,6 +12,7 @@
 import {
   Agent,
   AgentType,
+  CreditGrant,
   DeadLetterRecord,
   LedgerEntry,
   Org,
@@ -28,6 +29,7 @@ export interface PrismaClientLike {
   run: any;
   step: any;
   creditLedger: any;
+  creditGrant: any;
   deadLetter: any;
   auditLog: any;
   $transaction: <T>(fn: (tx: PrismaClientLike) => Promise<T>) => Promise<T>;
@@ -99,6 +101,11 @@ export class PrismaRepository implements Repository {
 
   async listChildRuns(parentRunId: string): Promise<Run[]> {
     const rows = await this.db.run.findMany({ where: { parentRunId } });
+    return rows.map((r: any) => this.mapRun(r));
+  }
+
+  async listRunsByOrg(orgId: string): Promise<Run[]> {
+    const rows = await this.db.run.findMany({ where: { orgId } });
     return rows.map((r: any) => this.mapRun(r));
   }
 
@@ -224,6 +231,29 @@ export class PrismaRepository implements Repository {
     return agg?._sum?.amount ?? 0;
   }
 
+  async recordCreditGrantIfAbsent(grant: CreditGrant): Promise<boolean> {
+    try {
+      await this.db.$transaction(async (tx) => {
+        await tx.creditGrant.create({
+          data: {
+            orgId: grant.orgId,
+            source: grant.source,
+            externalId: grant.externalId,
+            amount: grant.amount,
+          },
+        });
+        await tx.org.update({
+          where: { id: grant.orgId },
+          data: { creditBalance: { increment: grant.amount } },
+        });
+      });
+      return true;
+    } catch (err: any) {
+      if (err?.code === 'P2002') return false; // duplicate (source, externalId)
+      throw err;
+    }
+  }
+
   async recordDeadLetter(record: DeadLetterRecord): Promise<void> {
     await this.db.deadLetter.create({
       data: {
@@ -236,13 +266,20 @@ export class PrismaRepository implements Repository {
   }
 
   async listDeadLetters(): Promise<DeadLetterRecord[]> {
-    const rows = await this.db.deadLetter.findMany();
+    const rows = await this.db.deadLetter.findMany({ where: { requeuedAt: null } });
     return rows.map((d: any) => ({
       runId: d.runId,
       payload: d.payload,
       failureReason: d.failureReason,
       attempts: d.attempts,
     }));
+  }
+
+  async markDeadLetterRequeued(runId: string): Promise<void> {
+    await this.db.deadLetter.updateMany({
+      where: { runId, requeuedAt: null },
+      data: { requeuedAt: new Date() },
+    });
   }
 
   async audit(entry: {

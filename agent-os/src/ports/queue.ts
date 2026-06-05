@@ -15,6 +15,10 @@ export interface Queue {
   enqueue(job: RunJob): Promise<void>;
   // Register the processor. The execution plane drives jobs through it.
   process(processor: JobProcessor): void;
+  // Reset the retry/attempt accounting for a run, so an operator requeue (e.g.
+  // from the DLQ) starts a fresh attempt budget rather than continuing the old
+  // one. Production adapters where each enqueue is naturally fresh may no-op.
+  reset(runId: string): void;
   // Best-effort drain for tests/shutdown; production adapters may no-op.
   close(): Promise<void>;
 }

@@ -29,6 +29,10 @@ export class InMemoryQueue implements Queue {
     this.processor = processor;
   }
 
+  reset(runId: string): void {
+    this.deliveries.delete(runId);
+  }
+
   async close(): Promise<void> {
     this.deliveries.clear();
   }

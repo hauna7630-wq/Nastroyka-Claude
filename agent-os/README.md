@@ -60,9 +60,18 @@ gate decides single- vs multi-agent, a planner produces a validated subtask grap
 orchestrator runs the subtasks as child runs (deterministic ids → idempotent across retries).
 See `src/orchestrator/*` and `docs/SPEC.md` §9.
 
+## Control Plane (F4)
+
+The `ControlPlane` (`src/api/controlPlane.ts`) is the API surface: create runs (with cost
+preview), read run status + trace, observability (`runMetrics`, token burn by agent), DLQ list +
+operator requeue, and Stripe checkout + webhook (idempotent credit grants). A zero-dependency Node
+`http` + **SSE** server (`src/api/server.ts`) is the thin edge; lifecycle events flow over an
+event bus (`src/events/bus.ts`). See `docs/SPEC.md` §10 and the diagram in `docs/ARCHITECTURE.md`.
+
 ## Status / roadmap
 
-Implemented at MVP altitude: F1 (core runtime/state machine/ledger/DLQ) and F6 (auto-orchestrator,
-inline). Deferred to later phases (seams left in the schema/ports): vector long-term memory (F5),
-observability dashboards + control-plane API + SSE/WS events + Stripe (F4), and `code_exec`
-sandbox isolation (F3). See the phased plan in `docs/SPEC.md`.
+Implemented at MVP altitude: **F1** (core runtime/state machine/ledger/DLQ), **F4** (control-plane
+API + SSE events + observability + Stripe top-ups), and **F6** (auto-orchestrator, inline).
+Deferred (seams left in the schema/ports): production adapters wiring (F2 — Postgres/Redis/Anthropic
+live), vector long-term + episodic memory (F5), and `code_exec` sandbox isolation (F3). See the
+phased plan in `docs/SPEC.md`.

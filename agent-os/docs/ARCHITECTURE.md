@@ -129,3 +129,31 @@ Child run ids are deterministic (`parentId::subtaskId`). On an orchestration ret
 children are terminal and skipped (idempotent, no re-billing); only unfinished subtasks re-run.
 In production (post-F4) the inline `executeRun(child)` becomes an async `queue.enqueue(child)`
 coordinated by the event bus.
+
+## 6. Control Plane + events + billing (F4)
+
+```mermaid
+flowchart LR
+  client["Client / UI"]
+  subgraph CP["Control Plane (src/api)"]
+    API["ControlPlane\n(createRun, getRun, metrics,\nDLQ requeue, checkout/webhook)"]
+    SSE["SSE /runs/:id/events"]
+  end
+  Q[["Queue"]]
+  W["Worker + runtime/orchestrator"]
+  BUS(["EventBus"])
+  OBS["Observability\n(trace, token burn, cost)"]
+  STRIPE["Stripe"]
+  DB[("Repository\nRuns/Steps/Ledger/Grants/DLQ")]
+
+  client -- "POST /runs" --> API
+  API -- "enqueue" --> Q --> W
+  W -- "publish RunEvent" --> BUS --> SSE -- "stream" --> client
+  API --> OBS --> DB
+  client -- "POST /billing/checkout" --> API -- "create session" --> STRIPE
+  STRIPE -- "webhook (event id)" --> API -- "grant credits (idempotent)" --> DB
+  client -- "POST /dlq/:id/requeue" --> API -- "reset attempts + enqueue" --> Q
+```
+
+Billing idempotency: a Stripe `checkout.session.completed` webhook is applied via a `CreditGrant`
+unique on `(source, externalId)`, so a redelivered event credits the org exactly once.

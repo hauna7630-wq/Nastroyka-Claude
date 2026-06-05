@@ -69,6 +69,7 @@ model Org {
   agents       Agent[]
   runs         Run[]
   ledger       CreditLedger[]
+  grants       CreditGrant[]
   auditLogs    AuditLog[]
 }
 
@@ -195,6 +196,21 @@ model CreditLedger {
   createdAt  DateTime @default(now())
 
   @@unique([runId, stepIndex, toolCallId])
+  @@index([orgId])
+}
+
+// Credit top-ups (e.g. Stripe checkouts). Idempotent on (source, externalId) so
+// a redelivered webhook never double-credits.
+model CreditGrant {
+  id         String   @id @default(cuid())
+  orgId      String
+  org        Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  source     String
+  externalId String
+  amount     Int
+  createdAt  DateTime @default(now())
+
+  @@unique([source, externalId])
   @@index([orgId])
 }
 

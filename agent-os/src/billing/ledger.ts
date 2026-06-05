@@ -39,6 +39,24 @@ export class Ledger {
     return this.repo.recordLedgerEntryIfAbsent(entry);
   }
 
+  /**
+   * Apply a credit top-up (e.g. a Stripe checkout). Idempotent on the external
+   * id, so a redelivered webhook never double-credits.
+   *
+   * @returns true if newly applied, false if a duplicate.
+   */
+  async grant(args: {
+    orgId: string;
+    source: string;
+    externalId: string;
+    amount: number;
+  }): Promise<boolean> {
+    if (args.amount <= 0) {
+      throw new Error('grant amount must be positive');
+    }
+    return this.repo.recordCreditGrantIfAbsent(args);
+  }
+
   async totalForRun(runId: string): Promise<number> {
     // Returns credits consumed (positive number).
     const used = await this.repo.getRunCreditsUsed(runId);

@@ -1,8 +1,9 @@
-// Composition root. Wires production adapters into the runtime/worker.
+// Composition root. Wires production adapters into the runtime/worker and the
+// Control Plane.
 //
 // Planes:
-//   - Control Plane: enqueues RunJobs (HTTP API would call queue.enqueue) — not
-//     included in the MVP; see docs/SPEC.md.
+//   - Control Plane: the ControlPlane API (src/api) creates runs, exposes status
+//     + observability, manages the DLQ, and handles billing top-ups.
 //   - Execution Plane: the worker (startWorker) drains the queue and runs agents.
 //   - Billing Plane: the Repository + Ledger (idempotent credit accounting).
 
@@ -16,6 +17,10 @@ import { PrismaRepository, PrismaClientLike } from './adapters/repo.prisma';
 import { BullMQQueue } from './adapters/queue.bullmq';
 import { AnthropicModelProvider } from './adapters/model.anthropic';
 import { ModelPlanner } from './orchestrator/planner';
+import { InMemoryEventBus } from './events/bus';
+import { Observability } from './observability/metrics';
+import { StripePaymentProvider } from './adapters/payments.stripe';
+import { ControlPlane } from './api/controlPlane';
 
 export function buildToolRegistry(): ToolRegistry {
   const tools = new ToolRegistry();
@@ -26,6 +31,7 @@ export function buildToolRegistry(): ToolRegistry {
 
 export interface App {
   workerDeps: WorkerDeps;
+  controlPlane: ControlPlane;
 }
 
 export function buildApp(): App {
@@ -46,6 +52,23 @@ export function buildApp(): App {
   const ledger = new Ledger(repo);
   // F6: the orchestrator decomposes complex tasks into typed-agent subtasks.
   const planner = new ModelPlanner(model);
+  // F4: event bus + observability + billing + the control-plane API.
+  const events = new InMemoryEventBus();
+  const observability = new Observability(repo, ledger);
+  const payments = new StripePaymentProvider({
+    apiKey: config.stripeApiKey,
+    webhookSecret: config.stripeWebhookSecret,
+    successUrl: config.checkoutSuccessUrl,
+    cancelUrl: config.checkoutCancelUrl,
+  });
+  const controlPlane = new ControlPlane({
+    repo,
+    queue,
+    ledger,
+    observability,
+    payments,
+    events,
+  });
 
   return {
     workerDeps: {
@@ -56,8 +79,11 @@ export function buildApp(): App {
       ledger,
       allowlistDomains: config.allowlistDomains,
       planner,
+      events,
     },
+    controlPlane,
   };
 }
 
 export { startWorker } from './worker/worker';
+export { createControlPlaneServer } from './api/server';

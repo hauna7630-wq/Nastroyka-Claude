@@ -7,6 +7,7 @@
 import { transition } from '../domain/runStateMachine';
 import { Queue } from '../ports/queue';
 import { dispatchRun, DispatchDeps } from '../agent/dispatch';
+import { emit } from '../events/bus';
 
 export interface WorkerDeps extends DispatchDeps {
   queue: Queue;
@@ -52,6 +53,11 @@ export function startWorker(deps: WorkerDeps): void {
           actor: 'worker',
           action: 'run.dead_lettered',
           meta: { attempts: ctx.attempt, reason },
+        });
+        emit(deps.events, 'run.failed', job.runId, run.orgId, { reason });
+        emit(deps.events, 'run.dead_lettered', job.runId, run.orgId, {
+          attempts: ctx.attempt,
+          reason,
         });
       }
     }

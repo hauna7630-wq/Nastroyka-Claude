@@ -14,8 +14,9 @@ Run is a model-driven **tool-use loop** that produces an auditable **Step** trac
 
 The system is split into three planes so that Run lifecycle and billing logic cannot drift:
 
-- **Control Plane** — accepts requests, creates Runs, enqueues work, surfaces status/events.
-  *(MVP: `Queue.enqueue` is the seam; a thin HTTP/API layer is Phase 4.)*
+- **Control Plane** — accepts requests, creates Runs, enqueues work, surfaces status/events,
+  manages the DLQ, and handles billing top-ups. **[F4]** — `ControlPlane` (`src/api/controlPlane.ts`)
+  with a Node HTTP + SSE adapter (`src/api/server.ts`).
 - **Execution Plane** — the worker that drains the queue and executes the agent runtime. **[MVP]**
 - **Billing Plane** — the credit ledger and balances; the financial source of truth. **[MVP]**
 
@@ -115,10 +116,21 @@ MVP boundary: children execute **inline**. Production (after F4) would enqueue e
 the Queue and coordinate completion via the event bus; the inline form keeps F6 testable today.
 Nested orchestration (an orchestrator subtask) is intentionally not spawned.
 
-## 10. Observability **[Phase 4]**
+## 10. Observability + Control-Plane API + billing **[F4 — implemented at MVP altitude]**
 
-Primitives exist (per-Step latency + token burn, `AuditLog`). Phase 4 adds Run tracing views,
-tool-latency metrics, token-burn analytics per agent, and cost-per-task dashboards.
+- **Event bus** (`src/events/bus.ts`): runtime/orchestrator/worker publish `RunEvent`s
+  (`run.started`, `step.appended`, `run.succeeded`, `run.failed`, `run.dead_lettered`,
+  `orchestration.planned`). The API streams them per-run over **SSE**. Production backs the bus
+  with Redis pub/sub; the in-memory bus is the reference adapter.
+- **Control-plane API** (`src/api/controlPlane.ts`): create runs (+ cost preview), read run
+  status/trace, observability (`runMetrics`, `tokenBurnByAgent`), DLQ list + **operator requeue**
+  (resets the attempt budget and re-opens the run), and billing checkout + webhook. Framework-
+  agnostic; the HTTP/SSE server (`src/api/server.ts`) is a thin Node-`http` adapter.
+- **Observability** (`src/observability/metrics.ts`): run tracing (per-step latency + token burn),
+  per-run aggregate metrics, and token-burn-by-agent. Dashboards/materialisation are future work.
+- **Billing top-up (Stripe)** (`src/billing/payments.ts`, `src/adapters/payments.stripe.ts`):
+  checkout creation + webhook → **idempotent** credit grant keyed on the Stripe event id
+  (`CreditGrant` `@@unique([source, externalId])`), so a redelivered webhook never double-credits.
 
 ## 11. Phase plan + dependency graph
 
@@ -126,16 +138,16 @@ tool-latency metrics, token-burn analytics per agent, and cost-per-task dashboar
 F1 Core runtime + state machine + ledger + DLQ   [MVP — this repo]
 F2 Persistence (Prisma/Postgres) + queue (BullMQ/Redis) + real model   depends on F1
 F3 Tool sandbox isolation (code_exec)                                   depends on F1
-F4 Control-plane API + events (SSE/WS) + observability + Stripe         depends on F2
+F4 Control-plane API + events (SSE/WS) + observability + Stripe  [MVP — this repo]  depends on F2
 F5 Agent memory (vector long-term, episodic)                           depends on F2
 F6 Auto-orchestrator (system-driven multi-agent)  [MVP — this repo]     full form depends on F4, F5
 ```
 
 Rules: a phase cannot start before its dependencies are complete and tested (e.g. F4 requires a
-correct ledger from F2). **F6 is implemented ahead of F4/F5 at MVP altitude**: subtasks run
-inline and synchronously rather than via the event bus + queue, and agent memory is not yet
-wired. The full system-driven form (async child dispatch, memory-aware planning) lands once
-F4/F5 exist.
+correct ledger from F2). **F4 and F6 are implemented ahead of F2/F5 at MVP altitude** against the
+in-memory adapters: the event bus is in-process (not Redis pub/sub), F6 subtasks run inline (not
+via the queue + events), and agent memory is not yet wired. The full forms land once the
+production adapters (F2) and memory (F5) are in place.
 
 ## 12. Out of scope (MVP)
 

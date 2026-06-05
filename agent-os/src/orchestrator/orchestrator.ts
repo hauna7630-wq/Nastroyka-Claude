@@ -19,6 +19,7 @@
 import { isTerminal, transition } from '../domain/runStateMachine';
 import { executeRun, RunNotFoundError, RuntimeDeps, toPrompt } from '../agent/runtime';
 import { AgentType } from '../domain/types';
+import { emit } from '../events/bus';
 import {
   DEFAULT_COMPLEXITY_THRESHOLD,
   shouldOrchestrate,
@@ -84,6 +85,10 @@ export async function executeOrchestration(
         subtasks: plan.subtasks.map((s) => ({ id: s.id, agentType: s.agentType })),
       },
     });
+    emit(deps.events, 'orchestration.planned', parentRunId, parent.orgId, {
+      orchestrated,
+      subtasks: plan.subtasks.map((s) => ({ id: s.id, agentType: s.agentType })),
+    });
 
     const order = topoSort(plan.subtasks);
     const outputs: Record<string, unknown> = {};
@@ -146,6 +151,7 @@ export async function executeOrchestration(
       action: 'orchestration.succeeded',
       meta: { subtasks: plan.subtasks.length, creditsUsed: total },
     });
+    emit(deps.events, 'run.succeeded', parentRunId, parent.orgId, { creditsUsed: total });
   } catch (err) {
     // Mirror runtime semantics: leave the parent 'running' and rethrow so the
     // worker owns the terminal failed/DLQ transition.

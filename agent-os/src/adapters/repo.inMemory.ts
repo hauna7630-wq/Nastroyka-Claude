@@ -5,6 +5,7 @@
 import {
   Agent,
   AgentType,
+  CreditGrant,
   DeadLetterRecord,
   LedgerEntry,
   Org,
@@ -30,6 +31,7 @@ export class InMemoryRepository implements Repository {
   private steps = new Map<string, Step>(); // key: `${runId}:${index}`
   private ledgerKeys = new Set<string>(); // key: `${runId}:${stepIndex}:${toolCallId}`
   private ledger: LedgerEntry[] = [];
+  private grantKeys = new Set<string>(); // key: `${source}:${externalId}`
   private deadLetters: DeadLetterRecord[] = [];
   public readonly auditLog: AuditRecord[] = [];
 
@@ -71,6 +73,11 @@ export class InMemoryRepository implements Repository {
   async listChildRuns(parentRunId: string): Promise<Run[]> {
     return [...this.runs.values()]
       .filter((r) => r.parentRunId === parentRunId)
+      .map((r) => ({ ...r }));
+  }
+  async listRunsByOrg(orgId: string): Promise<Run[]> {
+    return [...this.runs.values()]
+      .filter((r) => r.orgId === orgId)
       .map((r) => ({ ...r }));
   }
   async updateRunStatus(
@@ -120,6 +127,14 @@ export class InMemoryRepository implements Repository {
       .filter((e) => e.runId === runId)
       .reduce((sum, e) => sum + e.amount, 0); // signed (negative for debits)
   }
+  async recordCreditGrantIfAbsent(grant: CreditGrant): Promise<boolean> {
+    const key = `${grant.source}:${grant.externalId}`;
+    if (this.grantKeys.has(key)) return false; // duplicate webhook => no-op
+    this.grantKeys.add(key);
+    const org = this.orgs.get(grant.orgId);
+    if (org) org.creditBalance += grant.amount;
+    return true;
+  }
 
   // --- Reliability ---
   async recordDeadLetter(record: DeadLetterRecord): Promise<void> {
@@ -127,6 +142,9 @@ export class InMemoryRepository implements Repository {
   }
   async listDeadLetters(): Promise<DeadLetterRecord[]> {
     return [...this.deadLetters];
+  }
+  async markDeadLetterRequeued(runId: string): Promise<void> {
+    this.deadLetters = this.deadLetters.filter((d) => d.runId !== runId);
   }
 
   // --- Audit ---

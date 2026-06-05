@@ -6,6 +6,7 @@
 import {
   Agent,
   AgentType,
+  CreditGrant,
   DeadLetterRecord,
   LedgerEntry,
   Org,
@@ -28,6 +29,8 @@ export interface Repository {
   // unchanged (so orchestration retries don't reset completed child runs).
   createRun(run: Run): Promise<Run>;
   listChildRuns(parentRunId: string): Promise<Run[]>;
+  // Control-plane reads (observability).
+  listRunsByOrg(orgId: string): Promise<Run[]>;
   updateRunStatus(runId: string, status: RunStatus, patch?: Partial<Run>): Promise<void>;
   incrementRunAttempts(runId: string): Promise<number>;
 
@@ -43,10 +46,16 @@ export interface Repository {
    */
   recordLedgerEntryIfAbsent(entry: LedgerEntry): Promise<boolean>;
   getRunCreditsUsed(runId: string): Promise<number>;
+  /**
+   * Idempotently record a credit top-up (keyed on source+externalId) and add it
+   * to the org balance. Returns true if newly applied, false if a duplicate.
+   */
+  recordCreditGrantIfAbsent(grant: CreditGrant): Promise<boolean>;
 
   // --- Reliability ---
   recordDeadLetter(record: DeadLetterRecord): Promise<void>;
   listDeadLetters(): Promise<DeadLetterRecord[]>;
+  markDeadLetterRequeued(runId: string): Promise<void>;
 
   // --- Audit ---
   audit(entry: {

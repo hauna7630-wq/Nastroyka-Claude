@@ -45,6 +45,11 @@ export class BullMQQueue implements Queue {
     );
   }
 
+  reset(_runId: string): void {
+    // No-op: each BullMQ `add` creates a fresh job with attemptsMade = 0, so an
+    // operator requeue is already a clean attempt budget.
+  }
+
   async close(): Promise<void> {
     await this.worker?.close();
     await this.queue.close();

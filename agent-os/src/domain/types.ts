@@ -78,6 +78,14 @@ export interface DeadLetterRecord {
   attempts: number;
 }
 
+// A credit top-up (e.g. a completed Stripe checkout). Idempotent on externalId.
+export interface CreditGrant {
+  orgId: string;
+  source: string; // e.g. "stripe"
+  externalId: string; // idempotency key (e.g. Stripe event id)
+  amount: number; // positive credits
+}
+
 // A single tool invocation requested by the model.
 export interface ToolCall {
   id: string;

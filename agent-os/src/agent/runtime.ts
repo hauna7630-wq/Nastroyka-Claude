@@ -13,6 +13,7 @@ import { ToolRegistry } from '../tools/registry';
 import { Ledger } from '../billing/ledger';
 import { tokensToCredits, CREDITS_PER_TOOL_CALL } from '../billing/cost';
 import { Step } from '../domain/types';
+import { EventBus, emit } from '../events/bus';
 
 export interface RuntimeDeps {
   repo: Repository;
@@ -21,6 +22,9 @@ export interface RuntimeDeps {
   ledger: Ledger;
   allowlistDomains: string[];
   maxIterations?: number;
+  // Optional Control-Plane event bus (F4). When present, the runtime streams
+  // lifecycle events for live status/observability.
+  events?: EventBus;
 }
 
 export class RunNotFoundError extends Error {
@@ -66,6 +70,7 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
     action: 'run.started',
     meta: { attempt: run.attempts },
   });
+  emit(deps.events, 'run.started', runId, run.orgId, { attempt: run.attempts });
 
   // Step index is deterministic across retries so ledger charges stay idempotent.
   let stepIndex = 0;
@@ -88,6 +93,12 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
         input: undefined,
         output: turn.text ?? '',
         latencyMs: Date.now() - started,
+        tokensIn: turn.tokensIn,
+        tokensOut: turn.tokensOut,
+      });
+      emit(deps.events, 'step.appended', runId, run.orgId, {
+        index: stepIndex - 1,
+        role: 'assistant',
         tokensIn: turn.tokensIn,
         tokensOut: turn.tokensOut,
       });
@@ -119,6 +130,7 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
           action: 'run.succeeded',
           meta: { creditsUsed: credits },
         });
+        emit(deps.events, 'run.succeeded', runId, run.orgId, { creditsUsed: credits });
         return;
       }
 
@@ -142,6 +154,11 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
           input: call.input,
           output: result,
           latencyMs: Date.now() - toolStarted,
+        });
+        emit(deps.events, 'step.appended', runId, run.orgId, {
+          index: stepIndex - 1,
+          role: 'tool',
+          toolName: call.name,
         });
 
         // Idempotent per-tool-call charge.
