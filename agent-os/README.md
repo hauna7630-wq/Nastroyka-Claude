@@ -41,14 +41,23 @@ The runtime depends only on **ports** (interfaces); adapters are swapped at the 
 | `Queue` (control↔execution) | `queue.inMemory.ts` | `queue.bullmq.ts` (Redis) |
 | `ModelProvider` (LLM) | `model.mock.ts` | `model.anthropic.ts` (Claude) |
 
-## Production wiring (not required for tests)
+## Running with real infrastructure (F2)
+
+The production adapters are verified against **live Postgres + Redis**:
 
 ```bash
-cp .env.example .env      # set DATABASE_URL, REDIS_URL, ANTHROPIC_API_KEY, ALLOWLIST_DOMAINS
-npm run db:generate       # prisma generate
-npm run db:migrate        # prisma migrate dev
-npm run worker            # start the execution-plane worker with real adapters
+docker compose up -d                 # Postgres + Redis (docker-compose.yml)
+export DATABASE_URL="postgresql://agentos:agentos@localhost:5432/agent_os"
+export REDIS_URL="redis://localhost:6379"
+npm run db:migrate                   # apply prisma/migrations/
+npm run test:integration             # real Prisma + BullMQ end-to-end
+npm start                            # worker + control-plane HTTP/SSE server
 ```
+
+`npm run test:integration` runs a full run lifecycle through the real BullMQ worker and asserts the
+trace + ledger are durably persisted in Postgres (and re-read from a fresh client), plus DB-level
+ledger idempotency via the unique constraint. The live Anthropic smoke runs with `ANTHROPIC_API_KEY`.
+Default `npm test` stays infra-free.
 
 See [`docs/SPEC.md`](docs/SPEC.md) for the full specification and
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for diagrams.
@@ -77,8 +86,9 @@ is lexical (overlap + recency) in the MVP; production swaps embeddings + pgvecto
 
 ## Status / roadmap
 
-Implemented at MVP altitude: **F1** (core runtime/state machine/ledger/DLQ), **F4** (control-plane
-API + SSE events + observability + Stripe top-ups), **F5** (agent memory recall + episodic
-write-back), and **F6** (auto-orchestrator, inline). Deferred (seams left in the schema/ports):
-production adapter wiring (F2 — Postgres/Redis/Anthropic/embeddings live) and `code_exec` sandbox
-isolation (F3). See the phased plan in `docs/SPEC.md`.
+Done in this repo: **F1** (core runtime/state machine/ledger/DLQ), **F2** (Prisma/Postgres +
+BullMQ/Redis, verified by integration tests; migrations committed), **F4** (control-plane API +
+SSE events + observability + Stripe top-ups), **F5** (agent memory recall + episodic write-back),
+and **F6** (auto-orchestrator). Remaining: **F3** (`code_exec` sandbox isolation), plus the
+documented MVP→production swaps (Redis pub/sub event fan-out, vector/semantic memory). See the
+phased plan in `docs/SPEC.md`.

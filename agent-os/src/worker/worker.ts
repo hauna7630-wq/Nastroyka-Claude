@@ -17,19 +17,23 @@ export function startWorker(deps: WorkerDeps): void {
   const { queue, repo } = deps;
 
   queue.process(async (job, ctx) => {
-    await repo.incrementRunAttempts(job.runId);
+    // The attempt budget is authoritative on the RUN, not the queue: re-enqueued
+    // jobs reset queue-side counters (BullMQ jobs start at attemptsMade=0), so we
+    // count deliveries via the repository to bound retries consistently across
+    // the in-memory and BullMQ adapters.
+    const attempt = await repo.incrementRunAttempts(job.runId);
     try {
       await dispatchRun(job.runId, deps);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
 
-      if (ctx.attempt < ctx.maxAttempts) {
+      if (attempt < ctx.maxAttempts) {
         await repo.audit({
           orgId: (await repo.getRun(job.runId))?.orgId ?? 'unknown',
           runId: job.runId,
           actor: 'worker',
           action: 'run.retry_scheduled',
-          meta: { attempt: ctx.attempt, reason },
+          meta: { attempt, reason },
         });
         await queue.enqueue(job); // re-deliver (attempt + 1)
         return;
@@ -45,18 +49,18 @@ export function startWorker(deps: WorkerDeps): void {
           runId: job.runId,
           payload: job,
           failureReason: reason,
-          attempts: ctx.attempt,
+          attempts: attempt,
         });
         await repo.audit({
           orgId: run.orgId,
           runId: job.runId,
           actor: 'worker',
           action: 'run.dead_lettered',
-          meta: { attempts: ctx.attempt, reason },
+          meta: { attempts: attempt, reason },
         });
         emit(deps.events, 'run.failed', job.runId, run.orgId, { reason });
         emit(deps.events, 'run.dead_lettered', job.runId, run.orgId, {
-          attempts: ctx.attempt,
+          attempts: attempt,
           reason,
         });
       }

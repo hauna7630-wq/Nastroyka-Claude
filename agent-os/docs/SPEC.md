@@ -146,21 +146,51 @@ Nested orchestration (an orchestrator subtask) is intentionally not spawned.
 ## 11. Phase plan + dependency graph
 
 ```
-F1 Core runtime + state machine + ledger + DLQ   [MVP — this repo]
-F2 Persistence (Prisma/Postgres) + queue (BullMQ/Redis) + real model   depends on F1
+F1 Core runtime + state machine + ledger + DLQ   [DONE — this repo]
+F2 Persistence (Prisma/Postgres) + queue (BullMQ/Redis) + real model   [DONE — this repo]
 F3 Tool sandbox isolation (code_exec)                                   depends on F1
-F4 Control-plane API + events (SSE/WS) + observability + Stripe  [MVP — this repo]  depends on F2
-F5 Agent memory (long-term + episodic recall)     [MVP — this repo]     depends on F2 for vector store
-F6 Auto-orchestrator (system-driven multi-agent)  [MVP — this repo]     full form depends on F4, F5
+F4 Control-plane API + events (SSE/WS) + observability + Stripe  [DONE — this repo]  depends on F2
+F5 Agent memory (long-term + episodic recall)     [DONE — this repo]    vector store depends on F2
+F6 Auto-orchestrator (system-driven multi-agent)  [DONE — this repo]    full form depends on F4, F5
 ```
 
 Rules: a phase cannot start before its dependencies are complete and tested (e.g. F4 requires a
-correct ledger from F2). **F4, F5 and F6 are implemented ahead of F2 at MVP altitude** against the
-in-memory adapters: the event bus is in-process (not Redis pub/sub), F6 subtasks run inline (not
-via the queue + events), and memory recall is lexical (not vector/semantic). The full forms land
-once the production adapters (F2 — Postgres/Redis/embeddings) are wired.
+correct ledger from F2). **F2 is now verified against live Postgres + Redis** (see §13): the
+Prisma schema is migrated, a run flows through the real BullMQ worker, and the trace + ledger are
+durably persisted; DB-level ledger idempotency is enforced by the unique constraint. The live
+Anthropic provider has a gated smoke (runs with `ANTHROPIC_API_KEY`). Remaining at MVP altitude:
+the event bus is in-process rather than Redis pub/sub, F6 subtasks run inline, and memory recall
+is lexical (vector swap is the documented next step). **F3** (code_exec sandbox isolation) is the
+only unstarted phase.
 
 ## 12. Out of scope (MVP)
 
-Finished production system, real Stripe integration, live LLM calls in tests, web UI/API routes,
-deployment infrastructure, and Phases 4–6 features beyond the seams described above.
+Finished product hardening (auth/RBAC on the API, rate limiting, multi-region), a web UI,
+deployment infrastructure, Redis-pub/sub event fan-out across processes, vector/semantic memory,
+and `code_exec` sandbox isolation (F3).
+
+## 13. Running with real infrastructure (F2)
+
+The production adapters (`PrismaRepository`, `BullMQQueue`, `AnthropicModelProvider`) are exercised
+by integration tests against live Postgres + Redis:
+
+```bash
+docker compose up -d                       # Postgres + Redis (see docker-compose.yml)
+export DATABASE_URL="postgresql://agentos:agentos@localhost:5432/agent_os"
+export REDIS_URL="redis://localhost:6379"
+npm run db:migrate                          # apply prisma/migrations/
+npm run test:integration                    # real Prisma + BullMQ end-to-end
+npm start                                   # worker + control-plane HTTP/SSE server
+```
+
+- Migration `prisma/migrations/<ts>_init` creates all tables, enums, and the idempotency/uniqueness
+  constraints (`CreditLedger`, `CreditGrant`).
+- `tests/integration/persistence.int.test.ts`: a run flows queued→succeeded through the real
+  BullMQ worker; run/steps/ledger persist in Postgres (verified from a fresh client); the ledger
+  unique constraint enforces idempotency at the DB level.
+- `tests/integration/model.int.test.ts`: live Anthropic smoke, gated on `ANTHROPIC_API_KEY`.
+- Default `npm test` stays infra-free (integration tests are excluded via `jest.config.js`).
+
+Reliability note: the worker's retry budget is authoritative on the **run** (`Run.attempts`), not
+the queue, so retry/DLQ semantics are identical across the in-memory and BullMQ adapters (a fresh
+BullMQ job resets `attemptsMade`).

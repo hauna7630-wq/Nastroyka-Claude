@@ -15,5 +15,6 @@
     "types": ["node", "jest"]
   },
   "include": ["src/**/*.ts", "tests/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "// note": "tests/integration imports the generated @prisma/client; exclude it so typecheck doesn't require `prisma generate`. ts-jest checks it during test:integration.",
+  "exclude": ["node_modules", "dist", "tests/integration"]
 }

@@ -8,6 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "jest",
+    "test:integration": "jest -c jest.integration.config.js",
     "start": "ts-node src/main.ts",
     "worker": "ts-node src/worker/worker.ts",
     "db:generate": "prisma generate",
