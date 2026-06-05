@@ -1,0 +1,226 @@
+// Agent-OS — Prisma schema v2 (production target: PostgreSQL).
+//
+// This schema is the system of record for the Billing Plane and the Run trace.
+// It is NOT required to run the test-suite: the runtime depends on the
+// `Repository` port (src/ports/repository.ts), and tests use the in-memory
+// adapter. This file is the production adapter's backing store.
+//
+// Design notes (from the architecture review):
+//   - Multi-tenant isolation: every row hangs off `Org`.
+//   - Run lifecycle is a formal state machine (see src/domain/runStateMachine.ts).
+//   - Billing is idempotent at the DB level via the CreditLedger unique key.
+//   - AgentMemory + PromptVersion + DeadLetter are first-class, not afterthoughts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum RunStatus {
+  queued
+  running
+  paused
+  succeeded
+  failed
+  canceled
+}
+
+enum AgentType {
+  researcher
+  writer
+  analyst
+  coder
+  orchestrator
+  reviewer
+}
+
+enum MemoryKind {
+  short_term // ephemeral, scoped to a single run
+  long_term  // durable notes / (future) vector-backed knowledge
+  episodic   // summaries of previous runs
+}
+
+enum StepRole {
+  system
+  assistant
+  tool
+  user
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy
+// ---------------------------------------------------------------------------
+
+model Org {
+  id           String         @id @default(cuid())
+  name         String
+  // Denormalised running balance; the CreditLedger is the source of truth.
+  creditBalance Int           @default(0)
+  createdAt    DateTime       @default(now())
+
+  agents       Agent[]
+  runs         Run[]
+  ledger       CreditLedger[]
+  auditLogs    AuditLog[]
+}
+
+// ---------------------------------------------------------------------------
+// Agents + prompt versioning
+// ---------------------------------------------------------------------------
+
+model Agent {
+  id               String          @id @default(cuid())
+  orgId            String
+  org              Org             @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name             String
+  type             AgentType
+  // Points at the active prompt version; older versions remain for rollback.
+  currentVersionId String?         @unique
+  currentVersion   PromptVersion?  @relation("ActiveVersion", fields: [currentVersionId], references: [id])
+
+  versions         PromptVersion[] @relation("AgentVersions")
+  memories         AgentMemory[]
+  runs             Run[]
+
+  createdAt        DateTime        @default(now())
+
+  @@index([orgId])
+}
+
+model PromptVersion {
+  id           String   @id @default(cuid())
+  agentId      String
+  agent        Agent    @relation("AgentVersions", fields: [agentId], references: [id], onDelete: Cascade)
+  version      Int
+  systemPrompt String
+  changelog    String?
+  createdAt    DateTime @default(now())
+
+  // Back-relation for Agent.currentVersion.
+  activeFor    Agent?   @relation("ActiveVersion")
+
+  @@unique([agentId, version])
+  @@index([agentId])
+}
+
+model AgentMemory {
+  id        String     @id @default(cuid())
+  agentId   String
+  agent     Agent      @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  kind      MemoryKind
+  content   Json
+  // Optional run scoping for short-term memory.
+  runId     String?
+  createdAt DateTime   @default(now())
+
+  @@index([agentId, kind])
+}
+
+// ---------------------------------------------------------------------------
+// Runs + steps (the execution trace / observability primitives)
+// ---------------------------------------------------------------------------
+
+model Run {
+  id          String    @id @default(cuid())
+  orgId       String
+  org         Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  agentId     String
+  agent       Agent     @relation(fields: [agentId], references: [id])
+  status      RunStatus @default(queued)
+  input       Json
+  output      Json?
+  error       String?
+  // Aggregate of CreditLedger entries for this run (denormalised for reads).
+  creditsUsed Int       @default(0)
+  attempts    Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  steps       Step[]
+  ledger      CreditLedger[]
+
+  @@index([orgId, status])
+}
+
+model Step {
+  id         String   @id @default(cuid())
+  runId      String
+  run        Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  index      Int
+  role       StepRole
+  toolName   String?
+  toolCallId String?
+  input      Json?
+  output     Json?
+  // Observability: per-step latency + token burn.
+  latencyMs  Int?
+  tokensIn   Int?
+  tokensOut  Int?
+  createdAt  DateTime @default(now())
+
+  @@unique([runId, index])
+  @@index([runId])
+}
+
+// ---------------------------------------------------------------------------
+// Billing plane — idempotent credit ledger
+// ---------------------------------------------------------------------------
+
+model CreditLedger {
+  id         String   @id @default(cuid())
+  orgId      String
+  org        Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  runId      String
+  run        Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  // Idempotency dimensions: a (runId, stepIndex, toolCallId) tuple is charged once.
+  stepIndex  Int
+  toolCallId String
+  // Negative = debit (consumption), positive = credit (top-up / refund).
+  amount     Int
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  @@unique([runId, stepIndex, toolCallId])
+  @@index([orgId])
+}
+
+// ---------------------------------------------------------------------------
+// Reliability — dead letter queue
+// ---------------------------------------------------------------------------
+
+model DeadLetter {
+  id            String    @id @default(cuid())
+  runId         String
+  payload       Json
+  failureReason String
+  attempts      Int
+  requeuedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([runId])
+}
+
+// ---------------------------------------------------------------------------
+// Auditability
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  orgId     String
+  org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  runId     String?
+  actor     String
+  action    String
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([orgId, createdAt])
+}

@@ -1,0 +1,103 @@
+# agent-os — Architecture blueprint
+
+Diagrams render on GitHub (Mermaid). See `SPEC.md` for the prose specification.
+
+## 1. Three planes
+
+```mermaid
+flowchart LR
+  subgraph Control["Control Plane (Next.js API — Phase 4)"]
+    API["HTTP API / UI"]
+  end
+  subgraph Execution["Execution Plane (worker)"]
+    W["Worker"]
+    RT["Agent runtime\n(tool-use loop)"]
+    TOOLS["Tool registry\n(sandbox boundary)"]
+  end
+  subgraph Billing["Billing Plane"]
+    LED["Ledger\n(idempotent)"]
+    DB[("Postgres\nRuns/Steps/Ledger/Memory/DLQ")]
+  end
+  MODEL["ModelProvider\n(Claude / mock)"]
+  Q[["Queue\n(BullMQ / in-memory)"]]
+
+  API -- "enqueue RunJob" --> Q
+  Q -- "deliver" --> W
+  W --> RT
+  RT --> TOOLS
+  RT --> MODEL
+  RT -- "charge per tool call" --> LED
+  LED --> DB
+  RT -- "Run/Step trace" --> DB
+  W -- "exhausted -> DeadLetter" --> DB
+```
+
+The runtime depends only on the **ports** (`Queue`, `Repository`, `ModelProvider`); adapters are
+chosen in `src/index.ts`. That boundary is what keeps the planes from drifting.
+
+## 2. Run state machine
+
+```mermaid
+stateDiagram-v2
+  [*] --> queued
+  queued --> running
+  queued --> canceled
+  running --> paused
+  running --> succeeded
+  running --> failed
+  running --> canceled
+  paused --> running
+  paused --> canceled
+  succeeded --> [*]
+  failed --> [*]
+  canceled --> [*]
+```
+
+All status changes flow through `transition()`; illegal edges throw `IllegalTransitionError`.
+
+## 3. Run execution sequence (happy path + billing)
+
+```mermaid
+sequenceDiagram
+  participant API as Control Plane
+  participant Q as Queue
+  participant W as Worker (Execution)
+  participant RT as Runtime
+  participant M as Model
+  participant T as Tool
+  participant L as Ledger (Billing)
+
+  API->>Q: enqueue(RunJob{runId})
+  Q->>W: deliver(job, {attempt})
+  W->>RT: executeRun(runId)
+  RT->>RT: transition queued -> running
+  loop tool-use loop (<= maxIterations)
+    RT->>M: complete(system, messages, tools)
+    M-->>RT: turn (text? + toolCalls + tokens)
+    RT->>L: charge(run, stepIdx, "turn:i", tokenCredits)  %% idempotent
+    alt turn has tool calls
+      RT->>T: run(toolCall.input)   %% deny-by-default network
+      T-->>RT: result
+      RT->>L: charge(run, stepIdx, toolCallId)             %% idempotent
+    else final answer
+      RT->>RT: transition running -> succeeded
+    end
+  end
+  RT-->>W: done
+```
+
+## 4. Failure / retry / DLQ
+
+```mermaid
+flowchart TD
+  EXE["executeRun throws"] --> CK{"attempt < maxAttempts?"}
+  CK -- yes --> RQ["audit retry_scheduled\nqueue.enqueue(job) again"]
+  RQ --> EXE
+  CK -- no --> FAIL["transition running -> failed"]
+  FAIL --> DL["recordDeadLetter(runId, reason, attempts)"]
+  DL --> AUD["audit dead_lettered"]
+```
+
+Idempotency note: because step indices and tool-call ids are deterministic, re-executing a Run on
+retry re-charges the **same** `(runId, stepIndex, toolCallId)` keys, which the ledger collapses to
+a single charge — so retries never double-bill.
