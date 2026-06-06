@@ -12,6 +12,7 @@ import {
   Step,
 } from '../domain/types';
 import { Repository } from '../ports/repository';
+import { randomUUID } from 'crypto';
 
 interface AuditRecord {
   orgId: string;
@@ -51,6 +52,27 @@ export class InMemoryRepository implements Repository {
       if (a.orgId === orgId && a.type === type) return a;
     }
     return null;
+  }
+  async createAgent(input: {
+    orgId: string;
+    name: string;
+    type: AgentType;
+    systemPrompt: string;
+    allowedTools?: string[];
+  }): Promise<Agent> {
+    const agent: Agent = {
+      id: `agent_${randomUUID()}`,
+      orgId: input.orgId,
+      name: input.name,
+      type: input.type,
+      systemPrompt: input.systemPrompt,
+      allowedTools: input.allowedTools ?? [],
+    };
+    this.agents.set(agent.id, agent);
+    return { ...agent };
+  }
+  async listAgents(orgId: string): Promise<Agent[]> {
+    return [...this.agents.values()].filter((a) => a.orgId === orgId).map((a) => ({ ...a }));
   }
 
   // --- Runs ---

@@ -8,7 +8,7 @@ import { Repository } from '../ports/repository';
 import { Queue } from '../ports/queue';
 import { Observability } from '../observability/metrics';
 import { EventBus } from '../events/bus';
-import { DeadLetterRecord, Run } from '../domain/types';
+import { AgentType, DeadLetterRecord, Run } from '../domain/types';
 
 export interface ControlPlaneDeps {
   repo: Repository;
@@ -33,6 +33,32 @@ export class ValidationError extends Error {
 
 export class ControlPlane {
   constructor(private readonly deps: ControlPlaneDeps) {}
+
+  // --- Agent Factory (PRD M2) ---
+
+  async createAgent(args: {
+    orgId: string;
+    name: string;
+    type: AgentType;
+    systemPrompt: string;
+    allowedTools?: string[];
+  }) {
+    const org = await this.deps.repo.getOrg(args.orgId);
+    if (!org) throw new NotFoundError(`org ${args.orgId}`);
+    if (!args.name?.trim()) throw new ValidationError('agent name is required');
+    const agent = await this.deps.repo.createAgent(args);
+    await this.deps.repo.audit({
+      orgId: args.orgId,
+      actor: 'control-plane',
+      action: 'agent.created',
+      meta: { agentId: agent.id, type: agent.type },
+    });
+    return agent;
+  }
+
+  async listAgents(orgId: string) {
+    return this.deps.repo.listAgents(orgId);
+  }
 
   // --- Runs ---
 

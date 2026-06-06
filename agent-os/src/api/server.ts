@@ -47,7 +47,15 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
         if (seg[2] === 'metrics') return json(res, 200, await cp.runMetrics(runId));
         return json(res, 200, await cp.getRun(runId));
       }
-      // GET /orgs/:id/token-burn
+      // POST /agents  (Agent Factory)
+      if (method === 'POST' && path === '/agents') {
+        const body = JSON.parse((await readBody(req)) || '{}');
+        return json(res, 201, await cp.createAgent(body));
+      }
+      // GET /orgs/:id/agents  and  GET /orgs/:id/token-burn
+      if (method === 'GET' && seg[0] === 'orgs' && seg[2] === 'agents') {
+        return json(res, 200, await cp.listAgents(seg[1]));
+      }
       if (method === 'GET' && seg[0] === 'orgs' && seg[2] === 'token-burn') {
         return json(res, 200, await cp.tokenBurn(seg[1]));
       }

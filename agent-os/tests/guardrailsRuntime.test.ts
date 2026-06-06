@@ -1,8 +1,8 @@
 import { InMemoryRepository } from '../src/adapters/repo.inMemory';
-import { ToolRegistry } from '../src/tools/registry';
-import { executeRun } from '../src/agent/runtime';
-import { ToolNotAllowedError } from '../src/tools/registry';
+import { ToolRegistry, ToolNotAllowedError, ToolSpec } from '../src/tools/registry';
+import { executeRun, MaxIterationsError, DEFAULT_MAX_ITERATIONS } from '../src/agent/runtime';
 import { RegexPiiMasker } from '../src/security/pii';
+import { InMemoryEventBus } from '../src/events/bus';
 import { ScriptedModelProvider, toolCallTurn } from '../src/adapters/model.mock';
 import { ModelProvider } from '../src/ports/model';
 import { ModelTurn, Agent, Org, Run } from '../src/domain/types';
@@ -28,6 +28,41 @@ async function setup(a: Agent, run: Partial<Run>, model: ModelProvider, pii = fa
   };
   return { repo, deps };
 }
+
+describe('PRD M3 — loop control (Max_Iterations) + human-in-the-loop', () => {
+  it('stops after the iteration budget and flags for a human', async () => {
+    expect(DEFAULT_MAX_ITERATIONS).toBe(5);
+    const noop: ToolSpec = {
+      schema: { name: 'noop', description: 'noop', inputSchema: { type: 'object' } },
+      security: { network: 'deny', cpuMs: 100, memMb: 16, persistFs: false },
+      run: async () => ({ ok: true }),
+    };
+    const tools = new ToolRegistry();
+    tools.register(noop);
+    // A model that NEVER produces a final answer — it always asks for a tool.
+    const loopModel: ModelProvider = {
+      async complete(): Promise<ModelTurn> {
+        return toolCallTurn('noop', {}, 'c');
+      },
+    };
+
+    const repo = new InMemoryRepository();
+    repo.seedOrg({ id: 'org_1', name: 'Acme' });
+    repo.seedAgent(agent());
+    await repo.createRun({
+      id: 'run_1', orgId: 'org_1', agentId: 'agent_1', status: 'queued',
+      input: { prompt: 'loop forever' }, attempts: 0,
+    });
+    const events = new InMemoryEventBus();
+    const seen: string[] = [];
+    events.subscribe('*', (e) => seen.push(e.type));
+
+    await expect(
+      executeRun('run_1', { repo, model: loopModel, tools, allowlistDomains: [], events }),
+    ).rejects.toBeInstanceOf(MaxIterationsError);
+    expect(seen).toContain('run.needs_human');
+  });
+});
 
 describe('PRD M2 — per-agent tool allowlist', () => {
   it('rejects a tool outside the agent allowlist', async () => {

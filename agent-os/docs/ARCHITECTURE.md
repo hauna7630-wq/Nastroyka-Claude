@@ -1,9 +1,7 @@
 # agent-os — Architecture blueprint
 
-> UPDATE: the "Billing Plane", Ledger, credits and Stripe shown in some diagrams have been
-> removed (internal/personal tool). Token usage is a per-step metric only.
-
 Diagrams render on GitHub (Mermaid). See `SPEC.md` for the prose specification.
+This is an internal tool — no billing/credits; token usage is a per-step metric only.
 
 ## 1. Three planes
 
@@ -17,9 +15,8 @@ flowchart LR
     RT["Agent runtime\n(tool-use loop)"]
     TOOLS["Tool registry\n(sandbox boundary)"]
   end
-  subgraph Billing["Billing Plane"]
-    LED["Ledger\n(idempotent)"]
-    DB[("Postgres\nRuns/Steps/Ledger/Memory/DLQ")]
+  subgraph Data["Data Plane"]
+    DB[("Postgres\nRuns/Steps/Memory/DLQ")]
   end
   MODEL["ModelProvider\n(Claude / mock)"]
   Q[["Queue\n(BullMQ / in-memory)"]]
@@ -29,8 +26,6 @@ flowchart LR
   W --> RT
   RT --> TOOLS
   RT --> MODEL
-  RT -- "charge per tool call" --> LED
-  LED --> DB
   RT -- "Run/Step trace" --> DB
   W -- "exhausted -> DeadLetter" --> DB
 ```
@@ -58,7 +53,7 @@ stateDiagram-v2
 
 All status changes flow through `transition()`; illegal edges throw `IllegalTransitionError`.
 
-## 3. Run execution sequence (happy path + billing)
+## 3. Run execution sequence (happy path)
 
 ```mermaid
 sequenceDiagram
@@ -68,25 +63,22 @@ sequenceDiagram
   participant RT as Runtime
   participant M as Model
   participant T as Tool
-  participant L as Ledger (Billing)
 
   API->>Q: enqueue(RunJob{runId})
   Q->>W: deliver(job, {attempt})
   W->>RT: executeRun(runId)
   RT->>RT: transition queued -> running
-  loop tool-use loop (<= maxIterations)
-    RT->>M: complete(system, messages, tools)
+  loop tool-use loop (<= maxIterations = 5)
+    RT->>M: complete(system, messages, tools)   %% PII-masked
     M-->>RT: turn (text? + toolCalls + tokens)
-    RT->>L: charge(run, stepIdx, "turn:i", tokenCredits)  %% idempotent
     alt turn has tool calls
-      RT->>T: run(toolCall.input)   %% deny-by-default network
+      RT->>T: run(toolCall.input)   %% allowlist + deny-by-default network
       T-->>RT: result
-      RT->>L: charge(run, stepIdx, toolCallId)             %% idempotent
     else final answer
       RT->>RT: transition running -> succeeded
     end
   end
-  RT-->>W: done
+  RT-->>W: done (or MaxIterationsError -> needs_human)
 ```
 
 ## 4. Failure / retry / DLQ
@@ -101,9 +93,8 @@ flowchart TD
   DL --> AUD["audit dead_lettered"]
 ```
 
-Idempotency note: because step indices and tool-call ids are deterministic, re-executing a Run on
-retry re-charges the **same** `(runId, stepIndex, toolCallId)` keys, which the ledger collapses to
-a single charge — so retries never double-bill.
+Idempotency note: step ids are deterministic `(runId, index)`, so re-executing a Run on retry
+upserts the same step rows (no duplicate trace).
 
 ## 5. Auto-orchestration (F6)
 
@@ -124,39 +115,34 @@ flowchart TD
   ASSIGN --> CHILD["createRun(parentId::subtaskId)\nexecuteRun(child)  %% inline"]
   CHILD --> DEP["thread output into dependents"]
   DEP --> LOOP
-  LOOP --> AGG["aggregate child outputs\nparent.creditsUsed = Σ children"]
+  LOOP --> AGG["aggregate child outputs"]
   AGG --> OK["transition running → succeeded"]
 ```
 
 Child run ids are deterministic (`parentId::subtaskId`). On an orchestration retry, completed
-children are terminal and skipped (idempotent, no re-billing); only unfinished subtasks re-run.
+children are terminal and skipped (idempotent); only unfinished subtasks re-run.
 In production (post-F4) the inline `executeRun(child)` becomes an async `queue.enqueue(child)`
 coordinated by the event bus.
 
-## 6. Control Plane + events + billing (F4)
+## 6. Control Plane + events (F4)
 
 ```mermaid
 flowchart LR
   client["Client / UI"]
   subgraph CP["Control Plane (src/api)"]
-    API["ControlPlane\n(createRun, getRun, metrics,\nDLQ requeue, checkout/webhook)"]
+    API["ControlPlane\n(createAgent, createRun, getRun,\nmetrics, DLQ requeue)"]
     SSE["SSE /runs/:id/events"]
   end
   Q[["Queue"]]
   W["Worker + runtime/orchestrator"]
   BUS(["EventBus"])
-  OBS["Observability\n(trace, token burn, cost)"]
-  STRIPE["Stripe"]
-  DB[("Repository\nRuns/Steps/Ledger/Grants/DLQ")]
+  OBS["Observability\n(trace, token burn)"]
+  DB[("Repository\nAgents/Runs/Steps/DLQ")]
 
+  client -- "POST /agents" --> API --> DB
   client -- "POST /runs" --> API
   API -- "enqueue" --> Q --> W
   W -- "publish RunEvent" --> BUS --> SSE -- "stream" --> client
   API --> OBS --> DB
-  client -- "POST /billing/checkout" --> API -- "create session" --> STRIPE
-  STRIPE -- "webhook (event id)" --> API -- "grant credits (idempotent)" --> DB
   client -- "POST /dlq/:id/requeue" --> API -- "reset attempts + enqueue" --> Q
 ```
-
-Billing idempotency: a Stripe `checkout.session.completed` webhook is applied via a `CreditGrant`
-unique on `(source, externalId)`, so a redelivered event credits the org exactly once.

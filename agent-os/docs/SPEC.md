@@ -16,13 +16,13 @@ Run is a model-driven **tool-use loop** that produces an auditable **Step** trac
 
 ## 2. Planes (separation of concerns)
 
-The system is split into three planes so that Run lifecycle and billing logic cannot drift:
+The system is split into planes so that responsibilities cannot drift:
 
-- **Control Plane** — accepts requests, creates Runs, enqueues work, surfaces status/events,
-  manages the DLQ, and handles billing top-ups. **[F4]** — `ControlPlane` (`src/api/controlPlane.ts`)
-  with a Node HTTP + SSE adapter (`src/api/server.ts`).
+- **Control Plane** — accepts requests, creates Agents + Runs, enqueues work, surfaces
+  status/events, and manages the DLQ. **[F4]** — `ControlPlane` (`src/api/controlPlane.ts`) with a
+  Node HTTP + SSE adapter (`src/api/server.ts`).
 - **Execution Plane** — the worker that drains the queue and executes the agent runtime. **[MVP]**
-- **Billing Plane** — the credit ledger and balances; the financial source of truth. **[MVP]**
+- **Data Plane** — the `Repository` (agents, runs, steps, memory, audit). **[MVP]**
 
 Planes communicate only through **ports** (`src/ports/*`): `Queue`, `Repository`, `ModelProvider`.
 
@@ -63,15 +63,18 @@ Every tool declares a security profile (`src/tools/registry.ts`):
     test gated on an available image.
   With no sandbox in context the tool refuses to run (deny-by-default).
 
-## 5. Billing — idempotent credits **[MVP]**
+## 5. Usage tracking (no billing) **[MVP]**
 
-A Run can fail mid-step and be retried; retries must never double-charge. Idempotency is keyed on
-`(runId, stepIndex, toolCallId)`:
+This is an internal tool — there is **no billing, credits, USD pricing, or payments**. Token usage
+(`tokensIn`/`tokensOut`) is recorded per `Step` and aggregated by the observability layer
+(`tokenBurnByAgent`) as a metric only. Retries upsert the same `(runId, index)` step rows, so the
+trace never duplicates.
 
-- Enforced at the DB level by `@@unique([runId, stepIndex, toolCallId])` on `CreditLedger`.
-- The `Ledger` (`src/billing/ledger.ts`) treats a duplicate insert as a no-op.
-- `cost.ts` provides a **cost-prediction** primitive (`estimateRunCost`) the Control Plane can
-  surface to the user before a Run starts (Phase 4 UI).
+## 5b. Loop control + human-in-the-loop **[PRD M3 — implemented]**
+
+The tool-use loop is bounded by `Max_Iterations` (default **5**). On exhaustion the runtime throws
+`MaxIterationsError` and emits a `run.needs_human` event; the worker dead-letters the run for an
+operator to inspect/requeue.
 
 ## 6. Data model (Prisma v2, Postgres) **[MVP schema]**
 

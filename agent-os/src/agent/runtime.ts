@@ -35,6 +35,10 @@ export interface RuntimeDeps {
   pii?: PiiMasker;
 }
 
+// PRD M3: hard loop-control limit. If two agents (or one loop) can't finish within
+// this many iterations the run is stopped for human review (human-in-the-loop).
+export const DEFAULT_MAX_ITERATIONS = 5;
+
 export class RunNotFoundError extends Error {
   constructor(runId: string) {
     super(`Run not found: ${runId}`);
@@ -42,9 +46,17 @@ export class RunNotFoundError extends Error {
   }
 }
 
+// Raised when a run exhausts its iteration budget — surfaced for a human.
+export class MaxIterationsError extends Error {
+  constructor(public readonly maxIterations: number) {
+    super(`Run exceeded max iterations (${maxIterations}) — needs human review`);
+    this.name = 'MaxIterationsError';
+  }
+}
+
 export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void> {
   const { repo, model, tools } = deps;
-  const maxIterations = deps.maxIterations ?? 10;
+  const maxIterations = deps.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
   const run = await repo.getRun(runId);
   if (!run) throw new RunNotFoundError(runId);
@@ -207,7 +219,9 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
       }
     }
 
-    throw new Error(`Run exceeded max iterations (${maxIterations})`);
+    // Loop-control limit hit: stop and flag for a human (HITL).
+    emit(deps.events, 'run.needs_human', runId, run.orgId, { maxIterations });
+    throw new MaxIterationsError(maxIterations);
   } catch (err) {
     // Record the attempt error but leave the run 'running': the execution plane
     // decides retry vs terminal failure (running -> failed) and DLQ routing.

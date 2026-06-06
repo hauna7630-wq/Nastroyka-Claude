@@ -96,6 +96,35 @@ describe('Control Plane — runs + events + observability', () => {
   });
 });
 
+describe('Control Plane — Agent Factory (PRD M2)', () => {
+  it('creates a typed agent and can run it', async () => {
+    const { cp } = build({ model: new FinalModel() });
+
+    const lawyer = await cp.createAgent({
+      orgId: 'org_1',
+      name: 'Юрист',
+      type: 'reviewer',
+      systemPrompt: 'Ты корпоративный юрист.',
+      allowedTools: ['http_request'],
+    });
+    expect(lawyer.id).toBeTruthy();
+    expect(lawyer.allowedTools).toEqual(['http_request']);
+
+    const agents = await cp.listAgents('org_1');
+    expect(agents.map((a) => a.name)).toEqual(expect.arrayContaining(['Researcher', 'Юрист']));
+
+    const { status } = await cp.createRun({ orgId: 'org_1', agentId: lawyer.id, input: { prompt: 'review' } });
+    expect(status).toBe('queued');
+  });
+
+  it('rejects an agent for an unknown org', async () => {
+    const { cp } = build({ model: new FinalModel() });
+    await expect(
+      cp.createAgent({ orgId: 'nope', name: 'X', type: 'writer', systemPrompt: 'x' }),
+    ).rejects.toThrow(/Not found/);
+  });
+});
+
 describe('Control Plane — DLQ requeue', () => {
   it('lists dead letters and requeues a failed run to a fresh attempt budget', async () => {
     // Fails twice (== maxAttempts) -> DLQ; succeeds on the 3rd call after requeue.

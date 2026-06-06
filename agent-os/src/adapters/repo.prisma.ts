@@ -26,6 +26,7 @@ import { Repository } from '../ports/repository';
 export interface PrismaClientLike {
   org: any;
   agent: any;
+  promptVersion: any;
   run: any;
   step: any;
   agentMemory: any;
@@ -74,6 +75,46 @@ export class PrismaRepository implements Repository {
       systemPrompt: a.currentVersion?.systemPrompt ?? '',
       allowedTools: a.allowedTools ?? [],
     };
+  }
+
+  async createAgent(input: {
+    orgId: string;
+    name: string;
+    type: AgentType;
+    systemPrompt: string;
+    allowedTools?: string[];
+  }): Promise<Agent> {
+    const agent = await this.db.agent.create({
+      data: { orgId: input.orgId, name: input.name, type: input.type, allowedTools: input.allowedTools ?? [] },
+    });
+    const pv = await this.db.promptVersion.create({
+      data: { agentId: agent.id, version: 1, systemPrompt: input.systemPrompt },
+    });
+    await this.db.agent.update({ where: { id: agent.id }, data: { currentVersionId: pv.id } });
+    return {
+      id: agent.id,
+      orgId: agent.orgId,
+      name: agent.name,
+      type: agent.type,
+      systemPrompt: input.systemPrompt,
+      allowedTools: agent.allowedTools ?? [],
+    };
+  }
+
+  async listAgents(orgId: string): Promise<Agent[]> {
+    const rows = await this.db.agent.findMany({
+      where: { orgId },
+      include: { currentVersion: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map((a: any) => ({
+      id: a.id,
+      orgId: a.orgId,
+      name: a.name,
+      type: a.type,
+      systemPrompt: a.currentVersion?.systemPrompt ?? '',
+      allowedTools: a.allowedTools ?? [],
+    }));
   }
 
   async getRun(runId: string): Promise<Run | null> {

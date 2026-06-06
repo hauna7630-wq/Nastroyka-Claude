@@ -22,6 +22,16 @@ export interface Repository {
   // Find an agent of a given type within an org (used by the orchestrator to
   // assign subtasks to typed agents). Returns the first match, or null.
   findAgentByType(orgId: string, type: AgentType): Promise<Agent | null>;
+  // Agent Factory (PRD M2): create a "digital employee" with a role + prompt +
+  // tool allowlist (an initial PromptVersion is created), and list an org's agents.
+  createAgent(input: {
+    orgId: string;
+    name: string;
+    type: AgentType;
+    systemPrompt: string;
+    allowedTools?: string[];
+  }): Promise<Agent>;
+  listAgents(orgId: string): Promise<Agent[]>;
 
   // --- Runs ---
   getRun(runId: string): Promise<Run | null>;

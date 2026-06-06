@@ -10,6 +10,7 @@ export type RunEventType =
   | 'run.succeeded'
   | 'run.failed'
   | 'run.dead_lettered'
+  | 'run.needs_human'
   | 'orchestration.planned';
 
 export interface RunEvent {
