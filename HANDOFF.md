@@ -117,13 +117,17 @@ npx prisma generate && npx prisma migrate deploy
 
 ## Незакрытые хвосты / следующие шаги
 
-- **teamly T3 runtime-smoke** не довели до зелёного из-за залипшего старого
-  `next-server` на :3001 (отдавал 404 на `/app/courses`). Код собран (`next build`
-  green) и покрыт интеграцией; нужно просто перезапустить сервер на чистом порту и
-  пройти UI-поток курсов вручную.
-- **Деплой-обвязка**: ни у agent-os, ни у teamly нет Dockerfile приложения и CI.
-  Для «в производство» — добавить Dockerfile + CI (GitHub Actions), которые гоняют
-  unit (+ интеграцию против поднятых Postgres/Redis сервисов).
+- ✅ **teamly T3 runtime-smoke** — закрыто: на чистом порту все 4 LMS-роута отдают
+  200 с реальными данными (список курсов, модули/уроки, материал урока, тест с
+  гейтингом по записи). Прежний 404 был из-за залипшего сервера на :3001.
+- ✅ **Деплой-обвязка** — добавлено: `teamly/Dockerfile` (Next standalone, проверен
+  `next build`→`.next/standalone`), `agent-os/Dockerfile` (tsc→dist), и
+  `.github/workflows/ci.yml` (unit+integration для обоих, service-контейнеры
+  Postgres/pgvector/Redis). **CI не прогонялся на раннере** (здесь нет Actions и
+  заблокирован registry), но все команды совпадают с локально проверенными. Образы
+  локально не собирались (registry заблокирован).
+  Дальше: реальный билд образов в CI/registry, секреты (ANTHROPIC/OPENAI/STRIPE),
+  init-контейнер с `prisma migrate deploy`, деплой-таргет (Fly/Railway/K8s).
 - **teamly прод-AI**: по умолчанию оффлайн HashEmbedder (лексика). Для настоящей
   семантики — `OPENAI_API_KEY` (или другой эмбеддер) + миграция размерности вектора
   (сейчас `vector(256)`).

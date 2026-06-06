@@ -1,0 +1,84 @@
+name: agent-os + teamly CI
+
+# Unit + integration for the two projects in this repo. Integration jobs use
+# service containers (Postgres / pgvector / Redis). Not run in the dev sandbox
+# (no Actions runner / blocked registry), but every command mirrors the locally
+# verified ones.
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+
+jobs:
+  agent-os:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-os
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: agentos
+          POSTGRES_PASSWORD: agentos
+          POSTGRES_DB: agent_os
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U agentos -d agent_os"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://agentos:agentos@localhost:5432/agent_os
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: agent-os/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm run typecheck
+      - run: npm test
+      - run: npx prisma migrate deploy
+      - run: npm run test:integration
+
+  teamly:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: teamly
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: teamly
+          POSTGRES_PASSWORD: teamly
+          POSTGRES_DB: teamly
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U teamly -d teamly"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://teamly:teamly@localhost:5432/teamly
+      AUTH_SECRET: ci-secret-ci-secret-ci-secret-32chars
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: teamly/package-lock.json
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npm test
+      - run: npx prisma migrate deploy
+      - run: npm run test:integration
+      - run: npm run build
