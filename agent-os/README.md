@@ -72,19 +72,19 @@ See [`docs/SPEC.md`](docs/SPEC.md) for the full specification and
 
 ## Coordinator UI (PRD M5)
 
-A zero-dependency web Coordinator (chat + **live agent-assembly graph** over SSE) served by the
-control plane. Run it fully offline (no Postgres/Redis/keys) — it seeds a demo team and uses a
-deterministic planner + echo model:
+A zero-dependency web console (3 tabs) served by the control plane, runnable fully offline:
 
 ```bash
 npm run dev:coordinator      # → http://localhost:3000
 ```
 
-Submit a task; the orchestrator decomposes it into a typed-agent team (researcher → analyst →
-writer) and each agent's status animates live as it works. Backend entry point:
-`POST /tasks { orgId, task }` → routed to the org's `orchestrator` agent; the page subscribes to
-`GET /runs/:id/events` and renders `orchestration.planned` + per-subtask `orchestration.subtask`
-events. Create agents via the Agent Factory: `POST /agents`.
+- **Координатор** — submit a task; the orchestrator decomposes it into a typed-agent team and each
+  agent's status animates **live** via SSE (`orchestration.planned` + per-subtask
+  `orchestration.subtask`). Entry: `POST /tasks { orgId, task }`.
+- **Команда** (Team Builder) — list and "hire" agents (role + system prompt + tool allowlist) via
+  `GET /orgs/:id/agents` and `POST /agents`.
+- **Админ** — token burn per agent (`GET /orgs/:id/token-burn`) and the DLQ with one-click requeue
+  (`GET /dlq`, `POST /dlq/:id/requeue`).
 
 ## Auto-orchestration (F6)
 
