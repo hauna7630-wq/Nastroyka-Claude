@@ -1,6 +1,5 @@
 import { InMemoryRepository } from '../src/adapters/repo.inMemory';
 import { InMemoryQueue } from '../src/adapters/queue.inMemory';
-import { Ledger } from '../src/billing/ledger';
 import { ToolRegistry } from '../src/tools/registry';
 import { startWorker } from '../src/worker/worker';
 import { ScriptedModelProvider, finalTurn } from '../src/adapters/model.mock';
@@ -16,7 +15,7 @@ import {
   InvalidPlanError,
 } from '../src/orchestrator/planner';
 
-const ORG: Org = { id: 'org_1', name: 'Acme', creditBalance: 1000 };
+const ORG: Org = { id: 'org_1', name: 'Acme' };
 
 function agent(id: string, type: AgentType): Agent {
   return { id, orgId: 'org_1', name: id, type, systemPrompt: `${type} prompt` };
@@ -63,25 +62,23 @@ async function setup(opts: {
     agentId: 'orch_1',
     status: 'queued',
     input: { prompt: opts.task },
-    creditsUsed: 0,
+
     attempts: 0,
   };
   await repo.createRun(parent);
 
-  const ledger = new Ledger(repo);
   const queue = new InMemoryQueue({ maxAttempts: opts.maxAttempts ?? 3 });
   startWorker({
     queue,
     repo,
     model: opts.model,
     tools: new ToolRegistry(),
-    ledger,
     allowlistDomains: [],
     planner: opts.planner,
     complexityThreshold: 5,
     defaultAgentType: 'researcher',
   });
-  return { repo, ledger, queue };
+  return { repo, queue };
 }
 
 describe('complexity gating', () => {
@@ -127,7 +124,7 @@ describe('planner', () => {
 
 describe('orchestrator (end-to-end)', () => {
   it('takes the single-agent fast path for a simple task', async () => {
-    const { repo, ledger, queue } = await setup({
+    const { repo, queue } = await setup({
       model: new EchoModel(),
       planner: new StaticPlanner({ subtasks: [{ id: 'x', agentType: 'writer', prompt: 'unused', dependsOn: [] }] }),
       agents: [agent('orch_1', 'orchestrator'), agent('res_1', 'researcher')],
@@ -141,8 +138,7 @@ describe('orchestrator (end-to-end)', () => {
     const children = await repo.listChildRuns('parent_1');
     expect(children).toHaveLength(1);
     expect(children[0].id).toBe('parent_1::single');
-    expect(parent?.creditsUsed).toBe(1); // rolled up from one child, one turn
-    expect(await ledger.totalForRun('parent_1::single')).toBe(1);
+    expect((await repo.getRun('parent_1::single'))?.status).toBe('succeeded');
     expect(repo.auditLog.some((a) => a.action === 'orchestration.single_agent')).toBe(true);
   });
 
@@ -154,7 +150,7 @@ describe('orchestrator (end-to-end)', () => {
         { id: 'w', agentType: 'writer' as AgentType, prompt: 'write', dependsOn: ['a'] },
       ],
     };
-    const { repo, ledger, queue } = await setup({
+    const { repo, queue } = await setup({
       model: new EchoModel(),
       planner: new StaticPlanner(plan),
       agents: [
@@ -185,10 +181,9 @@ describe('orchestrator (end-to-end)', () => {
     const analystInput = (await repo.getRun('parent_1::a'))?.input as { prompt: string };
     expect(analystInput.prompt).toContain('Context from prior subtasks');
 
-    // Aggregation + billing roll-up (3 subtasks, one turn each).
+    // Aggregation of the three subtask outputs.
     const out = parent?.output as { summary: unknown; subtasks: Record<string, unknown> };
     expect(Object.keys(out.subtasks).sort()).toEqual(['a', 'r', 'w']);
-    expect(parent?.creditsUsed).toBe(3); // rolled up across the three subtasks
   });
 
   it('retries the orchestration without re-billing already-succeeded subtasks', async () => {
@@ -200,7 +195,7 @@ describe('orchestrator (end-to-end)', () => {
       ],
     };
     // Fail on the 3rd model call (the writer subtask) the first time it runs.
-    const { repo, ledger, queue } = await setup({
+    const { repo, queue } = await setup({
       model: new FailOnceAtNthModel(3),
       planner: new StaticPlanner(plan),
       agents: [
@@ -218,11 +213,9 @@ describe('orchestrator (end-to-end)', () => {
     expect(parent?.status).toBe('succeeded');
     expect(parent?.attempts).toBe(2); // failed once at the writer, then recovered
 
-    // researcher + analyst succeeded on attempt 1 and must NOT be re-billed when
-    // the orchestration retries; total stays 3, not 5.
-    expect(await ledger.totalForRun('parent_1::r')).toBe(1);
-    expect(await ledger.totalForRun('parent_1::a')).toBe(1);
-    expect(await ledger.totalForRun('parent_1::w')).toBe(1);
-    expect(parent?.creditsUsed).toBe(3); // rolled up; not 5 despite the retry
+    // Already-succeeded subtasks are not re-run on retry (terminal -> no-op).
+    expect((await repo.getRun('parent_1::r'))?.status).toBe('succeeded');
+    expect((await repo.getRun('parent_1::a'))?.status).toBe('succeeded');
+    expect((await repo.getRun('parent_1::w'))?.status).toBe('succeeded');
   });
 });

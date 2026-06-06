@@ -24,7 +24,6 @@ export type StepRole = 'system' | 'assistant' | 'tool' | 'user';
 export interface Org {
   id: string;
   name: string;
-  creditBalance: number;
 }
 
 export interface Agent {
@@ -45,12 +44,9 @@ export interface Run {
   input: unknown;
   output?: unknown;
   error?: string;
-  creditsUsed: number;
   attempts: number;
   // Set when this run is a subtask spawned by an orchestrator run (F6).
   parentRunId?: string;
-  // Hard USD budget for this run (PRD M4). Exceeding it stops the run.
-  budgetUsd?: number;
 }
 
 export interface Step {
@@ -66,28 +62,11 @@ export interface Step {
   tokensOut?: number;
 }
 
-export interface LedgerEntry {
-  orgId: string;
-  runId: string;
-  stepIndex: number;
-  toolCallId: string;
-  amount: number; // negative = debit
-  reason?: string;
-}
-
 export interface DeadLetterRecord {
   runId: string;
   payload: unknown;
   failureReason: string;
   attempts: number;
-}
-
-// A credit top-up (e.g. a completed Stripe checkout). Idempotent on externalId.
-export interface CreditGrant {
-  orgId: string;
-  source: string; // e.g. "stripe"
-  externalId: string; // idempotency key (e.g. Stripe event id)
-  amount: number; // positive credits
 }
 
 // Agent memory (F5): short-term (run-scoped), long-term (durable notes /

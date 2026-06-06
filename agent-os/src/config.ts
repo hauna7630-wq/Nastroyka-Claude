@@ -9,11 +9,6 @@ export interface Config {
   allowlistDomains: string[];
   toolCpuMs: number;
   toolMemMb: number;
-  // Billing (F4, Stripe).
-  stripeApiKey: string;
-  stripeWebhookSecret: string;
-  checkoutSuccessUrl: string;
-  checkoutCancelUrl: string;
   // HTTP server.
   port: number;
 }
@@ -35,10 +30,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     allowlistDomains: csv(env.ALLOWLIST_DOMAINS),
     toolCpuMs: Number(env.TOOL_CPU_MS ?? 5000),
     toolMemMb: Number(env.TOOL_MEM_MB ?? 256),
-    stripeApiKey: env.STRIPE_API_KEY ?? '',
-    stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET ?? '',
-    checkoutSuccessUrl: env.CHECKOUT_SUCCESS_URL ?? 'https://app.example.com/billing/success',
-    checkoutCancelUrl: env.CHECKOUT_CANCEL_URL ?? 'https://app.example.com/billing/cancel',
     port: Number(env.PORT ?? 3000),
   };
 }

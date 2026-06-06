@@ -1,13 +1,12 @@
 import { InMemoryRepository } from '../src/adapters/repo.inMemory';
 import { RepositoryMemoryStore } from '../src/adapters/memory.repo';
-import { Ledger } from '../src/billing/ledger';
 import { ToolRegistry } from '../src/tools/registry';
 import { executeRun } from '../src/agent/runtime';
 import { finalTurn } from '../src/adapters/model.mock';
 import { ModelProvider } from '../src/ports/model';
 import { ModelTurn, Agent, Org, Run } from '../src/domain/types';
 
-const ORG: Org = { id: 'org_1', name: 'Acme', creditBalance: 100 };
+const ORG: Org = { id: 'org_1', name: 'Acme' };
 const AGENT: Agent = {
   id: 'agent_1',
   orgId: 'org_1',
@@ -65,7 +64,6 @@ describe('Memory in the runtime', () => {
       repo,
       model,
       tools: new ToolRegistry(),
-      ledger: new Ledger(repo),
       allowlistDomains: [],
       memory,
     };
@@ -79,7 +77,7 @@ describe('Memory in the runtime', () => {
       agentId: 'agent_1',
       status: 'queued',
       input: { prompt },
-      creditsUsed: 0,
+
       attempts: 0,
     };
   }

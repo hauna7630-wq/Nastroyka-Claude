@@ -1,4 +1,4 @@
-// Repository port — the Billing/Data plane boundary.
+// Repository port — the Data plane boundary.
 //
 // The runtime depends only on this interface. Production uses the Prisma
 // adapter; tests use the in-memory adapter. Either way the runtime is unchanged.
@@ -6,9 +6,7 @@
 import {
   Agent,
   AgentType,
-  CreditGrant,
   DeadLetterRecord,
-  LedgerEntry,
   MemoryKind,
   MemoryRecord,
   Org,
@@ -43,20 +41,6 @@ export interface Repository {
   // --- Agent memory (F5) ---
   appendMemory(memory: MemoryRecord): Promise<void>;
   listMemories(agentId: string, kinds?: MemoryKind[]): Promise<MemoryRecord[]>;
-
-  // --- Billing (idempotent ledger) ---
-  /**
-   * Insert a ledger entry only if (runId, stepIndex, toolCallId) has not been
-   * recorded before. Returns true if a NEW entry was written, false if it was
-   * a duplicate (no-op). Implementations MUST make this atomic.
-   */
-  recordLedgerEntryIfAbsent(entry: LedgerEntry): Promise<boolean>;
-  getRunCreditsUsed(runId: string): Promise<number>;
-  /**
-   * Idempotently record a credit top-up (keyed on source+externalId) and add it
-   * to the org balance. Returns true if newly applied, false if a duplicate.
-   */
-  recordCreditGrantIfAbsent(grant: CreditGrant): Promise<boolean>;
 
   // --- Reliability ---
   recordDeadLetter(record: DeadLetterRecord): Promise<void>;

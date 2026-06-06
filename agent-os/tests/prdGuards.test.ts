@@ -1,28 +1,8 @@
-import { usdCost } from '../src/billing/pricing';
-import { CostMeter, BudgetExceededError } from '../src/billing/budget';
 import { RegexPiiMasker } from '../src/security/pii';
 import { ModelGateway, defaultRoute } from '../src/adapters/model.gateway';
 import { ModelProvider } from '../src/ports/model';
 import { ModelTurn } from '../src/domain/types';
 import { finalTurn } from '../src/adapters/model.mock';
-
-describe('Cost guard (PRD M4)', () => {
-  it('prices tokens per model in USD', () => {
-    // sonnet: $3/1M in, $15/1M out
-    expect(usdCost('claude-sonnet-4-6', 1_000_000, 1_000_000)).toBeCloseTo(18);
-    expect(usdCost('gpt-4o-mini', 1_000_000, 0)).toBeCloseTo(0.15);
-    // unknown model falls back to the default price.
-    expect(usdCost('mystery', 1_000_000, 0)).toBeCloseTo(3);
-  });
-
-  it('meters spend and enforces a hard budget (auto-stop)', () => {
-    const m = new CostMeter();
-    m.addTurn('claude-sonnet-4-6', 500_000, 0); // $1.5
-    expect(() => m.enforce(2)).not.toThrow();
-    m.addTurn('claude-sonnet-4-6', 500_000, 0); // total $3.0
-    expect(() => m.enforce(2)).toThrow(BudgetExceededError);
-  });
-});
 
 describe('PII masking (PRD §4)', () => {
   const masker = new RegexPiiMasker();

@@ -12,9 +12,7 @@
 import {
   Agent,
   AgentType,
-  CreditGrant,
   DeadLetterRecord,
-  LedgerEntry,
   MemoryKind,
   MemoryRecord,
   Org,
@@ -31,8 +29,6 @@ export interface PrismaClientLike {
   run: any;
   step: any;
   agentMemory: any;
-  creditLedger: any;
-  creditGrant: any;
   deadLetter: any;
   auditLog: any;
   $transaction: <T>(fn: (tx: PrismaClientLike) => Promise<T>) => Promise<T>;
@@ -44,7 +40,7 @@ export class PrismaRepository implements Repository {
   async getOrg(orgId: string): Promise<Org | null> {
     const o = await this.db.org.findUnique({ where: { id: orgId } });
     return o
-      ? { id: o.id, name: o.name, creditBalance: o.creditBalance }
+      ? { id: o.id, name: o.name }
       : null;
   }
 
@@ -96,8 +92,6 @@ export class PrismaRepository implements Repository {
         agentId: run.agentId,
         status: run.status,
         input: run.input as any,
-        creditsUsed: run.creditsUsed,
-        budgetUsd: run.budgetUsd,
         attempts: run.attempts,
         parentRunId: run.parentRunId,
       },
@@ -124,10 +118,8 @@ export class PrismaRepository implements Repository {
       input: r.input,
       output: r.output ?? undefined,
       error: r.error ?? undefined,
-      creditsUsed: r.creditsUsed,
       attempts: r.attempts,
       parentRunId: r.parentRunId ?? undefined,
-      budgetUsd: r.budgetUsd ?? undefined,
     };
   }
 
@@ -142,9 +134,6 @@ export class PrismaRepository implements Repository {
         status,
         ...(patch.output !== undefined ? { output: patch.output as any } : {}),
         ...(patch.error !== undefined ? { error: patch.error } : {}),
-        ...(patch.creditsUsed !== undefined
-          ? { creditsUsed: patch.creditsUsed }
-          : {}),
       },
     });
   }
@@ -226,66 +215,6 @@ export class PrismaRepository implements Repository {
     }));
   }
 
-  async recordLedgerEntryIfAbsent(entry: LedgerEntry): Promise<boolean> {
-    try {
-      await this.db.$transaction(async (tx) => {
-        await tx.creditLedger.create({
-          data: {
-            orgId: entry.orgId,
-            runId: entry.runId,
-            stepIndex: entry.stepIndex,
-            toolCallId: entry.toolCallId,
-            amount: entry.amount,
-            reason: entry.reason,
-          },
-        });
-        await tx.org.update({
-          where: { id: entry.orgId },
-          data: { creditBalance: { increment: entry.amount } },
-        });
-        await tx.run.update({
-          where: { id: entry.runId },
-          data: { creditsUsed: { increment: Math.abs(entry.amount) } },
-        });
-      });
-      return true;
-    } catch (err: any) {
-      // P2002 = unique constraint violation => already charged => no-op.
-      if (err?.code === 'P2002') return false;
-      throw err;
-    }
-  }
-
-  async getRunCreditsUsed(runId: string): Promise<number> {
-    const agg = await this.db.creditLedger.aggregate({
-      where: { runId },
-      _sum: { amount: true },
-    });
-    return agg?._sum?.amount ?? 0;
-  }
-
-  async recordCreditGrantIfAbsent(grant: CreditGrant): Promise<boolean> {
-    try {
-      await this.db.$transaction(async (tx) => {
-        await tx.creditGrant.create({
-          data: {
-            orgId: grant.orgId,
-            source: grant.source,
-            externalId: grant.externalId,
-            amount: grant.amount,
-          },
-        });
-        await tx.org.update({
-          where: { id: grant.orgId },
-          data: { creditBalance: { increment: grant.amount } },
-        });
-      });
-      return true;
-    } catch (err: any) {
-      if (err?.code === 'P2002') return false; // duplicate (source, externalId)
-      throw err;
-    }
-  }
 
   async recordDeadLetter(record: DeadLetterRecord): Promise<void> {
     await this.db.deadLetter.create({

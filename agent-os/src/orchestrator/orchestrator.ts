@@ -5,11 +5,10 @@
 //   2. Otherwise ask the planner for a typed-agent subtask graph.
 //   3. Execute subtasks in topological order as CHILD runs, each assigned to an
 //      agent of the requested type, feeding upstream outputs into dependents.
-//   4. Aggregate child outputs into the parent run's output; the parent's
-//      creditsUsed is the sum across children.
+//   4. Aggregate child outputs into the parent run's output.
 //
 // Child run ids are deterministic (`<parentRunId>::<subtaskId>`), so an
-// orchestration retry reuses completed children (idempotent, no double billing)
+// orchestration retry reuses completed children (idempotent re-execution)
 // and only re-executes the ones that had not yet succeeded.
 //
 // MVP note: children run inline here. Production would enqueue each child onto
@@ -42,7 +41,7 @@ export async function executeOrchestration(
   parentRunId: string,
   deps: OrchestratorDeps,
 ): Promise<void> {
-  const { repo, ledger, planner } = deps;
+  const { repo, planner } = deps;
   const threshold = deps.complexityThreshold ?? DEFAULT_COMPLEXITY_THRESHOLD;
   const defaultAgentType = deps.defaultAgentType ?? 'researcher';
 
@@ -112,7 +111,6 @@ export async function executeOrchestration(
           parentRunId,
           subtaskId: subtask.id,
         },
-        creditsUsed: 0,
         attempts: 0,
         parentRunId,
       });
@@ -134,24 +132,19 @@ export async function executeOrchestration(
     const lastId = order[order.length - 1].id;
     const aggregated = { summary: outputs[lastId], subtasks: outputs };
 
-    // Parent credits = sum of child run credits.
-    let total = 0;
-    for (const s of plan.subtasks) {
-      total += await ledger.totalForRun(`${parentRunId}::${s.id}`);
-    }
-
     await repo.updateRunStatus(parentRunId, transition('running', 'succeeded'), {
       output: aggregated,
-      creditsUsed: total,
     });
     await repo.audit({
       orgId: parent.orgId,
       runId: parentRunId,
       actor: 'orchestrator',
       action: 'orchestration.succeeded',
-      meta: { subtasks: plan.subtasks.length, creditsUsed: total },
+      meta: { subtasks: plan.subtasks.length },
     });
-    emit(deps.events, 'run.succeeded', parentRunId, parent.orgId, { creditsUsed: total });
+    emit(deps.events, 'run.succeeded', parentRunId, parent.orgId, {
+      subtasks: plan.subtasks.length,
+    });
   } catch (err) {
     // Mirror runtime semantics: leave the parent 'running' and rethrow so the
     // worker owns the terminal failed/DLQ transition.

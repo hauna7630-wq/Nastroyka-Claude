@@ -7,12 +7,11 @@ import {
   finalTurn,
 } from '../src/adapters/model.mock';
 import { ToolRegistry, ToolSpec } from '../src/tools/registry';
-import { Ledger } from '../src/billing/ledger';
 import { startWorker } from '../src/worker/worker';
 import { ModelProvider } from '../src/ports/model';
 import { Agent, Org, Run } from '../src/domain/types';
 
-const ORG: Org = { id: 'org_1', name: 'Acme', creditBalance: 100 };
+const ORG: Org = { id: 'org_1', name: 'Acme' };
 const AGENT: Agent = {
   id: 'agent_1',
   orgId: 'org_1',
@@ -28,7 +27,6 @@ function makeRun(): Run {
     agentId: 'agent_1',
     status: 'queued',
     input: { prompt: 'Find the answer' },
-    creditsUsed: 0,
     attempts: 0,
   };
 }
@@ -51,21 +49,19 @@ async function setup(opts: {
   repo.seedAgent({ ...AGENT });
   await repo.createRun(makeRun());
 
-  const ledger = new Ledger(repo);
   const queue = new InMemoryQueue({ maxAttempts: opts.maxAttempts ?? 3 });
   startWorker({
     queue,
     repo,
     model: opts.model,
     tools: opts.tools,
-    ledger,
     allowlistDomains: [],
   });
-  return { repo, ledger, queue };
+  return { repo, queue };
 }
 
 describe('Run lifecycle (end-to-end)', () => {
-  it('drives a run queued -> running -> succeeded via the worker, charging once', async () => {
+  it('drives a run queued -> running -> succeeded via the worker', async () => {
     const tools = new ToolRegistry();
     tools.register(tool('fetch_data', async () => ({ ok: true, value: 42 })));
     const model = new ScriptedModelProvider([
@@ -73,7 +69,7 @@ describe('Run lifecycle (end-to-end)', () => {
       finalTurn('All done'),
     ]);
 
-    const { repo, ledger, queue } = await setup({ model, tools });
+    const { repo, queue } = await setup({ model, tools });
     await queue.enqueue({ runId: 'run_1' });
 
     const run = await repo.getRun('run_1');
@@ -85,17 +81,13 @@ describe('Run lifecycle (end-to-end)', () => {
     expect(steps.map((s) => s.role)).toEqual(['assistant', 'tool', 'assistant']);
     expect(steps[1].toolName).toBe('fetch_data');
 
-    // 1 (turn0 tokens) + 1 (tool) + 1 (turn1 tokens) = 3 credits, charged once.
-    expect(await ledger.totalForRun('run_1')).toBe(3);
-    expect((await repo.getOrg('org_1'))?.creditBalance).toBe(97);
-
     // Duplicate delivery of a completed run is a no-op (idempotent).
     await queue.enqueue({ runId: 'run_1' });
-    expect(await ledger.totalForRun('run_1')).toBe(3); // unchanged
+    expect((await repo.getRun('run_1'))?.status).toBe('succeeded');
     expect(repo.auditLog.some((a) => a.action === 'run.skipped_terminal')).toBe(true);
   });
 
-  it('does not double-charge when a flaky run is retried mid-flight', async () => {
+  it('recovers when a flaky run is retried mid-flight', async () => {
     let calls = 0;
     const tools = new ToolRegistry();
     tools.register(
@@ -110,16 +102,13 @@ describe('Run lifecycle (end-to-end)', () => {
       finalTurn('Recovered'),
     ]);
 
-    const { repo, ledger, queue } = await setup({ model, tools, maxAttempts: 3 });
+    const { repo, queue } = await setup({ model, tools, maxAttempts: 3 });
     await queue.enqueue({ runId: 'run_1' });
 
     const run = await repo.getRun('run_1');
     expect(run?.status).toBe('succeeded');
     expect(run?.attempts).toBe(2); // failed once, then succeeded
-
-    // The assistant turn was billed on BOTH attempts but the idempotency key
-    // (run,0,turn:0) collapses it: total stays 3, not 4.
-    expect(await ledger.totalForRun('run_1')).toBe(3);
+    expect(run?.output).toBe('Recovered');
   });
 
   it('routes a permanently failing run to the dead letter queue', async () => {

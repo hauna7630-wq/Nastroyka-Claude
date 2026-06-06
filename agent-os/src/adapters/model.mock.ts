@@ -2,8 +2,7 @@
 //
 // `ScriptedModelProvider` replays a fixed list of turns: the Nth `complete()`
 // call (counted by how many tool results are already in the conversation)
-// returns the Nth scripted turn. This makes the tool-use loop fully reproducible
-// and lets the ledger idempotency assertions hold across retries.
+// returns the Nth scripted turn. This keeps the tool-use loop reproducible.
 
 import { ModelMessage, ModelProvider } from '../ports/model';
 import { ModelTurn } from '../domain/types';

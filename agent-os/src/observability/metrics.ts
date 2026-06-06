@@ -1,11 +1,9 @@
-// Observability (F4): metrics derived from the Run/Step trace and the ledger.
+// Observability (F4): metrics derived from the Run/Step trace.
 //
 // MVP computes these by reading the repository; production would materialise them
-// into a metrics store / dashboards (LangSmith-style run tracing, token-burn and
-// cost-per-task analytics).
+// into a metrics store / dashboards (LangSmith-style run tracing + token-burn).
 
 import { Repository } from '../ports/repository';
-import { Ledger } from '../billing/ledger';
 
 export interface RunMetrics {
   runId: string;
@@ -14,7 +12,6 @@ export interface RunMetrics {
   tokensIn: number;
   tokensOut: number;
   totalLatencyMs: number;
-  creditsUsed: number;
 }
 
 export interface RunTraceStep {
@@ -27,10 +24,7 @@ export interface RunTraceStep {
 }
 
 export class Observability {
-  constructor(
-    private readonly repo: Repository,
-    private readonly ledger: Ledger,
-  ) {}
+  constructor(private readonly repo: Repository) {}
 
   /** Full step trace for a single run (LangSmith-style). */
   async runTrace(runId: string): Promise<RunTraceStep[]> {
@@ -65,7 +59,6 @@ export class Observability {
       tokensIn,
       tokensOut,
       totalLatencyMs,
-      creditsUsed: await this.ledger.totalForRun(runId),
     };
   }
 

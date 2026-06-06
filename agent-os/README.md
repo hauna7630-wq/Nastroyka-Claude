@@ -1,9 +1,12 @@
 # agent-os
 
-A **runnable MVP scaffold** of a multi-tenant AI-agent runtime, structured around three
-planes — **Control**, **Execution**, and **Billing** — with the architectural guardrails from
-the design review baked in: a formal Run state machine, idempotent credit accounting, a tool
-sandbox security model, a dead-letter queue, agent memory, and prompt versioning.
+A **runnable MVP scaffold** of a multi-tenant AI-agent runtime, structured around two
+planes — **Control** and **Execution** — over a **Data** plane, with a formal Run state
+machine, a tool sandbox security model, a dead-letter queue, agent memory, prompt versioning,
+per-agent tool allowlists, and PII masking.
+
+> This is an internal/personal tool: **no billing, credits, USD pricing, or payments**. Token
+> usage is tracked per step as a metric only.
 
 It is a *scaffold*, not a finished product: the core control loop runs end-to-end with **zero
 external infrastructure** (no Postgres, Redis, or API key) via in-memory adapters, while
@@ -22,14 +25,17 @@ npm run typecheck # tsc --noEmit, incl. production adapters
 
 - **Run state machine** (`src/domain/runStateMachine.ts`) — legal transitions only; terminal
   states reject outgoing edges.
-- **Idempotent ledger** (`src/billing/ledger.ts`) — a `(runId, stepIndex, toolCallId)` tuple is
-  charged exactly once, even across retries.
+- **Security guardrails** — per-agent **tool allowlist** (enforced in the runtime) and **PII
+  masking** (`src/security/pii.ts`): emails/phones/cards are masked before prompts reach the LLM
+  and un-masked on the way back.
 - **Tool registry + sandbox boundary** (`src/tools/*`) — deny-by-default network; the
   `http_request` tool enforces a domain allowlist; `code_exec` runs in a real isolate
   (`SubprocessSandbox`: namespaces + rlimits; or `DockerSandbox`) enforcing no-network + CPU/memory
   + wall-timeout, and refuses to run if no sandbox is configured.
-- **Agent runtime** (`src/agent/runtime.ts`) — the tool-use loop: model → tools → step trace →
-  billing, driven through the state machine.
+- **Agent runtime** (`src/agent/runtime.ts`) — the tool-use loop: model → tools → step trace,
+  driven through the state machine (token usage tracked as a metric).
+- **LLM Gateway** (`src/adapters/model.gateway.ts`) — routes by rule and fails over
+  primary → secondary → local.
 - **Worker + DLQ** (`src/worker/worker.ts`) — retries transient failures; dead-letters on exhaustion.
 
 ## Architecture (ports & adapters)
@@ -39,7 +45,7 @@ The runtime depends only on **ports** (interfaces); adapters are swapped at the 
 
 | Port (`src/ports`) | Test adapter | Production adapter |
 | --- | --- | --- |
-| `Repository` (data/billing) | `repo.inMemory.ts` | `repo.prisma.ts` (Postgres) |
+| `Repository` (data) | `repo.inMemory.ts` | `repo.prisma.ts` (Postgres) |
 | `Queue` (control↔execution) | `queue.inMemory.ts` | `queue.bullmq.ts` (Redis) |
 | `ModelProvider` (LLM) | `model.mock.ts` | `model.anthropic.ts` (Claude) |
 
@@ -57,8 +63,7 @@ npm start                            # worker + control-plane HTTP/SSE server
 ```
 
 `npm run test:integration` runs a full run lifecycle through the real BullMQ worker and asserts the
-trace + ledger are durably persisted in Postgres (and re-read from a fresh client), plus DB-level
-ledger idempotency via the unique constraint. The live Anthropic smoke runs with `ANTHROPIC_API_KEY`.
+trace is durably persisted in Postgres (and re-read from a fresh client). The live Anthropic smoke runs with `ANTHROPIC_API_KEY`.
 Default `npm test` stays infra-free.
 
 See [`docs/SPEC.md`](docs/SPEC.md) for the full specification and
@@ -73,9 +78,9 @@ See `src/orchestrator/*` and `docs/SPEC.md` §9.
 
 ## Control Plane (F4)
 
-The `ControlPlane` (`src/api/controlPlane.ts`) is the API surface: create runs (with cost
-preview), read run status + trace, observability (`runMetrics`, token burn by agent), DLQ list +
-operator requeue, and Stripe checkout + webhook (idempotent credit grants). A zero-dependency Node
+The `ControlPlane` (`src/api/controlPlane.ts`) is the API surface: create runs, read run
+status + trace, observability (`runMetrics`, token burn by agent), DLQ list +
+operator requeue. A zero-dependency Node
 `http` + **SSE** server (`src/api/server.ts`) is the thin edge; lifecycle events flow over an
 event bus (`src/events/bus.ts`). See `docs/SPEC.md` §10 and the diagram in `docs/ARCHITECTURE.md`.
 
@@ -88,10 +93,9 @@ is lexical (overlap + recency) in the MVP; production swaps embeddings + pgvecto
 
 ## Status / roadmap
 
-All six phases are implemented in this repo: **F1** (core runtime/state machine/ledger/DLQ),
+All six phases are implemented in this repo: **F1** (core runtime/state machine/DLQ),
 **F2** (Prisma/Postgres + BullMQ/Redis, verified by integration tests; migrations committed),
-**F3** (`code_exec` sandbox isolation — namespaces + rlimits, verified live), **F4** (control-plane
-API + SSE events + observability + Stripe top-ups), **F5** (agent memory recall + episodic
+**F3** (`code_exec` sandbox isolation — namespaces + rlimits, verified live), **F4** (control-plane API + SSE events + observability), **F5** (agent memory recall + episodic
 write-back), and **F6** (auto-orchestrator). Remaining work is MVP→production hardening, not new
 phases: Redis pub/sub event fan-out, vector/semantic memory, async orchestration child dispatch,
 and DockerSandbox where a container runtime + images are available. See `docs/SPEC.md`.

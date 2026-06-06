@@ -1,13 +1,9 @@
 // In-memory Repository adapter for dev/tests. Zero external infra.
-// Mirrors the atomicity contract of the production (Prisma) adapter:
-// recordLedgerEntryIfAbsent is the idempotency chokepoint.
 
 import {
   Agent,
   AgentType,
-  CreditGrant,
   DeadLetterRecord,
-  LedgerEntry,
   MemoryKind,
   MemoryRecord,
   Org,
@@ -31,9 +27,6 @@ export class InMemoryRepository implements Repository {
   private agents = new Map<string, Agent>();
   private runs = new Map<string, Run>();
   private steps = new Map<string, Step>(); // key: `${runId}:${index}`
-  private ledgerKeys = new Set<string>(); // key: `${runId}:${stepIndex}:${toolCallId}`
-  private ledger: LedgerEntry[] = [];
-  private grantKeys = new Set<string>(); // key: `${source}:${externalId}`
   private deadLetters: DeadLetterRecord[] = [];
   private memories: MemoryRecord[] = [];
   public readonly auditLog: AuditRecord[] = [];
@@ -119,34 +112,6 @@ export class InMemoryRepository implements Repository {
     return this.memories
       .filter((m) => m.agentId === agentId && (!kinds || kinds.includes(m.kind)))
       .map((m) => ({ ...m }));
-  }
-
-  // --- Billing (idempotent ledger) ---
-  async recordLedgerEntryIfAbsent(entry: LedgerEntry): Promise<boolean> {
-    const key = `${entry.runId}:${entry.stepIndex}:${entry.toolCallId}`;
-    if (this.ledgerKeys.has(key)) return false; // duplicate => no-op
-    this.ledgerKeys.add(key);
-    this.ledger.push({ ...entry });
-
-    // Keep denormalised balances in sync (amount is negative for debits).
-    const org = this.orgs.get(entry.orgId);
-    if (org) org.creditBalance += entry.amount;
-    const run = this.runs.get(entry.runId);
-    if (run) run.creditsUsed += Math.abs(entry.amount);
-    return true;
-  }
-  async getRunCreditsUsed(runId: string): Promise<number> {
-    return this.ledger
-      .filter((e) => e.runId === runId)
-      .reduce((sum, e) => sum + e.amount, 0); // signed (negative for debits)
-  }
-  async recordCreditGrantIfAbsent(grant: CreditGrant): Promise<boolean> {
-    const key = `${grant.source}:${grant.externalId}`;
-    if (this.grantKeys.has(key)) return false; // duplicate webhook => no-op
-    this.grantKeys.add(key);
-    const org = this.orgs.get(grant.orgId);
-    if (org) org.creditBalance += grant.amount;
-    return true;
   }
 
   // --- Reliability ---

@@ -1,7 +1,7 @@
 {
   "name": "agent-os",
   "version": "0.1.0",
-  "description": "Runnable MVP scaffold of a multi-tenant AI agent runtime (control / execution / billing planes).",
+  "description": "Runnable MVP scaffold of a multi-tenant AI agent runtime (control / execution / data planes).",
   "license": "ISC",
   "private": true,
   "scripts": {
@@ -19,8 +19,8 @@
     "@anthropic-ai/sdk": "^0.30.1",
     "@prisma/client": "^5.22.0",
     "bullmq": "^5.34.0",
-    "ioredis": "^5.4.1",
-    "stripe": "^17.4.0"
+    "ioredis": "^5.4.1"
+
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",

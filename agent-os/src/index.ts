@@ -3,12 +3,11 @@
 //
 // Planes:
 //   - Control Plane: the ControlPlane API (src/api) creates runs, exposes status
-//     + observability, manages the DLQ, and handles billing top-ups.
+//     + observability, and manages the DLQ.
 //   - Execution Plane: the worker (startWorker) drains the queue and runs agents.
-//   - Billing Plane: the Repository + Ledger (idempotent credit accounting).
+//   - Data Plane: the Repository (runs, steps, memory, audit).
 
 import { loadConfig } from './config';
-import { Ledger } from './billing/ledger';
 import { ToolRegistry } from './tools/registry';
 import { httpRequestTool } from './tools/httpRequest';
 import { codeExecTool } from './tools/codeExec';
@@ -21,7 +20,6 @@ import { InMemoryEventBus } from './events/bus';
 import { RepositoryMemoryStore } from './adapters/memory.repo';
 import { SubprocessSandbox } from './adapters/sandbox.subprocess';
 import { Observability } from './observability/metrics';
-import { StripePaymentProvider } from './adapters/payments.stripe';
 import { ControlPlane } from './api/controlPlane';
 import { RegexPiiMasker } from './security/pii';
 
@@ -52,7 +50,6 @@ export function buildApp(): App {
     model: config.anthropicModel,
   });
   const tools = buildToolRegistry();
-  const ledger = new Ledger(repo);
   // F6: the orchestrator decomposes complex tasks into typed-agent subtasks.
   const planner = new ModelPlanner(model);
   // F5: agent memory (recall into prompts, episodic write-back).
@@ -60,25 +57,12 @@ export function buildApp(): App {
   // F3: isolate for code_exec (Linux namespaces + rlimits). Swap for
   // DockerSandbox where a container runtime + images are available.
   const sandbox = new SubprocessSandbox();
-  // PRD §4: mask PII before prompts leave for external LLMs.
+  // Mask PII before prompts leave for external LLMs.
   const pii = new RegexPiiMasker();
-  // F4: event bus + observability + billing + the control-plane API.
+  // F4: event bus + observability + the control-plane API.
   const events = new InMemoryEventBus();
-  const observability = new Observability(repo, ledger);
-  const payments = new StripePaymentProvider({
-    apiKey: config.stripeApiKey,
-    webhookSecret: config.stripeWebhookSecret,
-    successUrl: config.checkoutSuccessUrl,
-    cancelUrl: config.checkoutCancelUrl,
-  });
-  const controlPlane = new ControlPlane({
-    repo,
-    queue,
-    ledger,
-    observability,
-    payments,
-    events,
-  });
+  const observability = new Observability(repo);
+  const controlPlane = new ControlPlane({ repo, queue, observability, events });
 
   return {
     workerDeps: {
@@ -86,7 +70,6 @@ export function buildApp(): App {
       repo,
       model,
       tools,
-      ledger,
       allowlistDomains: config.allowlistDomains,
       planner,
       events,

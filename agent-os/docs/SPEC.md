@@ -1,5 +1,9 @@
 # agent-os — Specification (v2)
 
+> UPDATE: billing/credits/USD/Stripe have been removed — this is an internal/personal tool.
+> Token usage is tracked per step as a metric only. Sections below mentioning a "Billing Plane",
+> "credits", "CreditLedger" or "Stripe" are historical and no longer apply.
+
 > Status: MVP scaffold. This document is the hardened spec produced from the architecture
 > review. Sections marked **[MVP]** are implemented and tested in this repo; **[Phase N]**
 > sections are designed-for but deferred, with seams left in the schema and ports.

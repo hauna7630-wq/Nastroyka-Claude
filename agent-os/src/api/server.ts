@@ -47,11 +47,6 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
         if (seg[2] === 'metrics') return json(res, 200, await cp.runMetrics(runId));
         return json(res, 200, await cp.getRun(runId));
       }
-      // POST /cost/preview
-      if (method === 'POST' && path === '/cost/preview') {
-        const body = JSON.parse((await readBody(req)) || '{}');
-        return json(res, 200, cp.previewCost(body));
-      }
       // GET /orgs/:id/token-burn
       if (method === 'GET' && seg[0] === 'orgs' && seg[2] === 'token-burn') {
         return json(res, 200, await cp.tokenBurn(seg[1]));
@@ -62,16 +57,6 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
       }
       if (method === 'POST' && seg[0] === 'dlq' && seg[2] === 'requeue') {
         return json(res, 200, await cp.requeueDeadLetter(seg[1]));
-      }
-      // POST /billing/checkout  and  POST /billing/webhook
-      if (method === 'POST' && path === '/billing/checkout') {
-        const body = JSON.parse((await readBody(req)) || '{}');
-        return json(res, 200, await cp.createCheckout(body));
-      }
-      if (method === 'POST' && path === '/billing/webhook') {
-        const raw = await readBody(req);
-        const sig = String(req.headers['stripe-signature'] ?? '');
-        return json(res, 200, await cp.handlePaymentWebhook(raw, sig));
       }
 
       json(res, 404, { error: 'route not found' });

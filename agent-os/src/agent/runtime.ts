@@ -3,28 +3,23 @@
 // Responsibilities:
 //   - Drive the Run through the formal state machine (never mutate status directly).
 //   - Call the model, execute requested tools, and persist a full Step trace.
-//   - Charge the ledger idempotently per tool call.
+//   - Track token usage (metrics only — no money/billing).
 //   - Surface failure by throwing, so the execution plane can retry / DLQ.
 
 import { isTerminal, transition } from '../domain/runStateMachine';
 import { ModelMessage, ModelProvider } from '../ports/model';
 import { Repository } from '../ports/repository';
-import { ToolRegistry } from '../tools/registry';
-import { Ledger } from '../billing/ledger';
-import { tokensToCredits, CREDITS_PER_TOOL_CALL } from '../billing/cost';
-import { CostMeter } from '../billing/budget';
+import { ToolRegistry, ToolNotAllowedError } from '../tools/registry';
 import { Step } from '../domain/types';
 import { EventBus, emit } from '../events/bus';
 import { MemoryStore, memoryText } from '../ports/memory';
 import { Sandbox } from '../ports/sandbox';
 import { PiiMasker } from '../security/pii';
-import { ToolNotAllowedError } from '../tools/registry';
 
 export interface RuntimeDeps {
   repo: Repository;
   model: ModelProvider;
   tools: ToolRegistry;
-  ledger: Ledger;
   allowlistDomains: string[];
   maxIterations?: number;
   // Optional Control-Plane event bus (F4). When present, the runtime streams
@@ -35,8 +30,8 @@ export interface RuntimeDeps {
   memory?: MemoryStore;
   // Optional code-execution sandbox (F3) made available to the code_exec tool.
   sandbox?: Sandbox;
-  // Optional PII masker (PRD §4). When present, prompts are masked before the
-  // model call and the model's output is un-masked afterwards.
+  // Optional PII masker. When present, prompts are masked before the model call
+  // and the model's output is un-masked afterwards.
   pii?: PiiMasker;
 }
 
@@ -48,7 +43,7 @@ export class RunNotFoundError extends Error {
 }
 
 export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void> {
-  const { repo, model, tools, ledger } = deps;
+  const { repo, model, tools } = deps;
   const maxIterations = deps.maxIterations ?? 10;
 
   const run = await repo.getRun(runId);
@@ -101,11 +96,11 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
     }
   }
 
-  // Step index is deterministic across retries so ledger charges stay idempotent.
   let stepIndex = 0;
+  let tokensIn = 0;
+  let tokensOut = 0;
   const messages: ModelMessage[] = [{ role: 'user', content: task }];
-  // PRD M4: per-run USD cost meter; PRD §4: per-run PII token mapping.
-  const meter = new CostMeter();
+  // Per-run PII token mapping (never sent to the provider).
   const piiMap = new Map<string, string>();
 
   try {
@@ -123,10 +118,8 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
       });
       // Un-mask the model's text back into real values for storage/use.
       const text = deps.pii ? deps.pii.unmask(turn.text ?? '', piiMap) : turn.text ?? '';
-
-      // PRD M4: meter USD spend and enforce the run's hard budget (auto-stop).
-      meter.addTurn(turn.model, turn.tokensIn, turn.tokensOut);
-      meter.enforce(run.budgetUsd);
+      tokensIn += turn.tokensIn;
+      tokensOut += turn.tokensOut;
 
       // Persist the assistant turn.
       await appendStep(repo, {
@@ -146,37 +139,17 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
         tokensOut: turn.tokensOut,
       });
 
-      // Charge token usage for the assistant turn (idempotent on toolCallId="turn:<i>").
-      const tokenCredits = tokensToCredits(turn.tokensIn, turn.tokensOut);
-      if (tokenCredits > 0) {
-        await ledger.charge({
-          orgId: run.orgId,
-          runId,
-          stepIndex: stepIndex - 1,
-          toolCallId: `turn:${iter}`,
-          amount: tokenCredits,
-          reason: 'model tokens',
-        });
-      }
-
       if (turn.toolCalls.length === 0) {
         // No tools requested => final answer.
-        const credits = await ledger.totalForRun(runId);
-        await repo.updateRunStatus(runId, transition('running', 'succeeded'), {
-          output: text,
-          creditsUsed: credits,
-        });
+        await repo.updateRunStatus(runId, transition('running', 'succeeded'), { output: text });
         await repo.audit({
           orgId: run.orgId,
           runId,
           actor: 'runtime',
           action: 'run.succeeded',
-          meta: { creditsUsed: credits, usd: meter.usd() },
+          meta: { tokensIn, tokensOut },
         });
-        emit(deps.events, 'run.succeeded', runId, run.orgId, {
-          creditsUsed: credits,
-          usd: meter.usd(),
-        });
+        emit(deps.events, 'run.succeeded', runId, run.orgId, { tokensIn, tokensOut });
 
         // F5: persist an episodic summary of this run for future recall.
         if (deps.memory) {
@@ -197,7 +170,11 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
       // Execute each requested tool call.
       for (const call of turn.toolCalls) {
         // PRD M2: enforce the agent's per-agent tool allowlist.
-        if (agent.allowedTools && agent.allowedTools.length > 0 && !agent.allowedTools.includes(call.name)) {
+        if (
+          agent.allowedTools &&
+          agent.allowedTools.length > 0 &&
+          !agent.allowedTools.includes(call.name)
+        ) {
           throw new ToolNotAllowedError(agent.id, call.name);
         }
         const toolStarted = Date.now();
@@ -220,16 +197,6 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
           index: stepIndex - 1,
           role: 'tool',
           toolName: call.name,
-        });
-
-        // Idempotent per-tool-call charge.
-        await ledger.charge({
-          orgId: run.orgId,
-          runId,
-          stepIndex: stepIndex - 1,
-          toolCallId: call.id,
-          amount: CREDITS_PER_TOOL_CALL,
-          reason: `tool:${call.name}`,
         });
 
         messages.push({

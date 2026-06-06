@@ -1,24 +1,19 @@
 // Control Plane (F4): the API surface that creates work, reports status, exposes
-// observability, manages the DLQ, and handles billing top-ups. Framework-agnostic
-// — these are plain async methods so they're trivially testable; the HTTP/SSE
-// server (src/api/server.ts) is a thin adapter over them.
+// observability and manages the DLQ. Framework-agnostic — these are plain async
+// methods so they're trivially testable; the HTTP/SSE server (src/api/server.ts)
+// is a thin adapter over them.
 
 import { randomUUID } from 'crypto';
 import { Repository } from '../ports/repository';
 import { Queue } from '../ports/queue';
-import { Ledger } from '../billing/ledger';
 import { Observability } from '../observability/metrics';
-import { PaymentProvider } from '../billing/payments';
 import { EventBus } from '../events/bus';
-import { estimateRunCost } from '../billing/cost';
 import { DeadLetterRecord, Run } from '../domain/types';
 
 export interface ControlPlaneDeps {
   repo: Repository;
   queue: Queue;
-  ledger: Ledger;
   observability: Observability;
-  payments: PaymentProvider;
   events?: EventBus;
 }
 
@@ -45,8 +40,7 @@ export class ControlPlane {
     orgId: string;
     agentId: string;
     input: unknown;
-    estimate?: { estimatedToolCalls: number; estimatedTokens: number };
-  }): Promise<{ runId: string; status: string; estimatedCost?: number }> {
+  }): Promise<{ runId: string; status: string }> {
     const org = await this.deps.repo.getOrg(args.orgId);
     if (!org) throw new NotFoundError(`org ${args.orgId}`);
     const agent = await this.deps.repo.getAgent(args.agentId);
@@ -61,7 +55,6 @@ export class ControlPlane {
       agentId: args.agentId,
       status: 'queued',
       input: args.input,
-      creditsUsed: 0,
       attempts: 0,
     };
     await this.deps.repo.createRun(run);
@@ -73,11 +66,7 @@ export class ControlPlane {
     });
     await this.deps.queue.enqueue({ runId });
 
-    return {
-      runId,
-      status: 'queued',
-      estimatedCost: args.estimate ? estimateRunCost(args.estimate) : undefined,
-    };
+    return { runId, status: 'queued' };
   }
 
   async getRun(runId: string) {
@@ -85,12 +74,6 @@ export class ControlPlane {
     if (!run) throw new NotFoundError(`run ${runId}`);
     const trace = await this.deps.observability.runTrace(runId);
     return { run, trace };
-  }
-
-  previewCost(args: { estimatedToolCalls: number; estimatedTokens: number }): {
-    estimatedCost: number;
-  } {
-    return { estimatedCost: estimateRunCost(args) };
   }
 
   // --- Observability ---
@@ -130,35 +113,6 @@ export class ControlPlane {
     });
     await this.deps.queue.enqueue({ runId });
     return { runId, status: 'queued' };
-  }
-
-  // --- Billing top-up ---
-
-  async createCheckout(args: { orgId: string; credits: number; amountCents: number }) {
-    const org = await this.deps.repo.getOrg(args.orgId);
-    if (!org) throw new NotFoundError(`org ${args.orgId}`);
-    return this.deps.payments.createCheckout(args);
-  }
-
-  async handlePaymentWebhook(
-    rawBody: string,
-    signature: string,
-  ): Promise<{ handled: boolean; applied?: boolean }> {
-    const completed = this.deps.payments.parseWebhook(rawBody, signature);
-    if (!completed) return { handled: false };
-    const applied = await this.deps.ledger.grant({
-      orgId: completed.orgId,
-      source: 'stripe',
-      externalId: completed.eventId,
-      amount: completed.credits,
-    });
-    await this.deps.repo.audit({
-      orgId: completed.orgId,
-      actor: 'stripe',
-      action: applied ? 'credits.granted' : 'credits.duplicate',
-      meta: { eventId: completed.eventId, credits: completed.credits },
-    });
-    return { handled: true, applied };
   }
 
   // --- Live events (SSE/WS) ---

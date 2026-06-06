@@ -1,6 +1,6 @@
 // Agent-OS — Prisma schema v2 (production target: PostgreSQL).
 //
-// This schema is the system of record for the Billing Plane and the Run trace.
+// This schema is the system of record for the Run trace + agent state.
 // It is NOT required to run the test-suite: the runtime depends on the
 // `Repository` port (src/ports/repository.ts), and tests use the in-memory
 // adapter. This file is the production adapter's backing store.
@@ -8,7 +8,7 @@
 // Design notes (from the architecture review):
 //   - Multi-tenant isolation: every row hangs off `Org`.
 //   - Run lifecycle is a formal state machine (see src/domain/runStateMachine.ts).
-//   - Billing is idempotent at the DB level via the CreditLedger unique key.
+//   - Token usage is tracked per Step (metrics only — no billing).
 //   - AgentMemory + PromptVersion + DeadLetter are first-class, not afterthoughts.
 
 generator client {
@@ -62,14 +62,10 @@ enum StepRole {
 model Org {
   id           String         @id @default(cuid())
   name         String
-  // Denormalised running balance; the CreditLedger is the source of truth.
-  creditBalance Int           @default(0)
   createdAt    DateTime       @default(now())
 
   agents       Agent[]
   runs         Run[]
-  ledger       CreditLedger[]
-  grants       CreditGrant[]
   auditLogs    AuditLog[]
 }
 
@@ -141,10 +137,6 @@ model Run {
   input       Json
   output      Json?
   error       String?
-  // Aggregate of CreditLedger entries for this run (denormalised for reads).
-  creditsUsed Int       @default(0)
-  // Hard USD budget for this run (PRD M4). Null = unlimited.
-  budgetUsd   Float?
   attempts    Int       @default(0)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -155,7 +147,6 @@ model Run {
   children    Run[]     @relation("RunChildren")
 
   steps       Step[]
-  ledger      CreditLedger[]
 
   @@index([orgId, status])
   @@index([parentRunId])
@@ -179,43 +170,6 @@ model Step {
 
   @@unique([runId, index])
   @@index([runId])
-}
-
-// ---------------------------------------------------------------------------
-// Billing plane — idempotent credit ledger
-// ---------------------------------------------------------------------------
-
-model CreditLedger {
-  id         String   @id @default(cuid())
-  orgId      String
-  org        Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  runId      String
-  run        Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
-  // Idempotency dimensions: a (runId, stepIndex, toolCallId) tuple is charged once.
-  stepIndex  Int
-  toolCallId String
-  // Negative = debit (consumption), positive = credit (top-up / refund).
-  amount     Int
-  reason     String?
-  createdAt  DateTime @default(now())
-
-  @@unique([runId, stepIndex, toolCallId])
-  @@index([orgId])
-}
-
-// Credit top-ups (e.g. Stripe checkouts). Idempotent on (source, externalId) so
-// a redelivered webhook never double-credits.
-model CreditGrant {
-  id         String   @id @default(cuid())
-  orgId      String
-  org        Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  source     String
-  externalId String
-  amount     Int
-  createdAt  DateTime @default(now())
-
-  @@unique([source, externalId])
-  @@index([orgId])
 }
 
 // ---------------------------------------------------------------------------

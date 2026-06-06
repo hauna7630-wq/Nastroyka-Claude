@@ -1,5 +1,8 @@
 # agent-os — Architecture blueprint
 
+> UPDATE: the "Billing Plane", Ledger, credits and Stripe shown in some diagrams have been
+> removed (internal/personal tool). Token usage is a per-step metric only.
+
 Diagrams render on GitHub (Mermaid). See `SPEC.md` for the prose specification.
 
 ## 1. Three planes
