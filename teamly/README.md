@@ -4,7 +4,18 @@ A corporate **knowledge base + wiki** (Teamly analog), niche-agnostic. Built as 
 Next.js (App Router) + Prisma/Postgres + TipTap application.
 
 Modules: **T1 — knowledge base** (done), **T2 — AI/RAG search & assistant** (done),
-**T3 — LMS** (courses, tests, assignments) — next.
+**T3 — LMS** (done).
+
+## T3: Learning (LMS)
+
+- **Courses from the knowledge base**: `generateCourseFromSpace` builds a course with a lesson
+  per KB page (each lesson linked to its page).
+- **Modules, lessons, quizzes**: single/multi-correct questions with a passing score.
+- **Enrollment + progress**: assign a course, mark lessons complete, take quizzes; the course
+  auto-completes when every lesson is done and every quiz is passed. Grading + progress are pure
+  (unit-tested); the flow is integration-tested on live Postgres.
+- **UI**: `/app/courses` (list + "create from KB"), course view with progress, lesson view
+  (KB material + mark complete), quiz take page with scored result.
 
 ## T2: AI search & assistant (RAG)
 
@@ -62,6 +73,6 @@ npm run test:integration # DB services on live Postgres (needs DATABASE_URL)
 npm run build            # Next.js production build (typechecks all routes)
 ```
 
-Verified: unit 21/21, integration 9/9 (live Postgres + pgvector: KB services + RAG search,
-grounded answers, refusal, space isolation), `next build` green (7 routes), runtime smoke
-(login → space → editor → search → AI ask with citations / refusal) passing.
+Verified: unit 28/28, integration 12/12 (live Postgres + pgvector: KB services, RAG search +
+grounded answers + refusal + space isolation, full LMS flow incl. course-from-KB generation and
+progress→completion), `next build` green (11 routes).

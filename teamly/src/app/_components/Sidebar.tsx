@@ -38,6 +38,9 @@ export default async function Sidebar({
   return (
     <aside className="sidebar">
       <div className="brand">Teamly</div>
+      <div style={{ marginBottom: 12 }}>
+        <Link href="/app/courses">📚 Курсы (обучение)</Link>
+      </div>
 
       {activeSpaceId && (
         <>
