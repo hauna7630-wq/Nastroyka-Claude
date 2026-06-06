@@ -83,6 +83,8 @@ model Agent {
   org              Org             @relation(fields: [orgId], references: [id], onDelete: Cascade)
   name             String
   type             AgentType
+  // Per-agent tool allowlist (PRD M2). Empty = all tools allowed.
+  allowedTools     String[]        @default([])
   // Points at the active prompt version; older versions remain for rollback.
   currentVersionId String?         @unique
   currentVersion   PromptVersion?  @relation("ActiveVersion", fields: [currentVersionId], references: [id])
@@ -141,6 +143,8 @@ model Run {
   error       String?
   // Aggregate of CreditLedger entries for this run (denormalised for reads).
   creditsUsed Int       @default(0)
+  // Hard USD budget for this run (PRD M4). Null = unlimited.
+  budgetUsd   Float?
   attempts    Int       @default(0)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

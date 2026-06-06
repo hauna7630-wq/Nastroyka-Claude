@@ -29,6 +29,14 @@ export interface ToolSpec {
   run(input: Record<string, unknown>, ctx: ToolContext): Promise<unknown>;
 }
 
+// Raised when an agent invokes a tool outside its per-agent allowlist (PRD M2).
+export class ToolNotAllowedError extends Error {
+  constructor(agentId: string, tool: string) {
+    super(`Tool "${tool}" is not allowed for agent ${agentId}`);
+    this.name = 'ToolNotAllowedError';
+  }
+}
+
 export class ToolRegistry {
   private readonly tools = new Map<string, ToolSpec>();
 

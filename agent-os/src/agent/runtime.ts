@@ -12,10 +12,13 @@ import { Repository } from '../ports/repository';
 import { ToolRegistry } from '../tools/registry';
 import { Ledger } from '../billing/ledger';
 import { tokensToCredits, CREDITS_PER_TOOL_CALL } from '../billing/cost';
+import { CostMeter } from '../billing/budget';
 import { Step } from '../domain/types';
 import { EventBus, emit } from '../events/bus';
 import { MemoryStore, memoryText } from '../ports/memory';
 import { Sandbox } from '../ports/sandbox';
+import { PiiMasker } from '../security/pii';
+import { ToolNotAllowedError } from '../tools/registry';
 
 export interface RuntimeDeps {
   repo: Repository;
@@ -32,6 +35,9 @@ export interface RuntimeDeps {
   memory?: MemoryStore;
   // Optional code-execution sandbox (F3) made available to the code_exec tool.
   sandbox?: Sandbox;
+  // Optional PII masker (PRD §4). When present, prompts are masked before the
+  // model call and the model's output is un-masked afterwards.
+  pii?: PiiMasker;
 }
 
 export class RunNotFoundError extends Error {
@@ -98,15 +104,29 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
   // Step index is deterministic across retries so ledger charges stay idempotent.
   let stepIndex = 0;
   const messages: ModelMessage[] = [{ role: 'user', content: task }];
+  // PRD M4: per-run USD cost meter; PRD §4: per-run PII token mapping.
+  const meter = new CostMeter();
+  const piiMap = new Map<string, string>();
 
   try {
     for (let iter = 0; iter < maxIterations; iter++) {
       const started = Date.now();
+      // Mask outgoing prompt (system + messages) before it leaves for the model.
+      const outSystem = deps.pii ? deps.pii.mask(system, piiMap) : system;
+      const outMessages = deps.pii
+        ? messages.map((m) => ({ ...m, content: deps.pii!.mask(m.content, piiMap) }))
+        : messages;
       const turn = await model.complete({
-        system,
-        messages,
+        system: outSystem,
+        messages: outMessages,
         tools: tools.schemas(),
       });
+      // Un-mask the model's text back into real values for storage/use.
+      const text = deps.pii ? deps.pii.unmask(turn.text ?? '', piiMap) : turn.text ?? '';
+
+      // PRD M4: meter USD spend and enforce the run's hard budget (auto-stop).
+      meter.addTurn(turn.model, turn.tokensIn, turn.tokensOut);
+      meter.enforce(run.budgetUsd);
 
       // Persist the assistant turn.
       await appendStep(repo, {
@@ -114,7 +134,7 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
         index: stepIndex++,
         role: 'assistant',
         input: undefined,
-        output: turn.text ?? '',
+        output: text,
         latencyMs: Date.now() - started,
         tokensIn: turn.tokensIn,
         tokensOut: turn.tokensOut,
@@ -143,7 +163,7 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
         // No tools requested => final answer.
         const credits = await ledger.totalForRun(runId);
         await repo.updateRunStatus(runId, transition('running', 'succeeded'), {
-          output: turn.text ?? '',
+          output: text,
           creditsUsed: credits,
         });
         await repo.audit({
@@ -151,9 +171,12 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
           runId,
           actor: 'runtime',
           action: 'run.succeeded',
-          meta: { creditsUsed: credits },
+          meta: { creditsUsed: credits, usd: meter.usd() },
         });
-        emit(deps.events, 'run.succeeded', runId, run.orgId, { creditsUsed: credits });
+        emit(deps.events, 'run.succeeded', runId, run.orgId, {
+          creditsUsed: credits,
+          usd: meter.usd(),
+        });
 
         // F5: persist an episodic summary of this run for future recall.
         if (deps.memory) {
@@ -161,18 +184,22 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
             agentId: agent.id,
             kind: 'episodic',
             runId,
-            content: { task, summary: truncate(turn.text ?? '', 500) },
+            content: { task, summary: truncate(text, 500) },
           });
         }
         return;
       }
 
-      if (turn.text) {
-        messages.push({ role: 'assistant', content: turn.text });
+      if (text) {
+        messages.push({ role: 'assistant', content: text });
       }
 
       // Execute each requested tool call.
       for (const call of turn.toolCalls) {
+        // PRD M2: enforce the agent's per-agent tool allowlist.
+        if (agent.allowedTools && agent.allowedTools.length > 0 && !agent.allowedTools.includes(call.name)) {
+          throw new ToolNotAllowedError(agent.id, call.name);
+        }
         const toolStarted = Date.now();
         const result = await tools.run(call.name, call.input, {
           allowlistDomains: deps.allowlistDomains,

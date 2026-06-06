@@ -60,6 +60,7 @@ export class PrismaRepository implements Repository {
       name: a.name,
       type: a.type,
       systemPrompt: a.currentVersion?.systemPrompt ?? '',
+      allowedTools: a.allowedTools ?? [],
     };
   }
 
@@ -75,6 +76,7 @@ export class PrismaRepository implements Repository {
       name: a.name,
       type: a.type,
       systemPrompt: a.currentVersion?.systemPrompt ?? '',
+      allowedTools: a.allowedTools ?? [],
     };
   }
 
@@ -95,6 +97,7 @@ export class PrismaRepository implements Repository {
         status: run.status,
         input: run.input as any,
         creditsUsed: run.creditsUsed,
+        budgetUsd: run.budgetUsd,
         attempts: run.attempts,
         parentRunId: run.parentRunId,
       },
@@ -124,6 +127,7 @@ export class PrismaRepository implements Repository {
       creditsUsed: r.creditsUsed,
       attempts: r.attempts,
       parentRunId: r.parentRunId ?? undefined,
+      budgetUsd: r.budgetUsd ?? undefined,
     };
   }
 

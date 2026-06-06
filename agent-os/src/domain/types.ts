@@ -33,6 +33,8 @@ export interface Agent {
   name: string;
   type: AgentType;
   systemPrompt: string;
+  // Per-agent tool allowlist (PRD M2). Empty/undefined = all tools allowed.
+  allowedTools?: string[];
 }
 
 export interface Run {
@@ -47,6 +49,8 @@ export interface Run {
   attempts: number;
   // Set when this run is a subtask spawned by an orchestrator run (F6).
   parentRunId?: string;
+  // Hard USD budget for this run (PRD M4). Exceeding it stops the run.
+  budgetUsd?: number;
 }
 
 export interface Step {
@@ -110,6 +114,8 @@ export interface ModelTurn {
   toolCalls: ToolCall[];
   tokensIn: number;
   tokensOut: number;
+  // Model id that produced this turn (for USD cost accounting). Optional.
+  model?: string;
 }
 
 // The payload placed on the queue to request execution of a run.

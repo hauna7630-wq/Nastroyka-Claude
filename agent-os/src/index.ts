@@ -23,6 +23,7 @@ import { SubprocessSandbox } from './adapters/sandbox.subprocess';
 import { Observability } from './observability/metrics';
 import { StripePaymentProvider } from './adapters/payments.stripe';
 import { ControlPlane } from './api/controlPlane';
+import { RegexPiiMasker } from './security/pii';
 
 export function buildToolRegistry(): ToolRegistry {
   const tools = new ToolRegistry();
@@ -59,6 +60,8 @@ export function buildApp(): App {
   // F3: isolate for code_exec (Linux namespaces + rlimits). Swap for
   // DockerSandbox where a container runtime + images are available.
   const sandbox = new SubprocessSandbox();
+  // PRD §4: mask PII before prompts leave for external LLMs.
+  const pii = new RegexPiiMasker();
   // F4: event bus + observability + billing + the control-plane API.
   const events = new InMemoryEventBus();
   const observability = new Observability(repo, ledger);
@@ -89,6 +92,7 @@ export function buildApp(): App {
       events,
       memory,
       sandbox,
+      pii,
     },
     controlPlane,
   };
