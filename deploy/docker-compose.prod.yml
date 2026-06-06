@@ -1,0 +1,81 @@
+# Production stack for agent-os + teamly on a single host.
+# Images are built + pushed by .github/workflows/deploy.yml; the deploy job writes
+# .env on the server and runs `docker compose -f docker-compose.prod.yml up -d`.
+# Each app container applies its own Prisma migrations on startup.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: teamly
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d teamly"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    restart: unless-stopped
+
+  teamly:
+    image: ${IMAGE_PREFIX:?set IMAGE_PREFIX}/teamly:latest
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD}@postgres:5432/teamly
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET}
+      PORT: "3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  agentos:
+    image: ${IMAGE_PREFIX}/agent-os:latest
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD}@postgres:5432/agent_os
+      REDIS_URL: redis://redis:6379
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      ALLOWLIST_DOMAINS: ${ALLOWLIST_DOMAINS:-}
+      PORT: "3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      TEAMLY_DOMAIN: ${TEAMLY_DOMAIN:?set TEAMLY_DOMAIN}
+      AGENT_DOMAIN: ${AGENT_DOMAIN:?set AGENT_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    depends_on:
+      - teamly
+      - agentos
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  caddydata:
+  caddyconfig:

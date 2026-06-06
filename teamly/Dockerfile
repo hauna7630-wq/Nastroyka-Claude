@@ -29,9 +29,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -
 # Next standalone server + static assets.
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
-# Prisma client engine (not always traced into standalone).
+# Prisma client engine + CLI (not traced into standalone) for runtime migrations.
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=build /app/node_modules/prisma ./node_modules/prisma
+COPY --from=build /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
 COPY --from=build /app/prisma ./prisma
 
 EXPOSE 3000
-CMD ["node", "server.js"]
+# Applies pending migrations, then starts the Next standalone server.
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node server.js"]
