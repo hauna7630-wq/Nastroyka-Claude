@@ -26,17 +26,26 @@ bash provision.sh          # installs Docker + compose, creates `deploy` user
 echo "ssh-ed25519 AAAA... ci-deploy" >> /home/deploy/.ssh/authorized_keys
 ```
 
-## 2. DNS
+## 2. DNS (domain `work8n.ru`, managed at Beget)
 
-Point both subdomains at the server IP (A, and AAAA if IPv6):
+If `work8n.ru` is registered elsewhere, first delegate it to Beget by setting the
+registrar's nameservers to:
 
 ```
-teamly.<domain>   A   <server-ip>
-agent.<domain>    A   <server-ip>
+ns1.beget.com   ns2.beget.com   ns1.beget.pro   ns2.beget.pro
+```
+
+Then, in the Beget DNS panel for `work8n.ru`, add A records to the server IP:
+
+```
+agent.work8n.ru    A   <server-ip>
+teamly.work8n.ru   A   <server-ip>
+# optional landing on the root:
+# work8n.ru        A   <server-ip>
 ```
 
 TLS is issued automatically by Caddy on first request (Let's Encrypt) — just make
-sure ports 80/443 are open.
+sure ports 80/443 are open on the server.
 
 ## 3. GitHub secrets (Settings → Secrets and variables → Actions)
 
