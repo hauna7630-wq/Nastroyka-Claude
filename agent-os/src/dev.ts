@@ -13,6 +13,8 @@ import { startWorker } from './worker/worker';
 import { buildToolRegistry } from './index';
 import { HeuristicPlanner } from './adapters/planner.heuristic';
 import { DelayedEchoModel } from './adapters/model.echo';
+import { StaticSearchProvider } from './adapters/search.mock';
+import { PlainTextDocumentParser } from './adapters/documents.text';
 import { RegexPiiMasker } from './security/pii';
 
 async function main(): Promise<void> {
@@ -39,6 +41,8 @@ async function main(): Promise<void> {
     planner: new HeuristicPlanner(),
     complexityThreshold: 0, // always orchestrate (show the team graph)
     defaultAgentType: 'researcher',
+    search: new StaticSearchProvider(),
+    documents: new PlainTextDocumentParser(),
   });
 
   const cp = new ControlPlane({ repo, queue, observability: new Observability(repo), events });

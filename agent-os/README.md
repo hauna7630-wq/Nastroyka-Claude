@@ -28,8 +28,9 @@ npm run typecheck # tsc --noEmit, incl. production adapters
 - **Security guardrails** — per-agent **tool allowlist** (enforced in the runtime) and **PII
   masking** (`src/security/pii.ts`): emails/phones/cards are masked before prompts reach the LLM
   and un-masked on the way back.
-- **Tool registry + sandbox boundary** (`src/tools/*`) — deny-by-default network; the
-  `http_request` tool enforces a domain allowlist; `code_exec` runs in a real isolate
+- **Tools** (`src/tools/*`) — deny-by-default network; `http_request` enforces a domain
+  allowlist; **`web_search`** (Tavily, PRD §3) and **`read_document`** (text/markdown/csv/json;
+  pdf/xlsx/docx via a parser) are integration tools; `code_exec` runs in a real isolate
   (`SubprocessSandbox`: namespaces + rlimits; or `DockerSandbox`) enforcing no-network + CPU/memory
   + wall-timeout, and refuses to run if no sandbox is configured.
 - **Agent runtime** (`src/agent/runtime.ts`) — the tool-use loop: model → tools → step trace,

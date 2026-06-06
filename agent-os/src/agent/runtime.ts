@@ -14,6 +14,8 @@ import { Step } from '../domain/types';
 import { EventBus, emit } from '../events/bus';
 import { MemoryStore, memoryText } from '../ports/memory';
 import { Sandbox } from '../ports/sandbox';
+import { SearchProvider } from '../ports/search';
+import { DocumentParser } from '../ports/documents';
 import { PiiMasker } from '../security/pii';
 
 export interface RuntimeDeps {
@@ -30,6 +32,9 @@ export interface RuntimeDeps {
   memory?: MemoryStore;
   // Optional code-execution sandbox (F3) made available to the code_exec tool.
   sandbox?: Sandbox;
+  // Optional PRD §3 integration tools.
+  search?: SearchProvider;
+  documents?: DocumentParser;
   // Optional PII masker. When present, prompts are masked before the model call
   // and the model's output is un-masked afterwards.
   pii?: PiiMasker;
@@ -193,6 +198,8 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
         const result = await tools.run(call.name, call.input, {
           allowlistDomains: deps.allowlistDomains,
           sandbox: deps.sandbox,
+          search: deps.search,
+          documents: deps.documents,
         });
 
         await appendStep(repo, {

@@ -11,6 +11,10 @@ import { loadConfig } from './config';
 import { ToolRegistry } from './tools/registry';
 import { httpRequestTool } from './tools/httpRequest';
 import { codeExecTool } from './tools/codeExec';
+import { webSearchTool } from './tools/webSearch';
+import { readDocumentTool } from './tools/document';
+import { TavilySearchProvider } from './adapters/search.tavily';
+import { PlainTextDocumentParser } from './adapters/documents.text';
 import { WorkerDeps } from './worker/worker';
 import { PrismaRepository, PrismaClientLike } from './adapters/repo.prisma';
 import { BullMQQueue } from './adapters/queue.bullmq';
@@ -27,6 +31,8 @@ export function buildToolRegistry(): ToolRegistry {
   const tools = new ToolRegistry();
   tools.register(httpRequestTool);
   tools.register(codeExecTool);
+  tools.register(webSearchTool);
+  tools.register(readDocumentTool);
   return tools;
 }
 
@@ -57,6 +63,9 @@ export function buildApp(): App {
   // F3: isolate for code_exec (Linux namespaces + rlimits). Swap for
   // DockerSandbox where a container runtime + images are available.
   const sandbox = new SubprocessSandbox();
+  // PRD §3 integration tools.
+  const search = config.tavilyApiKey ? new TavilySearchProvider({ apiKey: config.tavilyApiKey }) : undefined;
+  const documents = new PlainTextDocumentParser();
   // Mask PII before prompts leave for external LLMs.
   const pii = new RegexPiiMasker();
   // F4: event bus + observability + the control-plane API.
@@ -75,6 +84,8 @@ export function buildApp(): App {
       events,
       memory,
       sandbox,
+      search,
+      documents,
       pii,
     },
     controlPlane,

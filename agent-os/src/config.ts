@@ -9,6 +9,7 @@ export interface Config {
   allowlistDomains: string[];
   toolCpuMs: number;
   toolMemMb: number;
+  tavilyApiKey: string;
   // HTTP server.
   port: number;
 }
@@ -30,6 +31,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     allowlistDomains: csv(env.ALLOWLIST_DOMAINS),
     toolCpuMs: Number(env.TOOL_CPU_MS ?? 5000),
     toolMemMb: Number(env.TOOL_MEM_MB ?? 256),
+    tavilyApiKey: env.TAVILY_API_KEY ?? '',
     port: Number(env.PORT ?? 3000),
   };
 }

@@ -7,6 +7,8 @@
 
 import { ToolSchema } from '../ports/model';
 import { Sandbox } from '../ports/sandbox';
+import { SearchProvider } from '../ports/search';
+import { DocumentParser } from '../ports/documents';
 
 export interface ToolSecurity {
   // Deny-by-default: tools must opt in to network access.
@@ -21,6 +23,9 @@ export interface ToolContext {
   allowlistDomains: string[];
   // F3: the isolate used by code_exec. Absent => code execution is disabled.
   sandbox?: Sandbox;
+  // PRD §3 integration tools (absent => the respective tool is disabled).
+  search?: SearchProvider;
+  documents?: DocumentParser;
 }
 
 export interface ToolSpec {
