@@ -22,5 +22,5 @@ COPY --from=build /app/package.json ./
 
 # Needs DATABASE_URL, REDIS_URL, and ANTHROPIC_API_KEY at runtime.
 # Applies pending migrations, then starts the worker + control-plane server.
-CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node dist/src/main.js"]
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node dist/src/main.js"]
 

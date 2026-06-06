@@ -30,12 +30,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 # Prisma client engine + CLI (not traced into standalone) for runtime migrations.
+# We invoke the CLI by its real entrypoint (node_modules/prisma/build/index.js)
+# rather than the .bin/prisma symlink, which is fragile across Docker stages.
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=build /app/node_modules/prisma ./node_modules/prisma
-COPY --from=build /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
 COPY --from=build /app/prisma ./prisma
 
 EXPOSE 3000
 # Applies pending migrations, then starts the Next standalone server.
-CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node server.js"]
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node server.js"]

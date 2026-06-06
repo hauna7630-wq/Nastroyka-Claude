@@ -111,7 +111,7 @@ copies `deploy/*` to the host → writes `~/app/.env` from secrets →
 ```bash
 ssh deploy@<host>
 cd ~/app
-docker compose -f docker-compose.prod.yml exec teamly node_modules/.bin/prisma --version  # sanity
+docker compose -f docker-compose.prod.yml exec teamly node node_modules/prisma/build/index.js --version  # sanity
 # teamly seed/reindex live in the image's package scripts; run if you want demo data:
 # (the app already migrates on startup; seeding is optional)
 ```
