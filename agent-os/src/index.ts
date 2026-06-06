@@ -20,7 +20,7 @@ import { PrismaRepository, PrismaClientLike } from './adapters/repo.prisma';
 import { BullMQQueue } from './adapters/queue.bullmq';
 import { AnthropicModelProvider } from './adapters/model.anthropic';
 import { ModelPlanner } from './orchestrator/planner';
-import { InMemoryEventBus } from './events/bus';
+import { RedisEventBus } from './adapters/events.redis';
 import { PgVectorMemoryStore, RawSqlClient } from './adapters/memory.vector.pg';
 import { HashEmbedder } from './adapters/embedder.hash';
 import { SubprocessSandbox } from './adapters/sandbox.subprocess';
@@ -71,8 +71,8 @@ export function buildApp(): App {
   const documents = new PlainTextDocumentParser();
   // Mask PII before prompts leave for external LLMs.
   const pii = new RegexPiiMasker();
-  // F4: event bus + observability + the control-plane API.
-  const events = new InMemoryEventBus();
+  // F4: cross-process event bus (Redis pub/sub) + observability + control-plane API.
+  const events = new RedisEventBus(config.redisUrl);
   const observability = new Observability(repo);
   const controlPlane = new ControlPlane({ repo, queue, observability, events });
 
