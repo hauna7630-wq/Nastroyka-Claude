@@ -6,12 +6,16 @@ import { executeRun, RunNotFoundError, RuntimeDeps } from './runtime';
 import { executeOrchestration } from '../orchestrator/orchestrator';
 import { AgentType } from '../domain/types';
 import { Planner } from '../orchestrator/planner';
+import { Queue } from '../ports/queue';
 
 export interface DispatchDeps extends RuntimeDeps {
   // Required only when orchestrator-type runs are dispatched.
   planner?: Planner;
   complexityThreshold?: number;
   defaultAgentType?: AgentType;
+  // Production: orchestrator dispatches children via the queue + event bus.
+  asyncChildren?: boolean;
+  queue?: Queue;
 }
 
 export async function dispatchRun(runId: string, deps: DispatchDeps): Promise<void> {

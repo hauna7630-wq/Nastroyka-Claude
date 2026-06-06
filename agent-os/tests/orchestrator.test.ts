@@ -53,6 +53,7 @@ async function setup(opts: {
   agents: Agent[];
   task: string;
   maxAttempts?: number;
+  asyncChildren?: boolean;
 }) {
   const repo = new InMemoryRepository();
   repo.seedOrg({ ...ORG });
@@ -80,6 +81,7 @@ async function setup(opts: {
     planner: opts.planner,
     complexityThreshold: 5,
     defaultAgentType: 'researcher',
+    asyncChildren: opts.asyncChildren,
   });
   return { repo, queue, events };
 }
@@ -230,5 +232,36 @@ describe('orchestrator (end-to-end)', () => {
     expect((await repo.getRun('parent_1::r'))?.status).toBe('succeeded');
     expect((await repo.getRun('parent_1::a'))?.status).toBe('succeeded');
     expect((await repo.getRun('parent_1::w'))?.status).toBe('succeeded');
+  });
+
+  it('dispatches children via the queue + event bus when asyncChildren is set', async () => {
+    const plan = {
+      subtasks: [
+        { id: 'r', agentType: 'researcher' as AgentType, prompt: 'research', dependsOn: [] },
+        { id: 'a', agentType: 'analyst' as AgentType, prompt: 'analyze', dependsOn: ['r'] },
+        { id: 'w', agentType: 'writer' as AgentType, prompt: 'write', dependsOn: ['a'] },
+      ],
+    };
+    const { repo, queue } = await setup({
+      model: new EchoModel(),
+      planner: new StaticPlanner(plan),
+      agents: [
+        agent('orch_1', 'orchestrator'),
+        agent('res_1', 'researcher'),
+        agent('ana_1', 'analyst'),
+        agent('wri_1', 'writer'),
+      ],
+      task: 'Research the market and then analyze competitors and finally write a report.',
+      maxAttempts: 1,
+      asyncChildren: true,
+    });
+    await queue.enqueue({ runId: 'parent_1' });
+
+    expect((await repo.getRun('parent_1'))?.status).toBe('succeeded');
+    expect((await repo.listChildRuns('parent_1')).map((c) => c.status)).toEqual([
+      'succeeded',
+      'succeeded',
+      'succeeded',
+    ]);
   });
 });

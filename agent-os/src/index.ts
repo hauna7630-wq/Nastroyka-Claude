@@ -84,6 +84,7 @@ export function buildApp(): App {
       tools,
       allowlistDomains: config.allowlistDomains,
       planner,
+      asyncChildren: true,
       events,
       memory,
       sandbox,

@@ -19,6 +19,7 @@ import { isTerminal, transition } from '../domain/runStateMachine';
 import { executeRun, RunNotFoundError, RuntimeDeps, toPrompt } from '../agent/runtime';
 import { AgentType } from '../domain/types';
 import { emit } from '../events/bus';
+import { Queue } from '../ports/queue';
 import {
   DEFAULT_COMPLEXITY_THRESHOLD,
   shouldOrchestrate,
@@ -35,6 +36,10 @@ export interface OrchestratorDeps extends RuntimeDeps {
   complexityThreshold?: number;
   // Agent type used for the single-agent fast path when a task is simple.
   defaultAgentType?: AgentType;
+  // Production: dispatch each child onto the queue and await its completion via
+  // the event bus, instead of running it inline. Requires `queue` + `events`.
+  asyncChildren?: boolean;
+  queue?: Queue;
 }
 
 export async function executeOrchestration(
@@ -123,9 +128,10 @@ export async function executeOrchestration(
         status: 'running',
       });
 
-      // Child agents are never orchestrators, so run them directly (no nesting).
+      // Child agents are never orchestrators. Either run inline, or (production)
+      // dispatch onto the queue and await completion via the event bus.
       try {
-        await executeRun(childRunId, deps);
+        await runChild(deps, childRunId);
       } catch (err) {
         emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
           subtaskId: subtask.id,
@@ -183,6 +189,28 @@ export async function executeOrchestration(
     });
     throw err;
   }
+}
+
+// Run a child subtask: inline (default) or via the queue + event bus (production).
+async function runChild(deps: OrchestratorDeps, childRunId: string): Promise<void> {
+  if (!deps.asyncChildren || !deps.queue || !deps.events) {
+    await executeRun(childRunId, deps);
+    return;
+  }
+  const bus = deps.events;
+  const done = new Promise<void>((resolve, reject) => {
+    const off = bus.subscribe(childRunId, (e) => {
+      if (e.type === 'run.succeeded') {
+        off();
+        resolve();
+      } else if (e.type === 'run.dead_lettered') {
+        off();
+        reject(new Error(`subtask run ${childRunId} did not succeed`));
+      }
+    });
+  });
+  await deps.queue.enqueue({ runId: childRunId });
+  await done;
 }
 
 function composePrompt(
