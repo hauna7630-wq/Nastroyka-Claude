@@ -17,13 +17,43 @@ the stack up. **Each app applies its own Prisma migrations on startup.**
 
 ## 1. Server (one-time)
 
-A small VPS (2 vCPU / 4 GB is comfortable), Ubuntu 22.04/24.04. As root:
+You need a **VPS with Docker + SSH** (Beget *shared* hosting won't run this stack).
+
+### Getting a Beget VPS
+
+1. Beget → **«Облачные VPS»** → create a server.
+2. Specs: **2 vCPU / 4 GB RAM / 40 GB SSD** (comfortable; 2 GB is the bare minimum —
+   pgvector + two Node apps + Caddy). OS: **Ubuntu 24.04 LTS**.
+3. Auth: upload your SSH public key (preferred) or set a root password. You'll get a
+   **public IPv4** — that's `<server-ip>` used below and in DNS.
+4. Make sure ports **22, 80, 443** are open (Beget VPS opens them by default).
+
+> Any cloud VPS (Hetzner, Timeweb, etc.) works identically — Ubuntu + Docker.
+
+### Provision it
+
+As root on the VPS:
 
 ```bash
 curl -fsSLO https://raw.githubusercontent.com/<owner>/<repo>/<branch>/deploy/provision.sh
 bash provision.sh          # installs Docker + compose, creates `deploy` user
 # add your CI deploy public key:
 echo "ssh-ed25519 AAAA... ci-deploy" >> /home/deploy/.ssh/authorized_keys
+```
+
+Generate the CI deploy keypair on your machine (public part → server above, private
+part → GitHub secret `SSH_KEY`):
+
+```bash
+ssh-keygen -t ed25519 -C ci-deploy -f ci_deploy -N ""
+# ci_deploy.pub → authorized_keys ;  ci_deploy → SSH_KEY secret
+```
+
+Generate strong secrets:
+
+```bash
+openssl rand -hex 24   # POSTGRES_PASSWORD
+openssl rand -hex 24   # AUTH_SECRET
 ```
 
 ## 2. DNS (domain `work8n.ru`, managed at Beget)
