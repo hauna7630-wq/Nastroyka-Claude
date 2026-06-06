@@ -82,3 +82,17 @@ jobs:
       - run: npx prisma migrate deploy
       - run: npm run test:integration
       - run: npm run build
+
+  # Image builds (GitHub runners have Docker; not run in the dev sandbox where the
+  # registry is blocked). Verifies the Dockerfiles build end-to-end.
+  agent-os-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t agent-os:ci ./agent-os
+
+  teamly-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t teamly:ci ./teamly
