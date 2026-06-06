@@ -69,6 +69,22 @@ Default `npm test` stays infra-free.
 See [`docs/SPEC.md`](docs/SPEC.md) for the full specification and
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for diagrams.
 
+## Coordinator UI (PRD M5)
+
+A zero-dependency web Coordinator (chat + **live agent-assembly graph** over SSE) served by the
+control plane. Run it fully offline (no Postgres/Redis/keys) — it seeds a demo team and uses a
+deterministic planner + echo model:
+
+```bash
+npm run dev:coordinator      # → http://localhost:3000
+```
+
+Submit a task; the orchestrator decomposes it into a typed-agent team (researcher → analyst →
+writer) and each agent's status animates live as it works. Backend entry point:
+`POST /tasks { orgId, task }` → routed to the org's `orchestrator` agent; the page subscribes to
+`GET /runs/:id/events` and renders `orchestration.planned` + per-subtask `orchestration.subtask`
+events. Create agents via the Agent Factory: `POST /agents`.
+
 ## Auto-orchestration (F6)
 
 `orchestrator`-type runs are decomposed into typed-agent subtasks automatically: a complexity

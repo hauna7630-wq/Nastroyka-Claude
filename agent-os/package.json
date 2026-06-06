@@ -10,6 +10,7 @@
     "test": "jest",
     "test:integration": "jest -c jest.integration.config.js",
     "start": "ts-node src/main.ts",
+    "dev:coordinator": "ts-node src/dev.ts",
     "worker": "ts-node src/worker/worker.ts",
     "db:generate": "prisma generate",
     "db:validate": "prisma validate",

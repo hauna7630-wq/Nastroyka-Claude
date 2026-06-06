@@ -10,9 +10,14 @@ export class InMemoryQueue implements Queue {
   private processor?: JobProcessor;
   private readonly deliveries = new Map<string, number>();
   private readonly maxAttempts: number;
+  // When true, enqueue returns immediately and the job runs on the next tick.
+  // Used by the dev Coordinator so SSE events stream after the client subscribes;
+  // tests use the default (synchronous) mode and assert completion inline.
+  private readonly async: boolean;
 
-  constructor(opts: { maxAttempts?: number } = {}) {
+  constructor(opts: { maxAttempts?: number; async?: boolean } = {}) {
     this.maxAttempts = opts.maxAttempts ?? 3;
+    this.async = opts.async ?? false;
   }
 
   async enqueue(job: RunJob): Promise<void> {
@@ -22,6 +27,12 @@ export class InMemoryQueue implements Queue {
     const attempt = (this.deliveries.get(job.runId) ?? 0) + 1;
     this.deliveries.set(job.runId, attempt);
     const ctx: JobContext = { attempt, maxAttempts: this.maxAttempts };
+    if (this.async) {
+      setTimeout(() => {
+        void this.processor!(job, ctx).catch(() => undefined);
+      }, 0);
+      return;
+    }
     await this.processor(job, ctx);
   }
 

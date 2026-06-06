@@ -1,5 +1,6 @@
 import { InMemoryRepository } from '../src/adapters/repo.inMemory';
 import { InMemoryQueue } from '../src/adapters/queue.inMemory';
+import { InMemoryEventBus } from '../src/events/bus';
 import { ToolRegistry } from '../src/tools/registry';
 import { startWorker } from '../src/worker/worker';
 import { ScriptedModelProvider, finalTurn } from '../src/adapters/model.mock';
@@ -67,6 +68,7 @@ async function setup(opts: {
   };
   await repo.createRun(parent);
 
+  const events = new InMemoryEventBus();
   const queue = new InMemoryQueue({ maxAttempts: opts.maxAttempts ?? 3 });
   startWorker({
     queue,
@@ -74,11 +76,12 @@ async function setup(opts: {
     model: opts.model,
     tools: new ToolRegistry(),
     allowlistDomains: [],
+    events,
     planner: opts.planner,
     complexityThreshold: 5,
     defaultAgentType: 'researcher',
   });
-  return { repo, queue };
+  return { repo, queue, events };
 }
 
 describe('complexity gating', () => {
@@ -150,7 +153,7 @@ describe('orchestrator (end-to-end)', () => {
         { id: 'w', agentType: 'writer' as AgentType, prompt: 'write', dependsOn: ['a'] },
       ],
     };
-    const { repo, queue } = await setup({
+    const { repo, queue, events } = await setup({
       model: new EchoModel(),
       planner: new StaticPlanner(plan),
       agents: [
@@ -160,6 +163,11 @@ describe('orchestrator (end-to-end)', () => {
         agent('wri_1', 'writer'),
       ],
       task: 'Research the market and then analyze competitors and finally write a report.',
+    });
+    // Coordinator graph: capture per-subtask lifecycle events on the parent stream.
+    const subtaskEvents: { subtaskId: string; status: string }[] = [];
+    events.subscribe('parent_1', (e) => {
+      if (e.type === 'orchestration.subtask') subtaskEvents.push(e.data as any);
     });
     await queue.enqueue({ runId: 'parent_1' });
 
@@ -184,6 +192,11 @@ describe('orchestrator (end-to-end)', () => {
     // Aggregation of the three subtask outputs.
     const out = parent?.output as { summary: unknown; subtasks: Record<string, unknown> };
     expect(Object.keys(out.subtasks).sort()).toEqual(['a', 'r', 'w']);
+
+    // Live graph: each subtask emitted running then succeeded.
+    const succeeded = subtaskEvents.filter((e) => e.status === 'succeeded').map((e) => e.subtaskId);
+    expect(succeeded.sort()).toEqual(['a', 'r', 'w']);
+    expect(subtaskEvents.filter((e) => e.status === 'running')).toHaveLength(3);
   });
 
   it('retries the orchestration without re-billing already-succeeded subtasks', async () => {

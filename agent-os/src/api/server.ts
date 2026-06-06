@@ -5,6 +5,7 @@
 import { createServer, IncomingMessage, ServerResponse, Server } from 'http';
 import { ControlPlane, NotFoundError, ValidationError } from './controlPlane';
 import { RunEvent } from '../events/bus';
+import { COORDINATOR_HTML } from './ui';
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -35,6 +36,17 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
     const seg = path.split('/').filter(Boolean);
 
     try {
+      // GET /  — Coordinator UI
+      if (method === 'GET' && path === '/') {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.end(COORDINATOR_HTML);
+        return;
+      }
+      // POST /tasks  — Coordinator entry point (natural-language task)
+      if (method === 'POST' && path === '/tasks') {
+        const body = JSON.parse((await readBody(req)) || '{}');
+        return json(res, 201, await cp.submitTask(body));
+      }
       // POST /runs
       if (method === 'POST' && path === '/runs') {
         const body = JSON.parse((await readBody(req)) || '{}');

@@ -6,6 +6,7 @@ import { Observability } from '../src/observability/metrics';
 import { ToolRegistry } from '../src/tools/registry';
 import { startWorker } from '../src/worker/worker';
 import { ControlPlane } from '../src/api/controlPlane';
+import { StaticPlanner } from '../src/orchestrator/planner';
 import { createControlPlaneServer } from '../src/api/server';
 import { finalTurn } from '../src/adapters/model.mock';
 import { ModelProvider } from '../src/ports/model';
@@ -52,6 +53,9 @@ function build(opts: { model: ModelProvider; maxAttempts?: number }) {
     tools: new ToolRegistry(),
     allowlistDomains: [],
     events,
+    planner: new StaticPlanner({ subtasks: [{ id: 's', agentType: 'researcher', prompt: 'x', dependsOn: [] }] }),
+    complexityThreshold: 999, // simple tasks -> single-agent fast path
+    defaultAgentType: 'researcher',
   });
   const cp = new ControlPlane({ repo, queue, observability, events });
   return { repo, events, queue, cp };
@@ -122,6 +126,19 @@ describe('Control Plane — Agent Factory (PRD M2)', () => {
     await expect(
       cp.createAgent({ orgId: 'nope', name: 'X', type: 'writer', systemPrompt: 'x' }),
     ).rejects.toThrow(/Not found/);
+  });
+
+  it('submitTask routes a natural-language task to the orchestrator agent', async () => {
+    const { cp } = build({ model: new FinalModel() });
+    await cp.createAgent({ orgId: 'org_1', name: 'Координатор', type: 'orchestrator', systemPrompt: 'координируй' });
+    const { runId, status } = await cp.submitTask({ orgId: 'org_1', task: 'сделай отчёт' });
+    expect(runId).toBeTruthy();
+    expect(status).toBe('queued');
+  });
+
+  it('submitTask fails when the org has no orchestrator', async () => {
+    const { cp } = build({ model: new FinalModel() });
+    await expect(cp.submitTask({ orgId: 'org_1', task: 'x' })).rejects.toThrow(/orchestrator/);
   });
 });
 

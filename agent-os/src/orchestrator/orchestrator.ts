@@ -115,8 +115,26 @@ export async function executeOrchestration(
         parentRunId,
       });
 
+      // Live "assembly graph": emit subtask lifecycle on the PARENT run stream.
+      emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
+        subtaskId: subtask.id,
+        agentType: subtask.agentType,
+        agentName: childAgent.name,
+        status: 'running',
+      });
+
       // Child agents are never orchestrators, so run them directly (no nesting).
-      await executeRun(childRunId, deps);
+      try {
+        await executeRun(childRunId, deps);
+      } catch (err) {
+        emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
+          subtaskId: subtask.id,
+          agentType: subtask.agentType,
+          agentName: childAgent.name,
+          status: 'failed',
+        });
+        throw err;
+      }
 
       const child = await repo.getRun(childRunId);
       if (!child || child.status !== 'succeeded') {
@@ -125,6 +143,12 @@ export async function executeOrchestration(
         );
       }
       outputs[subtask.id] = child.output;
+      emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
+        subtaskId: subtask.id,
+        agentType: subtask.agentType,
+        agentName: childAgent.name,
+        status: 'succeeded',
+      });
     }
 
     // Aggregate: the last subtask in topological order is treated as the

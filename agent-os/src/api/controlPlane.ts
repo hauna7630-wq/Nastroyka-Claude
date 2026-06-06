@@ -95,6 +95,19 @@ export class ControlPlane {
     return { runId, status: 'queued' };
   }
 
+  // Coordinator entry point (PRD M1/M5): submit a natural-language task; it is
+  // routed to the org's orchestrator agent, which decomposes + assigns it.
+  async submitTask(args: { orgId: string; task: string }) {
+    const org = await this.deps.repo.getOrg(args.orgId);
+    if (!org) throw new NotFoundError(`org ${args.orgId}`);
+    if (!args.task?.trim()) throw new ValidationError('task is required');
+    const orchestrator = await this.deps.repo.findAgentByType(args.orgId, 'orchestrator');
+    if (!orchestrator) {
+      throw new ValidationError(`org ${args.orgId} has no orchestrator agent`);
+    }
+    return this.createRun({ orgId: args.orgId, agentId: orchestrator.id, input: { prompt: args.task } });
+  }
+
   async getRun(runId: string) {
     const run = await this.deps.repo.getRun(runId);
     if (!run) throw new NotFoundError(`run ${runId}`);

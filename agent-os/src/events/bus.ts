@@ -11,7 +11,8 @@ export type RunEventType =
   | 'run.failed'
   | 'run.dead_lettered'
   | 'run.needs_human'
-  | 'orchestration.planned';
+  | 'orchestration.planned'
+  | 'orchestration.subtask';
 
 export interface RunEvent {
   type: RunEventType;
