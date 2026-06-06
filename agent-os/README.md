@@ -104,9 +104,10 @@ event bus (`src/events/bus.ts`). See `docs/SPEC.md` §10 and the diagram in `doc
 ## Agent memory (F5)
 
 Agents recall relevant `long_term` + `episodic` memory into their prompt before each run and write
-an `episodic` summary on success (`src/ports/memory.ts`, `src/adapters/memory.repo.ts`). Retrieval
-is lexical (overlap + recency) in the MVP; production swaps embeddings + pgvector behind the same
-`MemoryStore` port. Each typed agent in an orchestration recalls its own memory. See `docs/SPEC.md` §8.
+an `episodic` summary on success (`src/ports/memory.ts`). Retrieval is **vector/semantic** via
+**pgvector** (`PgVectorMemoryStore` + `Embedder`; `AgentMemory.embedding vector(256)`, HNSW cosine
+index) — verified live; an offline `InMemoryVectorMemoryStore` gives the same semantics for
+dev/tests. Each typed agent in an orchestration recalls its own memory. See `docs/SPEC.md` §8.
 
 ## Status / roadmap
 

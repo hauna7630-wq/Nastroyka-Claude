@@ -13,6 +13,8 @@ import { startWorker } from './worker/worker';
 import { buildToolRegistry } from './index';
 import { HeuristicPlanner } from './adapters/planner.heuristic';
 import { DelayedEchoModel } from './adapters/model.echo';
+import { InMemoryVectorMemoryStore } from './adapters/memory.vector.inMemory';
+import { HashEmbedder } from './adapters/embedder.hash';
 import { StaticSearchProvider } from './adapters/search.mock';
 import { PlainTextDocumentParser } from './adapters/documents.text';
 import { RegexPiiMasker } from './security/pii';
@@ -43,6 +45,7 @@ async function main(): Promise<void> {
     defaultAgentType: 'researcher',
     search: new StaticSearchProvider(),
     documents: new PlainTextDocumentParser(),
+    memory: new InMemoryVectorMemoryStore(new HashEmbedder()),
   });
 
   const cp = new ControlPlane({ repo, queue, observability: new Observability(repo), events });

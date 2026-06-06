@@ -108,11 +108,14 @@ the `MemoryStore` port (`src/ports/memory.ts`):
   memory.
 - **Write-back**: on success the runtime stores an `episodic` record (`{ task, summary }`) scoped to
   the run, so future related runs can recall it.
-- **Retrieval**: the MVP adapter (`src/adapters/memory.repo.ts`) ranks by **lexical overlap +
-  recency** (stopword-filtered); `short_term` is hidden unless scoped to its run.
+- **Retrieval (vector)**: `PgVectorMemoryStore` (`src/adapters/memory.vector.pg.ts`) embeds memory
+  text (`Embedder` port; `HashEmbedder` offline, `OpenAIEmbedder` in production) and recalls by
+  **cosine distance** (`AgentMemory.embedding vector(256)`, HNSW index). `short_term` is hidden
+  unless scoped to its run; recall never crosses agents. The offline `InMemoryVectorMemoryStore`
+  gives the same semantics for dev/tests. (A lexical `RepositoryMemoryStore` also remains.)
 
-MVP boundary: retrieval is lexical, not semantic. Production swaps in embeddings + pgvector behind
-the same `MemoryStore` port (the seam is already in place) — no runtime change required.
+Verified on live pgvector: semantic recall, episodic-by-task, and no cross-agent leak. Swapping to
+`OpenAIEmbedder` (dim 1536) requires a migration to that column dimension.
 
 ## 9. Orchestration **[F6 — implemented at MVP altitude]**
 

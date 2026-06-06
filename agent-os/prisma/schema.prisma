@@ -12,12 +12,14 @@
 //   - AgentMemory + PromptVersion + DeadLetter are first-class, not afterthoughts.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +120,9 @@ model AgentMemory {
   content   Json
   // Optional run scoping for short-term memory.
   runId     String?
+  // Vector long-term memory (pgvector). Null for the lexical store; written by
+  // PgVectorMemoryStore. Dimension matches HashEmbedder (256).
+  embedding Unsupported("vector(256)")?
   createdAt DateTime   @default(now())
 
   @@index([agentId, kind])

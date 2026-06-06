@@ -21,7 +21,8 @@ import { BullMQQueue } from './adapters/queue.bullmq';
 import { AnthropicModelProvider } from './adapters/model.anthropic';
 import { ModelPlanner } from './orchestrator/planner';
 import { InMemoryEventBus } from './events/bus';
-import { RepositoryMemoryStore } from './adapters/memory.repo';
+import { PgVectorMemoryStore, RawSqlClient } from './adapters/memory.vector.pg';
+import { HashEmbedder } from './adapters/embedder.hash';
 import { SubprocessSandbox } from './adapters/sandbox.subprocess';
 import { Observability } from './observability/metrics';
 import { ControlPlane } from './api/controlPlane';
@@ -48,7 +49,8 @@ export function buildApp(): App {
   // module compiles before generation.
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const { PrismaClient } = require('@prisma/client');
-  const repo = new PrismaRepository(new PrismaClient() as PrismaClientLike);
+  const prisma = new PrismaClient();
+  const repo = new PrismaRepository(prisma as PrismaClientLike);
 
   const queue = new BullMQQueue({ redisUrl: config.redisUrl });
   const model = new AnthropicModelProvider({
@@ -58,8 +60,9 @@ export function buildApp(): App {
   const tools = buildToolRegistry();
   // F6: the orchestrator decomposes complex tasks into typed-agent subtasks.
   const planner = new ModelPlanner(model);
-  // F5: agent memory (recall into prompts, episodic write-back).
-  const memory = new RepositoryMemoryStore(repo);
+  // F5: vector long-term memory (pgvector). HashEmbedder (dim 256) matches the
+  // AgentMemory.embedding column; swap for OpenAIEmbedder with a dimension migration.
+  const memory = new PgVectorMemoryStore(prisma as RawSqlClient, new HashEmbedder());
   // F3: isolate for code_exec (Linux namespaces + rlimits). Swap for
   // DockerSandbox where a container runtime + images are available.
   const sandbox = new SubprocessSandbox();
