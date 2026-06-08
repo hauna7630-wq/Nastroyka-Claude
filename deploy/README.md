@@ -66,17 +66,17 @@ openssl rand -hex 24   # POSTGRES_PASSWORD
 openssl rand -hex 24   # AUTH_SECRET
 ```
 
-## 2. DNS (domain `work8n.ru`, managed at Beget)
+## 2. DNS (domain `work8n.ru`)
 
-**Keep DNS where it already works — at Beget.** Hosting and DNS are independent: the
-VPS provider may suggest its own nameservers (e.g. `ns1.vdska.ru`), but you do **not**
-need them. Leave the registrar's NS pointing at Beget:
+Manage DNS wherever you like — the records are the same. If you delegate the domain to
+the VPS provider, set the registrar's nameservers to the ones it gave you, e.g.:
 
 ```
-ns1.beget.com   ns2.beget.com   ns1.beget.pro   ns2.beget.pro
+ns1.vdska.ru   ns2.vdska.ru
 ```
 
-Then, in the Beget DNS panel for `work8n.ru`, add A records pointing at the VPS IP:
+Then, in **that** provider's DNS panel for `work8n.ru`, add A records pointing at the
+VPS IP:
 
 ```
 agent.work8n.ru    A   <server-ip>
@@ -84,6 +84,9 @@ teamly.work8n.ru   A   <server-ip>
 # optional landing on the root:
 # work8n.ru        A   <server-ip>
 ```
+
+> Whichever DNS panel is authoritative for `work8n.ru`, only these two A records are
+> required. NS delegation can take up to a few hours to propagate.
 
 TLS is issued automatically by Caddy on first request (Let's Encrypt) — just make
 sure ports 80/443 are open on the server.
