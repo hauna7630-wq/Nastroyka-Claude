@@ -16,6 +16,18 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.
 apt-get update -y
 apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
+echo "==> Ensuring a 2G swap file (OOM safety on a 4 GB box)"
+if [ ! -f /swapfile ] && ! swapon --show | grep -q .; then
+  fallocate -l 2G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=2048
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  echo "    swap enabled."
+else
+  echo "    swap already present, skipping."
+fi
+
 echo "==> Creating deploy user '${DEPLOY_USER}'"
 id -u "${DEPLOY_USER}" >/dev/null 2>&1 || adduser --disabled-password --gecos "" "${DEPLOY_USER}"
 usermod -aG docker "${DEPLOY_USER}"

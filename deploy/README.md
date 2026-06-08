@@ -17,18 +17,28 @@ the stack up. **Each app applies its own Prisma migrations on startup.**
 
 ## 1. Server (one-time)
 
-You need a **VPS with Docker + SSH** (Beget *shared* hosting won't run this stack).
+You need a **KVM VPS with Docker + SSH**. Shared hosting won't run this stack, and
+**OpenVZ won't either** — agent-os's `code_exec` sandbox needs Linux namespaces
+(`unshare`, `prlimit`), which OpenVZ containers disable. Always pick a **KVM** plan.
 
-### Getting a Beget VPS
+### Getting a Russian KVM VPS
 
-1. Beget → **«Облачные VPS»** → create a server.
-2. Specs: **2 vCPU / 4 GB RAM / 40 GB SSD** (comfortable; 2 GB is the bare minimum —
-   pgvector + two Node apps + Caddy). OS: **Ubuntu 24.04 LTS**.
+Pick any RU KVM provider (Timeweb Cloud, Selectel, vdska/RuVDS, FirstVDS, …):
+
+1. Create a server with **KVM** virtualization, OS **Ubuntu 24.04 LTS**.
+2. Specs: **2 vCPU / 4 GB RAM / 40 GB+ NVMe** is comfortable (2 GB is the bare
+   minimum — pgvector + two Node apps + Caddy). 4 vCPU / 4 GB / 50 GB is plenty.
 3. Auth: upload your SSH public key (preferred) or set a root password. You'll get a
    **public IPv4** — that's `<server-ip>` used below and in DNS.
-4. Make sure ports **22, 80, 443** are open (Beget VPS opens them by default).
+4. Make sure ports **22, 80, 443** are open in the provider's firewall.
 
-> Any cloud VPS (Hetzner, Timeweb, etc.) works identically — Ubuntu + Docker.
+> Image builds happen in GitHub Actions, not on the box, so 4 GB RAM is enough for
+> runtime. `provision.sh` also adds a 2 GB swap file as OOM insurance.
+
+> **Note on real Anthropic API:** from a Russian IP, `api.anthropic.com` is
+> geo-blocked. agent-os runs fine on its **offline adapters** without any keys; only
+> set `ANTHROPIC_API_KEY` if you front it with a proxy / local model. teamly does not
+> depend on it.
 
 ### Provision it
 
@@ -58,14 +68,15 @@ openssl rand -hex 24   # AUTH_SECRET
 
 ## 2. DNS (domain `work8n.ru`, managed at Beget)
 
-If `work8n.ru` is registered elsewhere, first delegate it to Beget by setting the
-registrar's nameservers to:
+**Keep DNS where it already works — at Beget.** Hosting and DNS are independent: the
+VPS provider may suggest its own nameservers (e.g. `ns1.vdska.ru`), but you do **not**
+need them. Leave the registrar's NS pointing at Beget:
 
 ```
 ns1.beget.com   ns2.beget.com   ns1.beget.pro   ns2.beget.pro
 ```
 
-Then, in the Beget DNS panel for `work8n.ru`, add A records to the server IP:
+Then, in the Beget DNS panel for `work8n.ru`, add A records pointing at the VPS IP:
 
 ```
 agent.work8n.ru    A   <server-ip>
