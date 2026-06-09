@@ -211,8 +211,12 @@ async function loadAdmin(){
   td.querySelectorAll('button[data-run]').forEach((b)=>b.addEventListener('click', async ()=>{ await api('/dlq/'+b.dataset.run+'/requeue',{method:'POST'}); loadAdmin(); }));
 }
 
-// --- Staff direct chat ----------------------------------------------------
-var staffAgents=[]; var currentAgent=null; var chatThreads={}; var chatES=null;
+// --- Staff direct chat (polling + localStorage history) -------------------
+var staffAgents=[]; var currentAgent=null;
+var chatThreads={}; var chatPending={};
+try { chatThreads = JSON.parse(localStorage.getItem('agentos_chat')||'{}'); } catch(e){ chatThreads={}; }
+try { chatPending = JSON.parse(localStorage.getItem('agentos_chat_pending')||'{}'); } catch(e){ chatPending={}; }
+function saveChat(){ try { localStorage.setItem('agentos_chat', JSON.stringify(chatThreads)); localStorage.setItem('agentos_chat_pending', JSON.stringify(chatPending)); } catch(e){} }
 function escapeHtml(s){ return String(s).replace(/[&<>]/g,function(c){ return c==='&'?'&amp;':c==='<'?'&lt;':'&gt;'; }); }
 function replyText(out){ if(out==null) return '(пустой ответ)'; if(typeof out==='string') return out; if(out.text) return out.text; if(out.summary) return out.summary; return JSON.stringify(out,null,2); }
 async function loadStaff(){
@@ -231,29 +235,37 @@ function selectAgent(id){
   $('chatInput').disabled=false; $('chatSend').disabled=false; $('chatInput').focus(); renderChat();
 }
 function renderChat(){
-  var log=$('chatLog'); log.innerHTML=''; var th=chatThreads[currentAgent.id]||[];
+  if(!currentAgent) return; var log=$('chatLog'); log.innerHTML=''; var th=chatThreads[currentAgent.id]||[];
   th.forEach(function(m){ var el=document.createElement('div'); el.className='msg '+(m.role==='me'?'me':'them');
     el.innerHTML=(m.role==='me'?'':'<div class="who">'+escapeHtml(shortName(currentAgent.name))+'</div>')+escapeHtml(m.text); log.appendChild(el); });
   log.scrollTop=log.scrollHeight;
 }
-function pushMsg(agentId,role,text){ if(!chatThreads[agentId]) chatThreads[agentId]=[]; chatThreads[agentId].push({role:role,text:text}); if(currentAgent&&currentAgent.id===agentId) renderChat(); }
+function pushMsg(agentId,role,text){ if(!chatThreads[agentId]) chatThreads[agentId]=[]; chatThreads[agentId].push({role:role,text:text}); saveChat(); if(currentAgent&&currentAgent.id===agentId) renderChat(); }
+function setReply(aid,idx,text){ if(chatThreads[aid]&&chatThreads[aid][idx]) chatThreads[aid][idx]={role:'them',text:text}; if(chatPending[aid]&&chatPending[aid].idx===idx) delete chatPending[aid]; saveChat(); if(currentAgent&&currentAgent.id===aid) renderChat(); }
+function pollRun(aid, runId, idx, tries){
+  tries = tries||0;
+  if(tries > 120){ setReply(aid,idx,'(ответ слишком долго — попробуйте ещё раз)'); return; }
+  api('/runs/'+runId).then(function(r){
+    var run = r && r.run; var st = run && run.status;
+    if(st==='succeeded') setReply(aid,idx, replyText(run.output));
+    else if(st==='failed'||st==='canceled') setReply(aid,idx, '(не удалось выполнить задачу)');
+    else if(st==='paused') setReply(aid,idx, '(нужно ваше решение — достигнут лимит итераций)');
+    else setTimeout(function(){ pollRun(aid,runId,idx,tries+1); }, 2000);
+  }).catch(function(){ setTimeout(function(){ pollRun(aid,runId,idx,tries+1); }, 2500); });
+}
 $('chatForm').addEventListener('submit', async function(e){
   e.preventDefault(); if(!currentAgent) return; var text=$('chatInput').value.trim(); if(!text) return;
-  var agent=currentAgent;
-  function reEnable(){ if(currentAgent&&currentAgent.id===agent.id){ $('chatInput').disabled=false; $('chatSend').disabled=false; $('chatInput').focus(); } }
-  pushMsg(agent.id,'me',text); $('chatInput').value=''; $('chatInput').disabled=true; $('chatSend').disabled=true;
-  pushMsg(agent.id,'them','…'); var idx=chatThreads[agent.id].length-1;
-  var resp = await api('/runs',{method:'POST',body:JSON.stringify({orgId:ORG,agentId:agent.id,input:{prompt:text}})});
-  if(!resp||!resp.runId){ chatThreads[agent.id][idx].text='Ошибка: '+((resp&&resp.error)||'не удалось запустить'); renderChat(); reEnable(); return; }
-  if(chatES) chatES.close(); chatES=new EventSource('/runs/'+resp.runId+'/events');
-  function finish(label){ return async function(ev){ var e2=JSON.parse(ev.data); if(e2.runId!==resp.runId) return;
-    if(label==='ok'){ var r=await api('/runs/'+resp.runId); chatThreads[agent.id][idx].text=replyText(r.run&&r.run.output); }
-    else chatThreads[agent.id][idx].text = label==='human' ? '(нужно ваше решение — достигнут лимит итераций)' : '(не удалось выполнить задачу)';
-    renderChat(); if(chatES) chatES.close(); reEnable(); }; }
-  chatES.addEventListener('run.succeeded', finish('ok'));
-  chatES.addEventListener('run.failed', finish('fail'));
-  chatES.addEventListener('run.needs_human', finish('human'));
+  var aid=currentAgent.id;
+  pushMsg(aid,'me',text); $('chatInput').value='';
+  if(!chatThreads[aid]) chatThreads[aid]=[];
+  chatThreads[aid].push({role:'them', text:'…'}); var idx=chatThreads[aid].length-1; saveChat(); renderChat();
+  var resp = await api('/runs',{method:'POST',body:JSON.stringify({orgId:ORG,agentId:aid,input:{prompt:text}})});
+  if(!resp||!resp.runId){ setReply(aid,idx,'Ошибка: '+((resp&&resp.error)||'не удалось запустить')); return; }
+  chatPending[aid]={runId:resp.runId, idx:idx}; saveChat();
+  pollRun(aid, resp.runId, idx);
 });
+// Resume any runs that were still pending when the page was last open.
+Object.keys(chatPending).forEach(function(aid){ var p=chatPending[aid]; if(p&&p.runId!=null&&p.idx!=null) pollRun(aid,p.runId,p.idx); });
 
 // --- Living pixel office --------------------------------------------------
 var PX=3;
