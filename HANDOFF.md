@@ -1,150 +1,151 @@
-# HANDOFF — состояние проекта для переезда в новый чат
+# HANDOFF — Nastroyka-Claude (agent-os + teamly)
 
-Дата: 2026-06-06 · Ветка: `claude/inspiring-ride-OUkyL` · PR: **#1**
-(`https://github.com/hauna7630-wq/Nastroyka-Claude/pull/1`).
-Пуш в эту ветку обновляет PR #1 — отдельный PR создавать не нужно.
-
-Вся работа закоммичена и запушена. Рабочее дерево чистое (кроме эфемерных
-артефактов в `node_modules/`, `.next/` — они в `.gitignore`).
+Полное актуальное состояние проекта для продолжения работы (в т.ч. «боевым» Claude Code
+на US-боксе). Всё важное — в репозитории; рабочая ветка: **`claude/inspiring-ride-OUkyL`**.
+Обновлено: 2026-06-09.
 
 ---
 
-## Что лежит в репозитории
+## 1. Что это
 
-Репозиторий `hauna7630-wq/Nastroyka-Claude` содержит **три независимые вещи**:
+Монорепозиторий, два приложения + деплой на один VPS:
 
-1. **`agent-os/`** — мульти-тенант AI-agent runtime (control/execution/billing
-   planes). Нишенезависимый. **Фазы F1–F6 готовы и проверены.**
-2. **`teamly/`** — аналог teamly.to: корпоративная база знаний + вики + AI-поиск
-   + LMS. Свежий full-stack (Next.js + Prisma/Postgres + TipTap + pgvector).
-   **Модули T1–T3 готовы и проверены.**
-3. Корневые `README.md` + `src/*.js` + `tests/*` — исходная заготовка «сайта
-   турбазы» (к agent-os/teamly отношения не имеет; трогать не просили).
-
-> agent-os и teamly — это **разные продукты**. teamly построен «с нуля» (НЕ на
-> agent-os), но AI-функции teamly идейно переиспользуют паттерны agent-os
-> (память/RAG/очередь). Прямой зависимости между ними нет.
+- **`agent-os/`** — персональный мульти-агентный ИИ-оркестратор. Node/TS, гексагональная
+  архитектура, BullMQ+Redis (execution plane), Prisma/Postgres+pgvector, песочница
+  `code_exec`, событийная шина (Redis pub/sub) + SSE, **веб-UI «Координатор»** (пиксельный
+  офис + личный чат с сотрудниками). Биллинга нет (личный инструмент).
+- **`teamly/`** — корпоративная база знаний/вики + RAG-поиск + LMS. Next.js (standalone),
+  Prisma/Postgres, TipTap, FTS (tsvector) + pgvector. **Не** использует Claude CLI.
+- **`deploy/`** — docker-compose + Caddy (авто-TLS) для обоих приложений на одном хосте.
 
 ---
 
-## Статус: agent-os (F1–F6 — DONE)
+## 2. Живая инфраструктура (ВАЖНО)
 
-Гексагональная архитектура (ports + adapters), in-memory адаптеры для тестов,
-прод-адаптеры (Prisma/BullMQ/Anthropic/Docker) проверены вживую где возможно.
+| Что | Где |
+| --- | --- |
+| **Прод-сервер (RU)** | `185.28.175.11` (vdska, Ubuntu 24.04), root по паролю. Весь стек: docker compose в `/home/deploy/app`. Деплой-пользователь `deploy`. |
+| **US-релей** | `138.124.123.234` (aeza, Ubuntu). Caddy reverse-proxy `https://llm.work8n.ru` → `api.anthropic.com`, доступ **только с `185.28.175.11`**. Нужен, т.к. из РФ Anthropic заблокирован. |
+| **Домен** | `work8n.ru` (DNS у Beget). A-записи: `agent`, `teamly` → `185.28.175.11`; `llm` → `138.124.123.234`. |
+| **Сайты** | `https://agent.work8n.ru` (agent-os), `https://teamly.work8n.ru` (teamly). TLS — Let's Encrypt через Caddy. |
 
-- **F1** ядро: Run state machine, идемпотентный ledger, DLQ.
-- **F2** persistence+queue: Prisma/Postgres + BullMQ/Redis — **проверено на живой
-  инфре** (`agent-os/tests/integration/persistence.int.test.ts`).
-- **F3** sandbox для `code_exec`: `unshare --net` + `prlimit` — **проверено вживую**
-  (сеть запрещена, лимиты памяти/времени) + DockerSandbox (compile-only).
-- **F4** control plane: API + SSE события + observability + Stripe (идемпотентные
-  гранты).
-- **F5** память агентов: recall в промпт + episodic write-back (лексический recall;
-  векторный — прод-замена за портом).
-- **F6** авто-оркестратор: декомпозиция задачи на типизированных агентов, идемпотентно
-  при ретраях.
+### LLM (подписка Max, НЕ API-ключ)
+Агенты «думают» через **Claude Code CLI** (`claude -p`), авторизация по
+**`CLAUDE_CODE_OAUTH_TOKEN`** (подписка Max), сетевой выход — через релей
+**`ANTHROPIC_BASE_URL=https://llm.work8n.ru`**. Без токена — офлайн-заглушка
+(`OfflineModelProvider`). Веб-поиск работает через встроенный поиск Claude.
 
-Тесты: `cd agent-os && npm test` (≈37, без инфры). Интеграция:
-`DATABASE_URL=... REDIS_URL=... npm run test:integration`; sandbox-тесты:
-`SANDBOX_E2E=1 npm run test:integration`.
-
-Также есть **standalone git-bundle** `agent-os` (отдавался пользователю файлом) —
-если нужно вынести agent-os в отдельный репозиторий: `git subtree split -P
-agent-os -b agent-os-main` → `git bundle`.
-
-## Статус: teamly (T1–T3 — DONE)
-
-- **T1** база знаний + вики: Org→Workspace→Space→дерево Page→PageVersion, RBAC,
-  TipTap-редактор с автосейвом + версии, комментарии, FTS-поиск (Postgres tsvector).
-- **T2** AI/RAG: pgvector (HNSW cosine), чанкинг+эмбеддинг на сохранении, grounded
-  ответы с цитатами, **отказ при низкой релевантности (no hallucination)**, ретрив
-  scoped по space (no leaks). Порты Embedder/ChatModel: оффлайн `HashEmbedder` +
-  `ExtractiveChatModel` по умолчанию; `OpenAIEmbedder`/`AnthropicChatModel` при ключах.
-- **T3** LMS: курсы из базы знаний (`generateCourseFromSpace`), модули/уроки/тесты,
-  записи (enrollment), прогресс, авто-завершение курса. Grading + progress — чистые
-  функции (юнит-тесты).
-
-Тесты: `cd teamly && npm test` (28, без инфры). Интеграция:
-`DATABASE_URL=... npm run test:integration` (12, на живом Postgres+pgvector).
-Сборка: `npm run build` (11 роутов).
+### GitHub secrets (Settings → Secrets → Actions)
+`SSH_HOST=185.28.175.11`, `SSH_USER=deploy`, `SSH_KEY` (приватный CI-ключ), `GHCR_TOKEN`,
+`POSTGRES_PASSWORD`, `AUTH_SECRET`, `TEAMLY_DOMAIN`, `AGENT_DOMAIN`, `ACME_EMAIL`,
+`CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_BASE_URL=https://llm.work8n.ru`.
+(В планах: `PERPLEXITY_API_KEY`, опц. `HTTPS_PROXY`.)
 
 ---
 
-## Как поднять инфраструктуру в НОВОМ (эфемерном) контейнере
+## 3. Как деплоить
 
-Контейнер пересоздаётся — Postgres/Redis/pgvector нужно поднять заново.
+**Основной путь — GitHub Actions `deploy.yml`** (`workflow_dispatch` или push в `release`):
+собирает образы → пушит в GHCR → SSH на RU-сервер → `compose pull && up -d` →
+**авто-сид экспертной команды** → **E2E-тест чата** → лог установленных Skills.
 
+**Запасной путь (если раннеры GitHub в очереди) — локальная сборка на RU-сервере:**
 ```bash
-# Postgres (кластер 16 уже установлен в образе)
-pg_ctlcluster 16 main start
-
-# pgvector (нужен teamly T2). Если расширение отсутствует:
-apt-get install -y postgresql-16-pgvector   # игнорировать предупреждение PHP-PPA
-
-# Роли/БД
-su postgres -c "psql -p 5432 -c \"CREATE ROLE teamly LOGIN PASSWORD 'teamly' SUPERUSER;\""
-su postgres -c "psql -p 5432 -c 'CREATE DATABASE teamly OWNER teamly;'"
-su postgres -c "psql -p 5432 -c \"CREATE ROLE agentos LOGIN PASSWORD 'agentos' SUPERUSER;\""
-su postgres -c "psql -p 5432 -c 'CREATE DATABASE agent_os OWNER agentos;'"
-
-# Redis (нужен agent-os F2)
-redis-server --port 6379 --daemonize yes
-
-# teamly: применить миграции, сгенерировать клиент, посеять демо
-cd teamly
-export DATABASE_URL="postgresql://teamly:teamly@localhost:5432/teamly"
-npx prisma generate && npx prisma migrate deploy
-npm run db:seed       # owner@acme.test / secret123
-npm run db:reindex    # построить векторный индекс по сид-страницам (T2)
-
-# agent-os: миграции
-cd ../agent-os
-export DATABASE_URL="postgresql://agentos:agentos@localhost:5432/agent_os"
-npx prisma generate && npx prisma migrate deploy
+rm -rf /tmp/aos && git clone --depth 1 -b claude/inspiring-ride-OUkyL \
+  https://github.com/hauna7630-wq/nastroyka-claude /tmp/aos && \
+docker build -t ghcr.io/hauna7630-wq/agent-os:latest /tmp/aos/agent-os && \
+cd /home/deploy/app && docker compose -f docker-compose.prod.yml up -d --no-deps --force-recreate agentos
 ```
 
-Замечания по окружению:
-- `npm` доступен; **Docker registry заблокирован** (образы не тянутся) — поэтому
-  agent-os DockerSandbox и teamly через docker-compose локально не запускались;
-  использовались нативные Postgres/Redis и `unshare`-sandbox.
-- `prisma migrate dev` **интерактивный и падает** в этом окружении — использовать
-  `prisma migrate deploy` (миграции уже в репозитории).
-- Запуск Next в фоне: следить за занятым портом 3001 (старые `next-server` могли
-  висеть → отдавать 404 на новые роуты). Перед smoke убивать процессы и брать
-  свободный порт.
+**Диагностика без рук на сервере:** `deploy.yml` содержит E2E-тест (создаёт run к Iskara
+через `node` внутри контейнера, опрашивает статус, печатает ответ) + список Skills. Читать
+через GitHub Actions логи (`get_job_logs` / `gh run view --log`).
 
 ---
 
-## Незакрытые хвосты / следующие шаги
+## 4. agent-os — состояние
 
-- ✅ **teamly T3 runtime-smoke** — закрыто: на чистом порту все 4 LMS-роута отдают
-  200 с реальными данными (список курсов, модули/уроки, материал урока, тест с
-  гейтингом по записи). Прежний 404 был из-за залипшего сервера на :3001.
-- ✅ **Деплой-обвязка** — добавлено: `teamly/Dockerfile` (Next standalone, проверен
-  `next build`→`.next/standalone`), `agent-os/Dockerfile` (tsc→dist), и
-  `.github/workflows/ci.yml` (unit+integration для обоих, service-контейнеры
-  Postgres/pgvector/Redis). **CI не прогонялся на раннере** (здесь нет Actions и
-  заблокирован registry), но все команды совпадают с локально проверенными. Образы
-  локально не собирались (registry заблокирован).
-  Дальше: реальный билд образов в CI/registry, секреты (ANTHROPIC/OPENAI/STRIPE),
-  init-контейнер с `prisma migrate deploy`, деплой-таргет (Fly/Railway/K8s).
-- **teamly прод-AI**: по умолчанию оффлайн HashEmbedder (лексика). Для настоящей
-  семантики — `OPENAI_API_KEY` (или другой эмбеддер) + миграция размерности вектора
-  (сейчас `vector(256)`).
-- **teamly со-редактирование в реальном времени** (Yjs) — отложено осознанно.
-- Возможные дальнейшие модули teamly: умные таблицы, права на уровне страниц,
-  AI-генерация самих вопросов теста (через ChatModel-порт).
+- **Команда (org `demo`)**: 7 именованных экспертов, авто-сид `prisma/seed.prod.cjs`
+  (самообновляемый — создаёт новую PromptVersion при изменении текста): Arkesha (orchestrator),
+  Kadrina (HR), Iskara (research), Analita (analytics), Slovena (writer), Kodrin (coder),
+  Revisa (QA). Промпты — «эксперт Top-1-5%», 5-слойная модель + дисциплина фактчекинга +
+  режим короткого живого чата.
+- **Мозг**: `src/index.ts` выбирает провайдер: `CLAUDE_CODE_OAUTH_TOKEN` →
+  `ClaudeSubscriptionModelProvider` (CLI, `--max-turns 8`, stdin закрыт) → `ANTHROPIC_API_KEY`
+  → `OfflineModelProvider`.
+- **Skills**: в образ агентов зашиты `anthropics/skills` (18: docx/pptx/pdf/xlsx/canvas/…)
+  + `mukul975/Anthropic-Cybersecurity-Skills` (форензика/IR/малварь-анализ, blue-team) в
+  `~/.claude/skills` (см. `agent-os/Dockerfile`).
+- **UI** (`src/api/ui.ts`, бейдж `v6 · live`): вкладки Координатор/Сотрудники/Команда/Админ.
+  Пиксельный офис (canvas): сотрудники ходят, собираются на совещание, реплики-пузыри, лента
+  активности. **Личный чат** (Сотрудники): опрос статуса (не SSE), история в localStorage,
+  **эффект печати** (typewriter). HTML отдаётся с `no-store`.
+- **Воркер**: BullMQ — у Worker СВОЁ Redis-соединение (критично; общее с Queue не работает →
+  было причиной зависаний `queued`).
 
-## Карта ключевых файлов
+### Проверено рабочим
+Подписка Max через релей отвечает (E2E: run queued→running→succeeded ~4с, реальный текст
+Claude, напр. «Я Iskara — исследователь-аналитик…»). Сайты под HTTPS. Команда сидится. Skills
+устанавливаются (Anthropic + cybersec). Чат печатает.
 
-- agent-os: `src/index.ts` (composition root), `src/ports/*`, `src/adapters/*`,
-  `src/agent/runtime.ts`, `src/orchestrator/*`, `docs/SPEC.md`, `docs/ARCHITECTURE.md`.
-- teamly: `prisma/schema.prisma`, `src/lib/services/*` (pages, search, rag, indexing,
-  courses, enrollment), `src/lib/ai/*` (порты+адаптеры), `src/lib/lms/*` (grade,
-  progress), `src/app/**` (Next.js роуты), `README.md`.
+---
 
-## Git / PR
+## 5. teamly — состояние
 
-- Все коммиты на `claude/inspiring-ride-OUkyL`, запушены. PR **#1** открыт.
-- Последние коммиты: T1, T2, T3 (teamly) поверх F1–F6 (agent-os).
-- Для продолжения в новом чате: работать на этой же ветке, пуш обновляет PR #1.
+Развёрнут, HTTPS, мигрирует на старте. Первый вход — сид `prisma/seed.prod.cjs`
+(`owner@acme.test` / `secret123`). Публичной регистрации нет. RAG-функции есть в коде, но не
+на Claude CLI.
+
+---
+
+## 6. Очередь задач (что осталось)
+
+1. **Perplexity** — подключить поиск (ждём `PERPLEXITY_API_KEY`); вариант — MCP-сервер для
+   CLI агентов, через релей.
+2. **Детализация офиса** — довести пиксельный офис до изометрии уровня Game Dev Story
+   (комнаты по отделам, мебель, детальные спрайты, ходьба между кабинетами). Большой арт-этап.
+3. **Настоящий стриминг** ответов (CLI `--output-format stream-json` → SSE → токены в UI).
+4. **Активация Skills по специализации** — проверить, что агент реально применяет профильный
+   навык (Slovena→.docx и т.п.), прописать навыки в промптах.
+5. **«Живая компания» (P1–P5)** — отделы, проекты, оргструктура, авто-найм, авто-команды,
+   симуляция (см. `agent-os/docs/LIVING_ORG.md`).
+6. **Системные обновления** RU-сервера (`apt upgrade && reboot`, стек поднимется сам).
+7. Безопасность: сменить root-пароль RU-сервера (был засвечен в переписке), отключить вход
+   по паролю по SSH.
+
+---
+
+## 7. Грабли (узнал на практике)
+
+- **RU egress**: из РФ нет Anthropic/claude.ai → всё через релей `llm.work8n.ru`. Claude Code
+  на RU-сервере тоже требует `ANTHROPIC_BASE_URL=https://llm.work8n.ru`.
+- **GitHub runners** иногда копят очередь (много push'ей триггерят `ci.yml`) — деплой залипает
+  в `queued`; лечится локальной сборкой (§3) или ожиданием/отменой и повторным запуском.
+- **Кэш браузера/Browsec**: старый UI «прилипал» из-за прокси Browsec в Windows
+  (`ERR_PROXY_CONNECTION_FAILED`). Сервер отдаёт `no-store`; бейдж версии в шапке — индикатор
+  свежести. Тест: `/?fresh=N`, выключить Browsec/системный прокси Windows.
+- **BullMQ**: Worker и Queue НЕ должны делить Redis-соединение.
+- **Claude CLI**: `--max-turns 1` ломал tool-use (`error_max_turns`) → стоит 8. Стрим/ответ
+  слишком долгий = много ходов + веб-поиск; для чата промпт просит отвечать коротко.
+- `docker compose exec agentos` — образ `node:22-slim`: нет `ps`/`wget`/`curl`/`python3`, но
+  `node` есть (используй его для проверок, напр. `node -e "require('http').get(...)"`).
+- `curl -H "Host:" https://127.0.0.1` к Caddy даёт пусто (SNI) — используй
+  `curl --resolve agent.work8n.ru:443:127.0.0.1`.
+
+---
+
+## 8. Команды-памятка (на RU-сервере, `/home/deploy/app`)
+
+```bash
+F=docker-compose.prod.yml
+docker compose -f $F ps                                   # статус 5 контейнеров
+docker compose -f $F exec -T agentos node prisma/seed.prod.cjs   # пересид команды (идемпотентно)
+docker compose -f $F exec -T postgres psql -U app -d agent_os -c 'select status,count(*) from "Run" group by status;'
+docker compose -f $F logs --tail=40 agentos               # логи agent-os
+docker compose -f $F exec -T teamly node prisma/seed.prod.cjs    # создать вход teamly
+```
+
+**Боевой режим:** запусти Claude Code на US-боксе (`138.124.123.234`) под Max, склонируй ветку
+`claude/inspiring-ride-OUkyL`, прочитай этот файл — и продолжай отсюда. Для доступа к Anthropic
+с US-бокса релей не нужен (он и так видит api.anthropic.com); для команд на RU-сервере — SSH
+`root@185.28.175.11`.
