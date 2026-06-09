@@ -120,15 +120,20 @@ The pipeline: builds both images → pushes to `ghcr.io/<owner>/{agent-os,teamly
 copies `deploy/*` to the host → writes `~/app/.env` from secrets →
 `docker compose -f docker-compose.prod.yml pull && up -d`.
 
-## 5. First-run seed (teamly demo data, optional)
+## 5. First-run seed (teamly: create the first login)
+
+teamly has no public signup — the first org + owner user is created by a seed. Run the
+self-contained production seed inside the running container:
 
 ```bash
-ssh deploy@<host>
-cd ~/app
-docker compose -f docker-compose.prod.yml exec teamly node node_modules/prisma/build/index.js --version  # sanity
-# teamly seed/reindex live in the image's package scripts; run if you want demo data:
-# (the app already migrates on startup; seeding is optional)
+ssh deploy@<host>   # or root
+cd ~/app            # /home/deploy/app
+docker compose -f docker-compose.prod.yml exec teamly node prisma/seed.prod.cjs
+# → Login: owner@acme.test / secret123   (change the password in-app afterwards)
 ```
+
+It's idempotent (re-running is a no-op once the user exists). Optional demo content +
+search reindex live in the image's package scripts.
 
 agent-os has no orchestrator agent until you create one — open `https://agent.<domain>`,
 go to **Команда**, and "hire" a `Координатор` (orchestrator) + a few typed agents.
