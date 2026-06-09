@@ -46,6 +46,13 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      # Max-subscription auth (from `claude setup-token`) — agents run on the
+      # subscription via the Claude CLI when this is set.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      # Network egress out of a blocked region (e.g. RU) for reaching Anthropic.
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-postgres,redis,localhost,127.0.0.1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       ALLOWLIST_DOMAINS: ${ALLOWLIST_DOMAINS:-}

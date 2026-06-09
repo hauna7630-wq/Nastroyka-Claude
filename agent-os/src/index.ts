@@ -19,6 +19,9 @@ import { WorkerDeps } from './worker/worker';
 import { PrismaRepository, PrismaClientLike } from './adapters/repo.prisma';
 import { BullMQQueue } from './adapters/queue.bullmq';
 import { AnthropicModelProvider } from './adapters/model.anthropic';
+import { ClaudeSubscriptionModelProvider } from './adapters/model.claudeSubscription';
+import { OfflineModelProvider } from './adapters/model.offline';
+import { ModelProvider } from './ports/model';
 import { ModelPlanner } from './orchestrator/planner';
 import { RedisEventBus } from './adapters/events.redis';
 import { PgVectorMemoryStore, RawSqlClient } from './adapters/memory.vector.pg';
@@ -53,11 +56,19 @@ export function buildApp(): App {
   const repo = new PrismaRepository(prisma as PrismaClientLike);
 
   const queue = new BullMQQueue({ redisUrl: config.redisUrl });
-  const model = new AnthropicModelProvider({
-    apiKey: config.anthropicApiKey,
-    model: config.anthropicModel,
-    baseURL: config.anthropicBaseUrl || undefined,
-  });
+  // Brain selection: Max subscription (OAuth token) → API key → offline fallback.
+  let model: ModelProvider;
+  if (config.claudeOauthToken) {
+    model = new ClaudeSubscriptionModelProvider({ model: config.anthropicModel });
+  } else if (config.anthropicApiKey) {
+    model = new AnthropicModelProvider({
+      apiKey: config.anthropicApiKey,
+      model: config.anthropicModel,
+      baseURL: config.anthropicBaseUrl || undefined,
+    });
+  } else {
+    model = new OfflineModelProvider();
+  }
   const tools = buildToolRegistry();
   // F6: the orchestrator decomposes complex tasks into typed-agent subtasks.
   const planner = new ModelPlanner(model);
