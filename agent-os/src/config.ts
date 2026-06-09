@@ -6,6 +6,9 @@ export interface Config {
   redisUrl: string;
   anthropicApiKey: string;
   anthropicModel: string;
+  // Optional base URL override — point at a proxy/relay to reach Anthropic from a
+  // network where the official endpoint is blocked (e.g. RU). Empty = official API.
+  anthropicBaseUrl: string;
   allowlistDomains: string[];
   toolCpuMs: number;
   toolMemMb: number;
@@ -28,6 +31,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     anthropicApiKey: env.ANTHROPIC_API_KEY ?? '',
     // Default to a capable, cost-reasonable current Claude model.
     anthropicModel: env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6',
+    anthropicBaseUrl: env.ANTHROPIC_BASE_URL ?? '',
     allowlistDomains: csv(env.ALLOWLIST_DOMAINS),
     toolCpuMs: Number(env.TOOL_CPU_MS ?? 5000),
     toolMemMb: Number(env.TOOL_MEM_MB ?? 256),

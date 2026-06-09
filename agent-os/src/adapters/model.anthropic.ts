@@ -14,9 +14,14 @@ export class AnthropicModelProvider implements ModelProvider {
   private readonly client: Anthropic;
 
   constructor(
-    private readonly opts: { apiKey: string; model: string; maxTokens?: number },
+    private readonly opts: { apiKey: string; model: string; maxTokens?: number; baseURL?: string },
   ) {
-    this.client = new Anthropic({ apiKey: opts.apiKey });
+    // baseURL lets us route through a proxy/relay when the official endpoint is
+    // network-blocked (e.g. RU). Empty/undefined → the SDK's official default.
+    this.client = new Anthropic({
+      apiKey: opts.apiKey,
+      ...(opts.baseURL ? { baseURL: opts.baseURL } : {}),
+    });
   }
 
   async complete(args: {

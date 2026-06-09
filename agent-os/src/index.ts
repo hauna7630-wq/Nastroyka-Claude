@@ -56,6 +56,7 @@ export function buildApp(): App {
   const model = new AnthropicModelProvider({
     apiKey: config.anthropicApiKey,
     model: config.anthropicModel,
+    baseURL: config.anthropicBaseUrl || undefined,
   });
   const tools = buildToolRegistry();
   // F6: the orchestrator decomposes complex tasks into typed-agent subtasks.

@@ -105,6 +105,7 @@ sure ports 80/443 are open on the server.
 | `AGENT_DOMAIN` | e.g. `agent.example.com` |
 | `ACME_EMAIL` | email for Let's Encrypt |
 | `ANTHROPIC_API_KEY` | *(optional)* agent-os real planner/model |
+| `ANTHROPIC_BASE_URL` | *(optional)* proxy base URL to reach Anthropic from a blocked network (RU) |
 | `OPENAI_API_KEY` | *(optional)* real embeddings |
 | `TAVILY_API_KEY` | *(optional)* `web_search` tool |
 | `ALLOWLIST_DOMAINS` | *(optional)* comma list for `http_request` |
