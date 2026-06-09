@@ -22,10 +22,13 @@ RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
 # under ~/.claude/skills so the Claude CLI can auto-discover/use them. Fail-safe:
 # if the repo is unavailable the image still builds.
 RUN set -e; mkdir -p /root/.claude/skills; \
-    if git clone --depth 1 https://github.com/anthropics/skills /opt/anthropic-skills 2>/dev/null; then \
-      find /opt/anthropic-skills -name SKILL.md -printf '%h\n' | while read d; do \
-        cp -r "$d" /root/.claude/skills/ 2>/dev/null || true; done; \
-    else echo "anthropic skills repo not available at build"; fi; \
+    for repo in https://github.com/anthropics/skills https://github.com/mukul975/Anthropic-Cybersecurity-Skills; do \
+      name=$(basename "$repo"); \
+      if git clone --depth 1 "$repo" "/opt/$name" 2>/dev/null; then \
+        find "/opt/$name" -name SKILL.md -printf '%h\n' | while read d; do \
+          cp -r "$d" /root/.claude/skills/ 2>/dev/null || true; done; \
+      else echo "skills repo not available: $repo"; fi; \
+    done; \
     echo "installed skills:"; ls -1 /root/.claude/skills 2>/dev/null || true
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist

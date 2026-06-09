@@ -241,7 +241,22 @@ function renderChat(){
   log.scrollTop=log.scrollHeight;
 }
 function pushMsg(agentId,role,text){ if(!chatThreads[agentId]) chatThreads[agentId]=[]; chatThreads[agentId].push({role:role,text:text}); saveChat(); if(currentAgent&&currentAgent.id===agentId) renderChat(); }
-function setReply(aid,idx,text){ if(chatThreads[aid]&&chatThreads[aid][idx]) chatThreads[aid][idx]={role:'them',text:text}; if(chatPending[aid]&&chatPending[aid].idx===idx) delete chatPending[aid]; saveChat(); if(currentAgent&&currentAgent.id===aid) renderChat(); }
+var chatTyping={};
+function setReply(aid,idx,text){
+  if(!(chatThreads[aid]&&chatThreads[aid][idx])) return;
+  if(chatPending[aid]&&chatPending[aid].idx===idx) delete chatPending[aid];
+  var full=String(text); var key=aid+'#'+idx;
+  if(chatTyping[key]) clearInterval(chatTyping[key]);
+  var shown=0; var step=Math.max(2,Math.ceil(full.length/140));
+  chatThreads[aid][idx]={role:'them',text:''};
+  if(currentAgent&&currentAgent.id===aid) renderChat();
+  chatTyping[key]=setInterval(function(){
+    shown=Math.min(full.length, shown+step);
+    chatThreads[aid][idx].text=full.slice(0,shown);
+    if(currentAgent&&currentAgent.id===aid) renderChat();
+    if(shown>=full.length){ clearInterval(chatTyping[key]); delete chatTyping[key]; saveChat(); }
+  },18);
+}
 function pollRun(aid, runId, idx, tries){
   tries = tries||0;
   if(tries > 120){ setReply(aid,idx,'(ответ слишком долго — попробуйте ещё раз)'); return; }
