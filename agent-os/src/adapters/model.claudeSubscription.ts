@@ -28,7 +28,9 @@ function flatten(system: string, messages: ModelMessage[]): string {
 
 function runCli(bin: string, args: string[], timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { env: process.env });
+    // stdin must be closed (not an open pipe): in -p mode the CLI otherwise
+    // waits for stdin and stalls. We pass the prompt via argv, so ignore stdin.
+    const child = spawn(bin, args, { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
     const timer = setTimeout(() => {
