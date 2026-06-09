@@ -1,0 +1,14 @@
+# Reverse proxy + automatic HTTPS (Let's Encrypt) for both apps.
+{
+	email {$ACME_EMAIL}
+}
+
+{$TEAMLY_DOMAIN} {
+	encode gzip
+	reverse_proxy teamly:3000
+}
+
+{$AGENT_DOMAIN} {
+	encode gzip
+	reverse_proxy agentos:3000
+}

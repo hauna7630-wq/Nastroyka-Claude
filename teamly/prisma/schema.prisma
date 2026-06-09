@@ -1,0 +1,304 @@
+// Teamly analog — T1 (knowledge base + wiki) schema. PostgreSQL.
+//
+// Tenancy:  Org → Workspace → Space → Page (tree) → PageVersion.
+// The current page content is denormalised onto Page (contentJson + contentText)
+// for fast reads and full-text search; PageVersion keeps the history.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+enum Role {
+  owner
+  admin
+  editor
+  viewer
+}
+
+model Org {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  users       User[]
+  workspaces  Workspace[]
+  memberships Membership[]
+  auditLogs   AuditLog[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  orgId        String
+  org          Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  email        String
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  memberships Membership[]
+  versions    PageVersion[]
+  comments    Comment[]
+  enrollments Enrollment[]
+
+  @@unique([orgId, email])
+  @@index([orgId])
+}
+
+model Workspace {
+  id        String   @id @default(cuid())
+  orgId     String
+  org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  name      String
+  slug      String
+  createdAt DateTime @default(now())
+
+  spaces      Space[]
+  memberships Membership[]
+  courses     Course[]
+
+  @@unique([orgId, slug])
+  @@index([orgId])
+}
+
+// A user's role within a workspace.
+model Membership {
+  id          String    @id @default(cuid())
+  orgId       String
+  org         Org       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  role        Role
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+}
+
+model Space {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  slug        String
+  createdAt   DateTime  @default(now())
+
+  pages Page[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+}
+
+model Page {
+  id        String   @id @default(cuid())
+  spaceId   String
+  space     Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+  parentId  String?
+  parent    Page?    @relation("PageTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Page[]   @relation("PageTree")
+  title     String
+  slug      String
+  position  Int      @default(0)
+  // Denormalised current content for fast reads + search.
+  contentJson Json?
+  contentText String @default("")
+  archived  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  versions PageVersion[]
+  comments Comment[]
+  chunks   PageChunk[]
+  lessons  Lesson[]
+
+  @@unique([spaceId, slug])
+  @@index([spaceId, parentId])
+}
+
+// T2: embedded passages for semantic/RAG search (pgvector). Written/read via raw
+// SQL because Prisma cannot type the `vector` column. The dimension (256) matches
+// the default HashEmbedder; a real embedder requires a migration to its dim.
+model PageChunk {
+  id        String                     @id
+  pageId    String
+  page      Page                       @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  spaceId   String
+  idx       Int
+  text      String
+  embedding Unsupported("vector(256)")
+  createdAt DateTime                   @default(now())
+
+  @@index([spaceId])
+  @@index([pageId])
+}
+
+model PageVersion {
+  id          String   @id @default(cuid())
+  pageId      String
+  page        Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  version     Int
+  title       String
+  contentJson Json
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@unique([pageId, version])
+  @@index([pageId])
+}
+
+model Comment {
+  id        String   @id @default(cuid())
+  pageId    String
+  page      Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation(fields: [authorId], references: [id])
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([pageId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  orgId     String
+  org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  actor     String
+  action    String
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([orgId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// T3 — Learning (LMS): courses built from the knowledge base, quizzes, progress.
+// ---------------------------------------------------------------------------
+
+model Course {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  spaceId     String? // source KB space, when generated from the knowledge base
+  title       String
+  slug        String
+  description String   @default("")
+  published   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  modules     Module[]
+  enrollments Enrollment[]
+
+  @@unique([workspaceId, slug])
+  @@index([workspaceId])
+}
+
+model Module {
+  id       String  @id @default(cuid())
+  courseId String
+  course   Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  title    String
+  position Int     @default(0)
+
+  lessons Lesson[]
+  quiz    Quiz?
+
+  @@index([courseId])
+}
+
+model Lesson {
+  id       String  @id @default(cuid())
+  moduleId String
+  module   Module  @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  title    String
+  position Int     @default(0)
+  // A lesson's material is a knowledge-base page.
+  pageId   String?
+  page     Page?   @relation(fields: [pageId], references: [id], onDelete: SetNull)
+
+  progress LessonProgress[]
+
+  @@index([moduleId])
+}
+
+model Quiz {
+  id           String @id @default(cuid())
+  moduleId     String @unique
+  module       Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  title        String
+  passingScore Int    @default(70) // percent required to pass
+
+  questions Question[]
+  attempts  QuizAttempt[]
+}
+
+model Question {
+  id       String @id @default(cuid())
+  quizId   String
+  quiz     Quiz   @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  prompt   String
+  position Int    @default(0)
+
+  options AnswerOption[]
+
+  @@index([quizId])
+}
+
+model AnswerOption {
+  id         String   @id @default(cuid())
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text       String
+  isCorrect  Boolean  @default(false)
+  position   Int      @default(0)
+
+  @@index([questionId])
+}
+
+model Enrollment {
+  id          String    @id @default(cuid())
+  courseId    String
+  course      Course    @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  assignedAt  DateTime  @default(now())
+  completedAt DateTime?
+
+  lessonProgress LessonProgress[]
+  attempts       QuizAttempt[]
+
+  @@unique([courseId, userId])
+  @@index([userId])
+}
+
+model LessonProgress {
+  id           String     @id @default(cuid())
+  enrollmentId String
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  lessonId     String
+  lesson       Lesson     @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  completedAt  DateTime   @default(now())
+
+  @@unique([enrollmentId, lessonId])
+}
+
+model QuizAttempt {
+  id           String     @id @default(cuid())
+  enrollmentId String
+  enrollment   Enrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+  quizId       String
+  quiz         Quiz       @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  score        Int // percent
+  passed       Boolean
+  createdAt    DateTime   @default(now())
+
+  @@index([enrollmentId])
+}
