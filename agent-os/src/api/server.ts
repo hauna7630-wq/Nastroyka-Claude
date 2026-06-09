@@ -38,7 +38,10 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
     try {
       // GET /  — Coordinator UI
       if (method === 'GET' && path === '/') {
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store, must-revalidate',
+        });
         res.end(COORDINATOR_HTML);
         return;
       }
