@@ -63,11 +63,14 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
   }): Promise<ModelTurn> {
     const bin = this.opts.bin ?? 'claude';
     const prompt = flatten(args.system, args.messages);
-    const cliArgs = ['-p', prompt, '--output-format', 'json', '--max-turns', '1'];
+    // Allow several turns so the agent can use the CLI's built-in tools (e.g.
+    // server-side web search, which routes via the same relay) and still reach a
+    // final answer — with --max-turns 1 any tool_use ends in error_max_turns.
+    const cliArgs = ['-p', prompt, '--output-format', 'json', '--max-turns', '8'];
     if (this.opts.model) cliArgs.push('--model', this.opts.model);
     if (args.system) cliArgs.push('--append-system-prompt', args.system);
 
-    const raw = await runCli(bin, cliArgs, this.opts.timeoutMs ?? 120000);
+    const raw = await runCli(bin, cliArgs, this.opts.timeoutMs ?? 180000);
 
     let text = raw.trim();
     let tokensIn = 0;
