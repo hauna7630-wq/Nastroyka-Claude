@@ -49,6 +49,21 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .office-legend { display:flex; gap:12px; flex-wrap:wrap; margin-top:6px; }
   .office-legend span { font-size:12px; color:var(--muted); }
   .office-legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle; }
+  .staff-wrap { display:grid; grid-template-columns:230px 1fr; gap:14px; }
+  .staff-list { display:flex; flex-direction:column; gap:6px; max-height:460px; overflow:auto; }
+  .staff-item { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:9px 11px; cursor:pointer; }
+  .staff-item:hover { border-color:var(--accent); }
+  .staff-item.active { border-color:var(--accent); background:#11202f; }
+  .staff-item .role { font-size:11px; color:var(--muted); margin-top:2px; }
+  .chat { display:flex; flex-direction:column; height:460px; border:1px solid var(--border); border-radius:10px; background:var(--card); }
+  .chat-head { padding:11px 13px; border-bottom:1px solid var(--border); font-weight:600; }
+  .chat-log { flex:1; overflow:auto; padding:13px; display:flex; flex-direction:column; gap:9px; }
+  .msg { max-width:82%; padding:8px 11px; border-radius:10px; white-space:pre-wrap; font-size:14px; line-height:1.4; }
+  .msg.me { align-self:flex-end; background:var(--accent); color:#fff; }
+  .msg.them { align-self:flex-start; background:#0d1117; border:1px solid var(--border); }
+  .msg .who { font-size:11px; color:var(--muted); margin-bottom:3px; }
+  .chat-form { display:flex; gap:8px; padding:10px; border-top:1px solid var(--border); }
+  .chat-form input { flex:1; }
 </style>
 </head>
 <body>
@@ -56,6 +71,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   🤖 agent-os
   <nav>
     <button data-tab="coord" class="active">Координатор</button>
+    <button data-tab="staff">Сотрудники</button>
     <button data-tab="team">Команда</button>
     <button data-tab="admin">Админ</button>
   </nav>
@@ -71,6 +87,22 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
     <div id="officeWrap"><canvas id="office" width="760" height="440"></canvas><div class="office-legend" id="olegend"></div></div>
     <div id="graphWrap" style="display:none"><div class="section-title">Граф сборки</div><div class="graph" id="graph"></div></div>
     <div id="resultWrap" style="display:none"><div class="section-title">Результат</div><div class="result" id="result"></div></div>
+  </section>
+
+  <!-- Сотрудники: личный чат с каждым -->
+  <section class="tab" id="tab-staff">
+    <div class="section-title">Личный чат: выберите сотрудника и поставьте задачу — он ответит</div>
+    <div class="staff-wrap">
+      <div class="staff-list" id="staffList"></div>
+      <div class="chat">
+        <div class="chat-head" id="chatHead">Выберите сотрудника слева</div>
+        <div class="chat-log" id="chatLog"></div>
+        <form class="chat-form" id="chatForm">
+          <input id="chatInput" placeholder="Напишите задачу или вопрос…" autocomplete="off" disabled />
+          <button class="primary" id="chatSend" type="submit" disabled>Отправить</button>
+        </form>
+      </div>
+    </div>
   </section>
 
   <!-- Команда -->
@@ -114,6 +146,7 @@ document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click
   b.classList.add('active'); $('tab-' + b.dataset.tab).classList.add('active');
   if (b.dataset.tab === 'team') loadAgents();
   if (b.dataset.tab === 'coord') loadOffice();
+  if (b.dataset.tab === 'staff') loadStaff();
   if (b.dataset.tab === 'admin') loadAdmin();
 }));
 
@@ -173,6 +206,50 @@ async function loadAdmin(){
   if(!dlq.length) td.innerHTML='<tr><td colspan="4"><small class="muted">пусто</small></td></tr>';
   td.querySelectorAll('button[data-run]').forEach((b)=>b.addEventListener('click', async ()=>{ await api('/dlq/'+b.dataset.run+'/requeue',{method:'POST'}); loadAdmin(); }));
 }
+
+// --- Staff direct chat ----------------------------------------------------
+var staffAgents=[]; var currentAgent=null; var chatThreads={}; var chatES=null;
+function escapeHtml(s){ return String(s).replace(/[&<>]/g,function(c){ return c==='&'?'&amp;':c==='<'?'&lt;':'&gt;'; }); }
+function replyText(out){ if(out==null) return '(пустой ответ)'; if(typeof out==='string') return out; if(out.text) return out.text; if(out.summary) return out.summary; return JSON.stringify(out,null,2); }
+async function loadStaff(){
+  try { staffAgents = await api('/orgs/'+ORG+'/agents'); } catch(e){ staffAgents=[]; }
+  var list=$('staffList'); list.innerHTML='';
+  if(!staffAgents.length){ list.innerHTML='<small class="muted">Нет сотрудников — запустите сид команды.</small>'; return; }
+  staffAgents.forEach(function(a){ var el=document.createElement('div'); el.className='staff-item'+(currentAgent&&currentAgent.id===a.id?' active':''); el.id='st_'+a.id;
+    el.innerHTML='<div>'+escapeHtml(shortName(a.name))+'</div><div class="role">'+escapeHtml(roleOf(a))+'</div>';
+    el.addEventListener('click', function(){ selectAgent(a.id); }); list.appendChild(el); });
+}
+function selectAgent(id){
+  currentAgent = staffAgents.filter(function(a){ return a.id===id; })[0]; if(!currentAgent) return;
+  document.querySelectorAll('.staff-item').forEach(function(x){ x.classList.remove('active'); });
+  var c=$('st_'+id); if(c) c.classList.add('active');
+  $('chatHead').textContent = shortName(currentAgent.name)+' — '+roleOf(currentAgent);
+  $('chatInput').disabled=false; $('chatSend').disabled=false; $('chatInput').focus(); renderChat();
+}
+function renderChat(){
+  var log=$('chatLog'); log.innerHTML=''; var th=chatThreads[currentAgent.id]||[];
+  th.forEach(function(m){ var el=document.createElement('div'); el.className='msg '+(m.role==='me'?'me':'them');
+    el.innerHTML=(m.role==='me'?'':'<div class="who">'+escapeHtml(shortName(currentAgent.name))+'</div>')+escapeHtml(m.text); log.appendChild(el); });
+  log.scrollTop=log.scrollHeight;
+}
+function pushMsg(agentId,role,text){ if(!chatThreads[agentId]) chatThreads[agentId]=[]; chatThreads[agentId].push({role:role,text:text}); if(currentAgent&&currentAgent.id===agentId) renderChat(); }
+$('chatForm').addEventListener('submit', async function(e){
+  e.preventDefault(); if(!currentAgent) return; var text=$('chatInput').value.trim(); if(!text) return;
+  var agent=currentAgent;
+  function reEnable(){ if(currentAgent&&currentAgent.id===agent.id){ $('chatInput').disabled=false; $('chatSend').disabled=false; $('chatInput').focus(); } }
+  pushMsg(agent.id,'me',text); $('chatInput').value=''; $('chatInput').disabled=true; $('chatSend').disabled=true;
+  pushMsg(agent.id,'them','…'); var idx=chatThreads[agent.id].length-1;
+  var resp = await api('/runs',{method:'POST',body:JSON.stringify({orgId:ORG,agentId:agent.id,input:{prompt:text}})});
+  if(!resp||!resp.runId){ chatThreads[agent.id][idx].text='Ошибка: '+((resp&&resp.error)||'не удалось запустить'); renderChat(); reEnable(); return; }
+  if(chatES) chatES.close(); chatES=new EventSource('/runs/'+resp.runId+'/events');
+  function finish(label){ return async function(ev){ var e2=JSON.parse(ev.data); if(e2.runId!==resp.runId) return;
+    if(label==='ok'){ var r=await api('/runs/'+resp.runId); chatThreads[agent.id][idx].text=replyText(r.run&&r.run.output); }
+    else chatThreads[agent.id][idx].text = label==='human' ? '(нужно ваше решение — достигнут лимит итераций)' : '(не удалось выполнить задачу)';
+    renderChat(); if(chatES) chatES.close(); reEnable(); }; }
+  chatES.addEventListener('run.succeeded', finish('ok'));
+  chatES.addEventListener('run.failed', finish('fail'));
+  chatES.addEventListener('run.needs_human', finish('human'));
+});
 
 // --- Pixel office ---------------------------------------------------------
 var PX=3;
