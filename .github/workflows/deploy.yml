@@ -97,6 +97,8 @@ jobs:
             echo "===== Caddy-served HTML (exact browser path) ====="
             curl -sk -H "Host: ${{ secrets.AGENT_DOMAIN }}" https://127.0.0.1/ -o /tmp/c.html -w "code=%{http_code} size=%{size_download}\n"
             echo "markers: v6=$(grep -c 'v6' /tmp/c.html) Сотрудники=$(grep -c Сотрудники /tmp/c.html) pollRun=$(grep -c pollRun /tmp/c.html) chatES=$(grep -c chatES /tmp/c.html)"
+            echo "===== INSTALLED SKILLS ====="
+            docker compose -f docker-compose.prod.yml exec -T agentos sh -lc 'echo count=$(ls -1 /root/.claude/skills 2>/dev/null | wc -l); ls -1 /root/.claude/skills 2>/dev/null | head -50'
             echo "===== agentos logs (tail) ====="
             docker compose -f docker-compose.prod.yml logs --tail=20 agentos
             echo "===== E2E DONE ====="
