@@ -44,6 +44,11 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
   .tag { display:inline-block; background:#30363d; color:var(--muted); border-radius:6px; padding:1px 7px; font-size:12px; margin:0 4px 4px 0; }
   small.muted { color:var(--muted); }
+  #officeWrap { margin:10px 0 4px; }
+  canvas#office { width:100%; max-width:920px; image-rendering:pixelated; border:1px solid var(--border); border-radius:10px; background:#0b0f14; display:block; }
+  .office-legend { display:flex; gap:12px; flex-wrap:wrap; margin-top:6px; }
+  .office-legend span { font-size:12px; color:var(--muted); }
+  .office-legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle; }
 </style>
 </head>
 <body>
@@ -63,6 +68,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
       <button id="go" class="primary" type="submit">Запустить</button>
     </form>
     <div class="status" id="cstatus"></div>
+    <div id="officeWrap"><canvas id="office" width="760" height="440"></canvas><div class="office-legend" id="olegend"></div></div>
     <div id="graphWrap" style="display:none"><div class="section-title">Граф сборки</div><div class="graph" id="graph"></div></div>
     <div id="resultWrap" style="display:none"><div class="section-title">Результат</div><div class="result" id="result"></div></div>
   </section>
@@ -107,6 +113,7 @@ document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click
   document.querySelectorAll('.tab').forEach((x) => x.classList.remove('active'));
   b.classList.add('active'); $('tab-' + b.dataset.tab).classList.add('active');
   if (b.dataset.tab === 'team') loadAgents();
+  if (b.dataset.tab === 'coord') loadOffice();
   if (b.dataset.tab === 'admin') loadAdmin();
 }));
 
@@ -121,16 +128,17 @@ $('f').addEventListener('submit', async (e) => {
   e.preventDefault(); const task=$('task').value.trim(); if(!task)return;
   $('go').disabled=true; $('graph').innerHTML=''; $('graphWrap').style.display='none'; $('resultWrap').style.display='none';
   $('cstatus').textContent='Координатор анализирует задачу…'; if(es)es.close();
+  officeResetIdle(); officeSet(null,'orchestrator','running');
   const { runId, error } = await api('/tasks',{method:'POST',body:JSON.stringify({orgId:ORG,task})});
   if(!runId){ $('cstatus').textContent='Ошибка: '+(error||'нет orchestrator-агента — создайте его во вкладке «Команда»'); $('go').disabled=false; return; }
   es = new EventSource('/runs/'+runId+'/events');
   es.addEventListener('orchestration.planned',(ev)=>{ const d=JSON.parse(ev.data).data; $('graphWrap').style.display='block';
     const g=$('graph'); g.innerHTML=''; d.subtasks.forEach((s,i)=>{ if(i>0){const a=document.createElement('div');a.className='arrow';a.textContent='→';g.appendChild(a);} g.appendChild(node(s)); });
     $('cstatus').textContent='Команда собрана: '+d.subtasks.map(s=>s.agentType).join(' → '); });
-  es.addEventListener('orchestration.subtask',(ev)=>{ const d=JSON.parse(ev.data).data; setStatus(d.subtaskId,d.status,d.agentName); });
+  es.addEventListener('orchestration.subtask',(ev)=>{ const d=JSON.parse(ev.data).data; setStatus(d.subtaskId,d.status,d.agentName); officeSet(d.agentName,d.agentType,d.status); });
   es.addEventListener('run.succeeded', async (ev)=>{ const e2=JSON.parse(ev.data); if(e2.runId!==runId)return;
     const r=await api('/runs/'+runId); $('resultWrap').style.display='block'; $('result').textContent=render(r.run&&r.run.output);
-    $('cstatus').textContent='Готово ✓'; $('go').disabled=false; es.close(); });
+    $('cstatus').textContent='Готово ✓'; officeSet(null,'orchestrator','succeeded'); $('go').disabled=false; es.close(); });
   ['run.failed','run.needs_human'].forEach((t)=>es.addEventListener(t,(ev)=>{ const e2=JSON.parse(ev.data); if(e2.runId!==runId)return;
     $('cstatus').textContent = t==='run.needs_human'?'Требуется человек (лимит итераций).':'Задача завершилась с ошибкой.'; $('go').disabled=false; es.close(); }));
 });
@@ -165,6 +173,82 @@ async function loadAdmin(){
   if(!dlq.length) td.innerHTML='<tr><td colspan="4"><small class="muted">пусто</small></td></tr>';
   td.querySelectorAll('button[data-run]').forEach((b)=>b.addEventListener('click', async ()=>{ await api('/dlq/'+b.dataset.run+'/requeue',{method:'POST'}); loadAdmin(); }));
 }
+
+// --- Pixel office ---------------------------------------------------------
+var PX=3;
+var SPR=["..HHHH..",".HHHHHH.",".HSSSSH.",".SSSSSS.",".SeSSeS.",".SSSSSS.",".CCCCCC.","CCCCCCCC","CCCCCCCC","CC.CC.CC",".PP..PP."];
+var TYPE_COLOR={orchestrator:'#d29922',analyst:'#2ea043',researcher:'#2f81f7',writer:'#a371f7',coder:'#f0883e',reviewer:'#db61a2'};
+var officeAgents=[]; var officeState={}; var officeFrame=0; var officeRAF=null;
+function roleColor(t){ return TYPE_COLOR[t]||'#8b949e'; }
+function shortName(n){ return n.split(' — ')[0]; }
+function roleOf(a){ return a.name.indexOf(' — ')>=0 ? a.name.split(' — ')[1] : a.type; }
+function drawSprite(ctx,ox,oy,shirt,bob){
+  for(var r=0;r<SPR.length;r++){ var row=SPR[r];
+    for(var c=0;c<row.length;c++){ var ch=row[c]; var col=null;
+      if(ch==='H')col='#3b2a1a'; else if(ch==='S')col='#e8b98c'; else if(ch==='e')col='#10151b'; else if(ch==='C')col=shirt; else if(ch==='P')col='#30363d';
+      if(col){ ctx.fillStyle=col; ctx.fillRect(ox+c*PX, oy+r*PX+bob, PX, PX); } } }
+}
+function drawStation(ctx,cx,cy,a){
+  var st=officeState[a.name]||'idle'; var col=roleColor(a.type);
+  var bob = st==='working' ? Math.round(Math.sin((officeFrame+cx)/8)*2) : 0;
+  // chair
+  ctx.fillStyle='#161d24'; ctx.fillRect(cx-13,cy-30,26,8);
+  // sprite (sitting behind the desk)
+  drawSprite(ctx, cx-12, cy-46+bob, col, 0);
+  // desk
+  ctx.fillStyle='#5a4126'; ctx.fillRect(cx-36,cy-6,72,16);
+  ctx.fillStyle='#6b4f2a'; ctx.fillRect(cx-36,cy-6,72,4);
+  ctx.fillStyle='#3f2d1a'; ctx.fillRect(cx-32,cy+10,6,14); ctx.fillRect(cx+26,cy+10,6,14);
+  // monitor on the desk
+  ctx.fillStyle='#202830'; ctx.fillRect(cx-15,cy-24,30,20);
+  var screen = st==='idle'?'#26313b' : st==='done'?'#2ea043' : st==='failed'?'#f85149' : col;
+  if(st==='working'){ ctx.globalAlpha=0.55+0.45*(0.5+0.5*Math.sin(officeFrame/6)); }
+  ctx.fillStyle=screen; ctx.fillRect(cx-12,cy-21,24,14); ctx.globalAlpha=1;
+  ctx.fillStyle='#202830'; ctx.fillRect(cx-3,cy-4,6,3);
+  // status bubble
+  var bub = st==='working'?'…' : st==='done'?'✓' : st==='failed'?'!' : '';
+  if(bub){ ctx.fillStyle='#1b232c'; ctx.strokeStyle='#30363d'; ctx.fillRect(cx+12,cy-54,18,15); ctx.strokeRect(cx+12,cy-54,18,15);
+    ctx.fillStyle = st==='failed'?'#f85149' : st==='done'?'#2ea043' : '#e6edf3'; ctx.font='11px monospace'; ctx.textAlign='center'; ctx.fillText(bub,cx+21,cy-43); }
+  // labels
+  ctx.fillStyle='#e6edf3'; ctx.font='11px monospace'; ctx.textAlign='center'; ctx.fillText(shortName(a.name),cx,cy+36);
+  ctx.fillStyle='#8b949e'; ctx.font='9px monospace'; ctx.fillText(roleOf(a),cx,cy+46);
+}
+function drawOffice(){
+  var cv=document.getElementById('office'); if(!cv)return; var ctx=cv.getContext('2d'); var W=cv.width,H=cv.height;
+  ctx.fillStyle='#0e1318'; ctx.fillRect(0,0,W,H);
+  var tile=24; for(var y=40;y<H;y+=tile){ for(var x=0;x<W;x+=tile){ ctx.fillStyle=(((x/tile)+(y/tile))%2===0)?'#141b22':'#11171d'; ctx.fillRect(x,y,tile,tile); } }
+  ctx.fillStyle='#1b232c'; ctx.fillRect(0,0,W,40); ctx.fillStyle='#22303b'; ctx.fillRect(0,36,W,4);
+  ctx.globalAlpha=0.25; ctx.fillStyle='#2f81f7'; ctx.fillRect(44,8,96,24); ctx.fillRect(W-140,8,96,24); ctx.globalAlpha=1;
+  ctx.fillStyle='#1f6f33'; ctx.fillRect(W-28,H-42,14,14); ctx.fillStyle='#6b4f2a'; ctx.fillRect(W-25,H-30,8,12);
+  ctx.fillStyle='#8b949e'; ctx.font='12px monospace'; ctx.textAlign='left'; ctx.fillText('Офис команды agent-os',12,25);
+  var n=officeAgents.length;
+  if(!n){ ctx.fillStyle='#8b949e'; ctx.font='12px monospace'; ctx.textAlign='center'; ctx.fillText('Команда не нанята — запустите сид или вкладку «Команда»',W/2,H/2); return; }
+  var ord=officeAgents.slice().sort(function(a,b){ return (b.type==='orchestrator'?1:0)-(a.type==='orchestrator'?1:0); });
+  var perRow = n<=4 ? n : Math.ceil(n/2);
+  var rows = Math.ceil(n/perRow); var startY=98; var rowH=(H-118)/rows;
+  for(var i=0;i<ord.length;i++){ var rIdx=Math.floor(i/perRow); var inRow=Math.min(perRow, n-rIdx*perRow); var cIdx=i%perRow;
+    var cellW=W/inRow; var cx=Math.round(cIdx*cellW+cellW/2); var cy=Math.round(startY+rIdx*rowH+rowH/2);
+    drawStation(ctx,cx,cy,ord[i]); }
+}
+function officeLoop(){ officeFrame++; drawOffice(); officeRAF=requestAnimationFrame(officeLoop); }
+function officeSet(name,type,status){
+  var st = status==='running'?'working' : status==='succeeded'?'done' : status==='failed'?'failed' : 'idle';
+  var target=null,i;
+  for(i=0;i<officeAgents.length;i++){ if(name && officeAgents[i].name===name){ target=officeAgents[i]; break; } }
+  if(!target && name){ for(i=0;i<officeAgents.length;i++){ if(shortName(officeAgents[i].name)===name){ target=officeAgents[i]; break; } } }
+  if(!target && type){ for(i=0;i<officeAgents.length;i++){ if(officeAgents[i].type===type && officeState[officeAgents[i].name]!=='done'){ target=officeAgents[i]; break; } } }
+  if(target) officeState[target.name]=st;
+}
+function officeResetIdle(){ officeAgents.forEach(function(a){ officeState[a.name]='idle'; }); }
+async function loadOffice(){
+  try { officeAgents = await api('/orgs/'+ORG+'/agents'); } catch(e) { officeAgents=[]; }
+  if(!officeAgents||!officeAgents.length) officeAgents=[];
+  officeResetIdle();
+  var leg=document.getElementById('olegend');
+  if(leg){ var seen={}, html=''; officeAgents.forEach(function(a){ if(seen[a.type])return; seen[a.type]=1; html+='<span><i style="background:'+roleColor(a.type)+'"></i>'+a.type+'</span>'; }); leg.innerHTML=html; }
+  if(!officeRAF) officeLoop();
+}
+loadOffice();
 </script>
 </body>
 </html>`;
