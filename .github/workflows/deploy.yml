@@ -8,7 +8,11 @@ name: Deploy
 on:
   workflow_dispatch:
   push:
-    branches: [release]
+    branches: [release, claude/inspiring-ride-OUkyL]
+    # On the feature branch, only a change to this file triggers a deploy
+    # (same self-trigger pattern as usbox.yml) — lets CI deploy without the
+    # GitHub API when the MCP session is down.
+    paths: ['.github/workflows/deploy.yml']
 
 permissions:
   contents: read
