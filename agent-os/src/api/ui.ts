@@ -60,10 +60,18 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .chat { display:flex; flex-direction:column; height:100%; min-height:0; border:1px solid var(--border); border-radius:10px; background:var(--card); }
   .chat-head { padding:11px 13px; border-bottom:1px solid var(--border); font-weight:600; }
   .chat-log { flex:1; overflow:auto; padding:13px; display:flex; flex-direction:column; gap:9px; }
-  .msg { max-width:82%; padding:8px 11px; border-radius:10px; white-space:pre-wrap; font-size:14px; line-height:1.4; }
+  .msg { max-width:82%; padding:8px 11px; border-radius:10px; white-space:pre-wrap; font-size:14px; line-height:1.4; position:relative; }
   .msg.me { align-self:flex-end; background:var(--accent); color:#fff; }
   .msg.them { align-self:flex-start; background:#0d1117; border:1px solid var(--border); }
   .msg .who { font-size:11px; color:var(--muted); margin-bottom:3px; }
+  .msg .quote { font-size:11.5px; opacity:.82; border-left:2px solid rgba(255,255,255,.5); padding:1px 0 1px 7px; margin-bottom:5px; white-space:pre-wrap; }
+  .msg.them .quote { border-left-color:#4a5560; color:var(--muted); }
+  .msg .rbtn { display:none; position:absolute; top:-9px; right:-7px; background:#1b232c; color:var(--muted); border:1px solid var(--border); border-radius:6px; font-size:11px; padding:1px 7px; cursor:pointer; }
+  .msg:hover .rbtn { display:block; }
+  .msg .rbtn:hover { color:var(--fg); border-color:var(--accent); }
+  #chatReply .rchip { display:flex; align-items:center; gap:8px; border-left:3px solid var(--accent); background:#0d1117; border-radius:6px; padding:5px 9px; font-size:12px; color:var(--muted); }
+  #chatReply .rchip b { color:var(--fg); font-weight:600; margin-right:4px; }
+  #chatReply .rchip a { margin-left:auto; color:var(--muted); text-decoration:none; }
   .chat-form { display:flex; gap:8px; padding:10px; border-top:1px solid var(--border); }
   .chat-form input { flex:1; }
   .actfeed { max-height:150px; overflow:auto; border:1px solid var(--border); border-radius:8px; background:#0d1117; padding:6px 10px; font-size:13px; }
@@ -73,7 +81,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <header>
-  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v16 · спрайты 2.0</span>
+  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v17 · ответы на сообщения</span>
   <nav>
     <button data-tab="coord" class="active">Координатор</button>
     <button data-tab="staff">Сотрудники</button>
@@ -103,6 +111,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
       <div class="chat">
         <div class="chat-head" id="chatHead">Выберите сотрудника слева</div>
         <div class="chat-log" id="chatLog"></div>
+        <div id="chatReply" style="display:none;padding:4px 10px"></div>
         <div id="chatAttach" style="display:none;padding:4px 10px;font-size:12px"></div>
         <form class="chat-form" id="chatForm">
           <input type="file" id="chatFile" style="display:none" />
@@ -238,6 +247,7 @@ function selectAgent(id){
   var c=$('st_'+id); if(c) c.classList.add('active');
   $('chatHead').textContent = shortName(currentAgent.name)+' — '+roleOf(currentAgent);
   $('chatInput').disabled=false; $('chatSend').disabled=false; $('chatClip').disabled=false; $('chatInput').focus();
+  chatReplyTo=null; renderReplyChip();
   renderChat();
   loadChatHistory(id);
 }
@@ -261,11 +271,42 @@ function loadChatHistory(aid){
     if(currentAgent && currentAgent.id===aid) renderChat();
   }).catch(function(){});
 }
+// Reply-to state: the selected message to quote in the next send.
+var chatReplyTo=null; // {role:'user'|'agent', text}
+function renderReplyChip(){
+  var el=$('chatReply');
+  if(!chatReplyTo){ el.style.display='none'; el.innerHTML=''; return; }
+  var who = chatReplyTo.role==='agent' ? (currentAgent?shortName(currentAgent.name):'Агент') : 'Вы';
+  var snip = chatReplyTo.text.replace(/\s+/g,' ').slice(0,90);
+  el.style.display='block';
+  el.innerHTML='<div class="rchip"><b>↪ '+escapeHtml(who)+'</b><span>'+escapeHtml(snip)+'</span><a href="#" id="replyDrop">✕</a></div>';
+  var d=document.getElementById('replyDrop');
+  if(d) d.addEventListener('click', function(ev){ ev.preventDefault(); chatReplyTo=null; renderReplyChip(); });
+}
+function setReplyTarget(m){
+  if(!m || !m.text || m.pending) return;
+  // Strip a quote line if the message itself was a reply.
+  var t=m.text;
+  if(t.indexOf('↪ ')===0){ var nl=t.indexOf('\n'); if(nl>0) t=t.slice(nl+1); }
+  chatReplyTo={ role: m.role==='me'?'user':'agent', text:t };
+  renderReplyChip(); $('chatInput').focus();
+}
+// Split a stored "↪ quote\nbody" display text into its quote + body parts.
+function splitQuote(text){
+  if(text && text.indexOf('↪ ')===0){ var nl=text.indexOf('\n');
+    if(nl>0) return { quote:text.slice(2,nl), body:text.slice(nl+1) }; }
+  return { quote:null, body:text };
+}
 function renderChat(){
   if(!currentAgent) return; var log=$('chatLog'); log.innerHTML=''; var th=chatThreads[currentAgent.id]||[];
   th.forEach(function(m,i){ var el=document.createElement('div'); el.className='msg '+(m.role==='me'?'me':'them');
-    var inner=(m.role==='me'?'':'<div class="who">'+escapeHtml(shortName(currentAgent.name))+'</div>')+escapeHtml(m.text);
+    var parts=splitQuote(m.text);
+    var inner=(m.role==='me'?'':'<div class="who">'+escapeHtml(shortName(currentAgent.name))+'</div>');
+    if(parts.quote) inner+='<div class="quote">'+escapeHtml(parts.quote)+'</div>';
+    inner+=escapeHtml(parts.body);
     el.innerHTML=inner;
+    if(!m.pending){ var rb=document.createElement('button'); rb.className='rbtn'; rb.textContent='↩ ответить';
+      rb.addEventListener('click', (function(msg){ return function(){ setReplyTarget(msg); }; })(m)); el.appendChild(rb); }
     if(m.failedRunId){ var b=document.createElement('button'); b.textContent='Повторить'; b.className='primary'; b.style.cssText='margin-top:6px;padding:4px 10px;font-size:12px';
       b.addEventListener('click', (function(aid,idx,rid){ return function(){ retryChat(aid,idx,rid); }; })(currentAgent.id,i,m.failedRunId)); el.appendChild(b); }
     log.appendChild(el); });
@@ -362,11 +403,16 @@ $('chatForm').addEventListener('submit', async function(e){
   if(!text && !chatAttachment) return;
   if(!text) text='Изучи приложенный файл и дай краткие выводы.';
   var aid=currentAgent.id;
-  var shown=text; var attachForServer=null;
+  var shown=text; var attachForServer=null; var replyForServer=null;
   if(chatAttachment){
     attachForServer={ filename:chatAttachment.filename, text:chatAttachment.text };
     shown=text+' 📎 '+chatAttachment.filename;
     chatAttachment=null; renderAttach(null);
+  }
+  if(chatReplyTo){
+    replyForServer={ role:chatReplyTo.role, text:chatReplyTo.text };
+    shown='↪ '+chatReplyTo.text.replace(/\s+/g,' ').slice(0,120)+'\n'+shown;
+    chatReplyTo=null; renderReplyChip();
   }
   pushMsg(aid,'me',shown); $('chatInput').value='';
   if(!chatThreads[aid]) chatThreads[aid]=[];
@@ -374,6 +420,7 @@ $('chatForm').addEventListener('submit', async function(e){
   // Server-side chat: persists the message + assembles dialog context.
   var body={ text:text };
   if(attachForServer) body.attachment=attachForServer;
+  if(replyForServer) body.replyTo=replyForServer;
   var resp = await api('/orgs/'+ORG+'/agents/'+aid+'/chat',{method:'POST',body:JSON.stringify(body)});
   if(!resp||!resp.runId){ setReplyFailed(aid,idx,null,'Ошибка: '+((resp&&resp.error)||'не удалось запустить')); return; }
   chatThreads[aid][idx].runId=resp.runId; chatPending[aid]={runId:resp.runId, idx:idx}; saveChat();

@@ -102,6 +102,22 @@ describe('Personal chat — dialog memory', () => {
     expect(await repo.listChildRuns(sent.runId)).toHaveLength(0);
   });
 
+  it('reply-to quotes the selected message in the prompt and the stored text', async () => {
+    const { cp, repo } = build(new EchoModel());
+    const sent = await cp.sendChatMessage({
+      orgId: 'org_1', agentId: 'agent_1', text: 'уточни этот пункт',
+      replyTo: { role: 'agent', text: 'отчёт готов на 80%, остался раздел рисков' },
+    });
+    // Stored display text carries the quote line for rendering after reload.
+    expect(sent.message.text.startsWith('↪ отчёт готов на 80%')).toBe(true);
+    expect(sent.message.text).toContain('\nуточни этот пункт');
+    // The model prompt carries the quoted context.
+    const run = await repo.getRun(sent.runId);
+    const prompt = (run?.input as { prompt: string }).prompt;
+    expect(prompt).toContain('отвечает на твоё сообщение');
+    expect(prompt).toContain('раздел рисков');
+  });
+
   it('composes an attachment into the prompt but keeps the thread text short', async () => {
     const { cp, repo } = build(new EchoModel());
     const sent = await cp.sendChatMessage({

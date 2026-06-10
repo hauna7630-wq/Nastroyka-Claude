@@ -239,6 +239,10 @@ export class ControlPlane {
     agentId: string;
     text: string;
     attachment?: { filename: string; text: string };
+    // Reply-to: the user answers a specific earlier message; the quote goes
+    // into the model prompt and is encoded into the stored display text
+    // (leading "↪ …" line — no schema change, survives reload/devices).
+    replyTo?: { role: 'user' | 'agent'; text: string };
   }): Promise<{ runId: string; status: string; message: ChatMessageRecord }> {
     const { repo } = this.deps;
     if (!args.text?.trim() && !args.attachment) {
@@ -261,10 +265,18 @@ export class ControlPlane {
 
     // The new user turn: inline the attachment for the model, keep the thread
     // display text short.
-    const promptPart = args.attachment
+    let promptPart = args.attachment
       ? 'Файл "' + args.attachment.filename + '":\n"""\n' + args.attachment.text + '\n"""\n\n' + text
       : text;
-    const displayText = args.attachment ? text + ' 📎 ' + args.attachment.filename : text;
+    let displayText = args.attachment ? text + ' 📎 ' + args.attachment.filename : text;
+    if (args.replyTo && typeof args.replyTo.text === 'string' && args.replyTo.text.trim()) {
+      const quote = args.replyTo.text.trim();
+      const whose = args.replyTo.role === 'agent' ? 'твоё сообщение' : 'своё более раннее сообщение';
+      promptPart =
+        'Пользователь отвечает на ' + whose + ':\n"""\n' + quote.slice(0, 400) +
+        '\n"""\n\n' + promptPart;
+      displayText = '↪ ' + quote.slice(0, 120).replace(/\s*\n\s*/g, ' ') + '\n' + displayText;
+    }
 
     const runId = randomUUID();
     const message = await repo.appendChatMessage({

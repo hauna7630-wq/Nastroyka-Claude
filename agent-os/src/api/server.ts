@@ -99,6 +99,7 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
               agentId: seg[3],
               text: body.text,
               attachment: body.attachment,
+              replyTo: body.replyTo,
             }),
           );
         }
