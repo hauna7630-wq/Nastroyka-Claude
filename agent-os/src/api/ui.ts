@@ -74,6 +74,16 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   #chatReply .rchip a { margin-left:auto; color:var(--muted); text-decoration:none; }
   .chat-form { display:flex; gap:8px; padding:10px; border-top:1px solid var(--border); }
   .chat-form input { flex:1; }
+  .phasebar { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .phase { font-size:11px; padding:3px 10px; border-radius:999px; background:#30363d; color:var(--muted); letter-spacing:.04em; }
+  .phase.on { background:rgba(210,153,34,.2); color:var(--run); }
+  .phase.done { background:rgba(46,160,67,.18); color:var(--ok); }
+  .phase.fail { background:rgba(248,81,73,.18); color:var(--fail); }
+  .dfeed { display:flex; flex-direction:column; gap:8px; max-height:260px; overflow:auto; border:1px solid var(--border); border-radius:10px; background:#0d1117; padding:10px; }
+  .dmsg { font-size:13px; line-height:1.45; white-space:pre-wrap; }
+  .dmsg .dwho { font-weight:600; margin-right:6px; }
+  .dmsg.review { border-left:3px solid #db61a2; padding-left:8px; }
+  .dmsg.revision { border-left:3px solid #d29922; padding-left:8px; }
   .actfeed { max-height:150px; overflow:auto; border:1px solid var(--border); border-radius:8px; background:#0d1117; padding:6px 10px; font-size:13px; }
   .actfeed .act { padding:3px 0; border-bottom:1px solid #161d24; }
   .actfeed .act-t { color:var(--muted); font-size:11px; margin-right:6px; }
@@ -81,7 +91,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <header>
-  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v17 · ответы на сообщения</span>
+  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v18 · живой цикл задачи</span>
   <nav>
     <button data-tab="coord" class="active">Координатор</button>
     <button data-tab="staff">Сотрудники</button>
@@ -97,6 +107,8 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
       <button id="go" class="primary" type="submit">Запустить</button>
     </form>
     <div class="status" id="cstatus"></div>
+    <div id="phaseWrap" style="display:none"><div class="section-title">Жизненный цикл задачи</div><div id="phaseBar" class="phasebar"></div></div>
+    <div id="discussWrap" style="display:none"><div class="section-title">Обсуждение команды</div><div id="discussFeed" class="dfeed"></div></div>
     <div id="officeWrap"><canvas id="office" width="900" height="520"></canvas><div class="office-legend" id="olegend"></div>
       <div class="section-title">Лента активности</div><div id="activityFeed" class="actfeed"></div></div>
     <div id="graphWrap" style="display:none"><div class="section-title">Граф сборки</div><div class="graph" id="graph"></div></div>
@@ -175,13 +187,56 @@ function node(sub){ const el=document.createElement('div'); el.className='node';
   el.innerHTML='<div class="role">'+sub.agentType+'</div><div class="name">'+(sub.agentName||sub.id)+'</div><span class="badge queued" id="b_'+sub.id+'">в очереди</span>'; return el; }
 function setStatus(id,s,name){ const b=$('b_'+id); if(!b)return; b.className='badge '+s; b.textContent=LABEL[s]||s; if(name){const n=$('n_'+id).querySelector('.name'); if(n)n.textContent=name;} }
 function render(out){ if(!out)return '(пусто)'; if(typeof out==='string')return out; let s=''; if(out.summary)s+=String(out.summary)+'\\n\\n'; if(out.subtasks)for(const k of Object.keys(out.subtasks))s+='• '+k+': '+String(out.subtasks[k])+'\\n'; return s||JSON.stringify(out,null,2); }
+// --- Task lifecycle: phase chips + team discussion (server-derived, survives reload)
+var PHASE_SEQ=['new','analyzing','working','reviewing','revising','completed'];
+var PHASE_RU={new:'НОВАЯ',analyzing:'АНАЛИЗ',working:'В РАБОТЕ',reviewing:'РЕВЬЮ',revising:'ДОРАБОТКА',completed:'ГОТОВО',failed:'ОШИБКА',needs_human:'НУЖЕН ЧЕЛОВЕК'};
+var teamPollTimer=null;
+function renderTeam(t){
+  $('phaseWrap').style.display='block'; var bar=$('phaseBar'); bar.innerHTML='';
+  var cur=t.phase; var failed=(cur==='failed'||cur==='needs_human');
+  var idx=PHASE_SEQ.indexOf(failed?'completed':cur); if(idx<0) idx=PHASE_SEQ.length-1;
+  PHASE_SEQ.forEach(function(p,i){
+    var el=document.createElement('span'); el.className='phase'; el.textContent=PHASE_RU[p];
+    if(failed&&i===PHASE_SEQ.length-1){ el.className='phase fail'; el.textContent=PHASE_RU[cur]; }
+    else if(i<idx){ el.className='phase done'; }
+    else if(i===idx){ el.className='phase '+(cur==='completed'?'done':'on'); }
+    bar.appendChild(el);
+    if(i<PHASE_SEQ.length-1){ var a=document.createElement('span'); a.textContent='›'; a.style.color='#39424c'; bar.appendChild(a); }
+  });
+  if(t.discussion&&t.discussion.length){
+    $('discussWrap').style.display='block'; var feed=$('discussFeed'); feed.innerHTML='';
+    t.discussion.forEach(function(d){
+      var el=document.createElement('div'); el.className='dmsg '+d.kind;
+      var label=d.kind==='review'?' · ревью':d.kind==='revision'?' · доработка':'';
+      el.innerHTML='<span class="dwho" style="color:'+roleColor(d.agentType)+'">'+escapeHtml(shortName(d.author))+label+'</span>'+escapeHtml(d.text.slice(0,600));
+      feed.appendChild(el); });
+    feed.scrollTop=feed.scrollHeight;
+  }
+}
+function pollTeam(runId){
+  if(teamPollTimer) clearTimeout(teamPollTimer);
+  api('/runs/'+runId+'/team').then(function(t){
+    if(!t||!t.phase) return;
+    renderTeam(t);
+    var terminal=(t.phase==='completed'||t.phase==='failed'||t.phase==='needs_human');
+    if(terminal){
+      if($('resultWrap').style.display==='none' && t.run && t.run.output!==undefined){
+        $('resultWrap').style.display='block'; $('result').textContent=render(t.run.output); }
+      return;
+    }
+    teamPollTimer=setTimeout(function(){ pollTeam(runId); },3000);
+  }).catch(function(){ teamPollTimer=setTimeout(function(){ pollTeam(runId); },4000); });
+}
 $('f').addEventListener('submit', async (e) => {
   e.preventDefault(); const task=$('task').value.trim(); if(!task)return;
   $('go').disabled=true; $('graph').innerHTML=''; $('graphWrap').style.display='none'; $('resultWrap').style.display='none';
+  $('phaseWrap').style.display='none'; $('discussWrap').style.display='none'; $('discussFeed').innerHTML='';
   $('cstatus').textContent='Координатор анализирует задачу…'; if(es)es.close();
   officeResetIdle(); officeSet(null,'orchestrator','running');
   const { runId, error } = await api('/tasks',{method:'POST',body:JSON.stringify({orgId:ORG,task})});
   if(!runId){ $('cstatus').textContent='Ошибка: '+(error||'нет orchestrator-агента — создайте его во вкладке «Команда»'); $('go').disabled=false; return; }
+  try { localStorage.setItem('agentos_last_task', runId); } catch(e2){}
+  pollTeam(runId);
   es = new EventSource('/runs/'+runId+'/events');
   es.addEventListener('orchestration.planned',(ev)=>{ const d=JSON.parse(ev.data).data; $('graphWrap').style.display='block';
     const g=$('graph'); g.innerHTML=''; d.subtasks.forEach((s,i)=>{ if(i>0){const a=document.createElement('div');a.className='arrow';a.textContent='→';g.appendChild(a);} g.appendChild(node(s)); });
@@ -839,6 +894,9 @@ async function loadOffice(){
   if(!officeSim) officeSim=setInterval(ambient, 3200);
 }
 loadOffice();
+// Restore the last team task after a reload: phases, discussion and result come
+// back from the server (Postgres) — closing the tab loses nothing.
+try { var lastTask=localStorage.getItem('agentos_last_task'); if(lastTask) pollTeam(lastTask); } catch(e){}
 </script>
 </body>
 </html>`;
