@@ -22,7 +22,7 @@ jobs:
       - name: Operate the US box over SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.US_SSH_HOST }}
+          host: 138.124.123.234
           username: root
           key: ${{ secrets.SSH_KEY }}
           command_timeout: 10m
