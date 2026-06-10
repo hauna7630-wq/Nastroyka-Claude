@@ -7,10 +7,22 @@ import { ControlPlane, NotFoundError, ValidationError } from './controlPlane';
 import { RunEvent } from '../events/bus';
 import { COORDINATOR_HTML } from './ui';
 
+// 30MB request cap: enough for a ~20MB file as base64; protects the process.
+const MAX_BODY = 30 * 1024 * 1024;
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (c) => chunks.push(Buffer.from(c)));
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > MAX_BODY) {
+        req.destroy();
+        reject(new ValidationError('файл слишком большой (лимит ~20МБ) — разбейте его на части'));
+        return;
+      }
+      chunks.push(Buffer.from(c));
+    });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
@@ -73,6 +85,11 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
       }
       if (method === 'GET' && seg[0] === 'orgs' && seg[2] === 'token-burn') {
         return json(res, 200, await cp.tokenBurn(seg[1]));
+      }
+      // POST /documents/extract  — Doc-1: extract text from an uploaded file
+      if (method === 'POST' && path === '/documents/extract') {
+        const body = JSON.parse((await readBody(req)) || '{}');
+        return json(res, 200, await cp.extractDocument(body));
       }
       // GET /dlq  and  POST /dlq/:id/requeue
       if (method === 'GET' && path === '/dlq') {

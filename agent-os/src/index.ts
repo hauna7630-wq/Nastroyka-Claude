@@ -87,7 +87,7 @@ export function buildApp(): App {
   // F4: cross-process event bus (Redis pub/sub) + observability + control-plane API.
   const events = new RedisEventBus(config.redisUrl);
   const observability = new Observability(repo);
-  const controlPlane = new ControlPlane({ repo, queue, observability, events });
+  const controlPlane = new ControlPlane({ repo, queue, observability, events, documents });
 
   return {
     workerDeps: {

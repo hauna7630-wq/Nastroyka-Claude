@@ -71,7 +71,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <header>
-  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v12 · живой</span>
+  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v13 · живой</span>
   <nav>
     <button data-tab="coord" class="active">Координатор</button>
     <button data-tab="staff">Сотрудники</button>
@@ -101,7 +101,10 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
       <div class="chat">
         <div class="chat-head" id="chatHead">Выберите сотрудника слева</div>
         <div class="chat-log" id="chatLog"></div>
+        <div id="chatAttach" style="display:none;padding:4px 10px;font-size:12px"></div>
         <form class="chat-form" id="chatForm">
+          <input type="file" id="chatFile" style="display:none" />
+          <button type="button" id="chatClip" title="Прикрепить файл (txt/md/csv/json/docx/pdf/xlsx)" disabled style="min-width:38px">📎</button>
           <input id="chatInput" placeholder="Напишите задачу или вопрос…" autocomplete="off" disabled />
           <button class="primary" id="chatSend" type="submit" disabled>Отправить</button>
         </form>
@@ -232,7 +235,7 @@ function selectAgent(id){
   document.querySelectorAll('.staff-item').forEach(function(x){ x.classList.remove('active'); });
   var c=$('st_'+id); if(c) c.classList.add('active');
   $('chatHead').textContent = shortName(currentAgent.name)+' — '+roleOf(currentAgent);
-  $('chatInput').disabled=false; $('chatSend').disabled=false; $('chatInput').focus(); renderChat();
+  $('chatInput').disabled=false; $('chatSend').disabled=false; $('chatClip').disabled=false; $('chatInput').focus(); renderChat();
 }
 function renderChat(){
   if(!currentAgent) return; var log=$('chatLog'); log.innerHTML=''; var th=chatThreads[currentAgent.id]||[];
@@ -268,13 +271,51 @@ function pollRun(aid, runId, idx, tries){
     else setTimeout(function(){ pollRun(aid,runId,idx,tries+1); }, 2000);
   }).catch(function(){ setTimeout(function(){ pollRun(aid,runId,idx,tries+1); }, 2500); });
 }
+// --- file attachment (Doc-1): extract text server-side, inline into the prompt
+var chatAttachment=null; // {filename, text}
+function renderAttach(state, msg){
+  var el=$('chatAttach');
+  if(!state){ el.style.display='none'; el.innerHTML=''; return; }
+  el.style.display='block';
+  if(state==='busy'){ el.innerHTML='<span style="color:#8b949e">⏳ '+msg+'</span>'; }
+  else if(state==='err'){ el.innerHTML='<span style="color:#f85149">⚠️ '+msg+'</span>'; }
+  else { el.innerHTML='<span style="color:#2ea043">📄 '+msg+'</span> <a href="#" id="attachDrop" style="color:#8b949e">✕ убрать</a>';
+    var d=document.getElementById('attachDrop'); if(d) d.addEventListener('click',function(ev){ ev.preventDefault(); chatAttachment=null; renderAttach(null); }); }
+}
+$('chatClip').addEventListener('click', function(){ $('chatFile').click(); });
+$('chatFile').addEventListener('change', function(){
+  var f=$('chatFile').files && $('chatFile').files[0]; $('chatFile').value=''; if(!f) return;
+  if(f.size > 20*1024*1024){ renderAttach('err','Файл больше 20МБ — разбейте его на части и пришлите частями.'); return; }
+  renderAttach('busy','Читаю файл '+f.name+'…');
+  var rd=new FileReader();
+  rd.onerror=function(){ renderAttach('err','Не удалось прочитать файл из браузера.'); };
+  rd.onload=function(){
+    var b64=String(rd.result).split(',')[1]||'';
+    api('/documents/extract',{method:'POST',body:JSON.stringify({mime:f.type,filename:f.name,content:b64,base64:true})})
+      .then(function(r){
+        if(r && typeof r.text==='string'){ chatAttachment={filename:f.name,text:r.text};
+          renderAttach('ok', f.name+' — прочитано, '+r.text.length+' симв. Будет приложен к сообщению.'); }
+        else { renderAttach('err',(r&&r.error)||'не удалось прочитать файл'); }
+      })
+      .catch(function(){ renderAttach('err','Сеть: не удалось отправить файл на разбор.'); });
+  };
+  rd.readAsDataURL(f);
+});
 $('chatForm').addEventListener('submit', async function(e){
-  e.preventDefault(); if(!currentAgent) return; var text=$('chatInput').value.trim(); if(!text) return;
+  e.preventDefault(); if(!currentAgent) return; var text=$('chatInput').value.trim();
+  if(!text && !chatAttachment) return;
+  if(!text) text='Изучи приложенный файл и дай краткие выводы.';
   var aid=currentAgent.id;
-  pushMsg(aid,'me',text); $('chatInput').value='';
+  var prompt=text; var shown=text;
+  if(chatAttachment){
+    prompt='Файл "'+chatAttachment.filename+'":\n"""\n'+chatAttachment.text+'\n"""\n\n'+text;
+    shown=text+' 📎 '+chatAttachment.filename;
+    chatAttachment=null; renderAttach(null);
+  }
+  pushMsg(aid,'me',shown); $('chatInput').value='';
   if(!chatThreads[aid]) chatThreads[aid]=[];
   chatThreads[aid].push({role:'them', text:'…'}); var idx=chatThreads[aid].length-1; saveChat(); renderChat();
-  var resp = await api('/runs',{method:'POST',body:JSON.stringify({orgId:ORG,agentId:aid,input:{prompt:text}})});
+  var resp = await api('/runs',{method:'POST',body:JSON.stringify({orgId:ORG,agentId:aid,input:{prompt:prompt}})});
   if(!resp||!resp.runId){ setReply(aid,idx,'Ошибка: '+((resp&&resp.error)||'не удалось запустить')); return; }
   chatPending[aid]={runId:resp.runId, idx:idx}; saveChat();
   pollRun(aid, resp.runId, idx);

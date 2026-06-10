@@ -11,6 +11,7 @@ import { createControlPlaneServer } from '../src/api/server';
 import { finalTurn } from '../src/adapters/model.mock';
 import { ModelProvider } from '../src/ports/model';
 import { ModelTurn, Agent, Org } from '../src/domain/types';
+import { RichDocumentParser } from '../src/adapters/documents.rich';
 
 const ORG: Org = { id: 'org_1', name: 'Acme' };
 const AGENT: Agent = {
@@ -57,7 +58,13 @@ function build(opts: { model: ModelProvider; maxAttempts?: number }) {
     complexityThreshold: 999, // simple tasks -> single-agent fast path
     defaultAgentType: 'researcher',
   });
-  const cp = new ControlPlane({ repo, queue, observability, events });
+  const cp = new ControlPlane({
+    repo,
+    queue,
+    observability,
+    events,
+    documents: new RichDocumentParser(),
+  });
   return { repo, events, queue, cp };
 }
 
@@ -163,6 +170,30 @@ describe('Control Plane — DLQ requeue', () => {
     expect((await cp.getRun(runId)).run.status).toBe('succeeded');
     dlq = await cp.listDeadLetters();
     expect(dlq).toHaveLength(0);
+  });
+});
+
+describe('Control Plane — document extraction (Doc-1)', () => {
+  it('extracts text from an uploaded file for the chat', async () => {
+    const { cp } = build({ model: new FinalModel() });
+    const { text } = await cp.extractDocument({
+      mime: 'text/csv',
+      filename: 'sales.csv',
+      content: Buffer.from('month,rev\njan,100').toString('base64'),
+    });
+    expect(text).toBe('month | rev\njan | 100');
+  });
+
+  it('maps unreadable files to a 400-class error carrying the honest fix', async () => {
+    const { cp } = build({ model: new FinalModel() });
+    await expect(
+      cp.extractDocument({
+        mime: 'application/msword',
+        filename: 'old.doc',
+        content: Buffer.from('binary').toString('base64'),
+      }),
+    ).rejects.toThrow(/пересохраните файл как \.docx/);
+    await expect(cp.extractDocument({ filename: 'x.txt' })).rejects.toThrow(/content is required/);
   });
 });
 

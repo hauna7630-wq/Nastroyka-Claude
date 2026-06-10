@@ -8,6 +8,7 @@ import { Repository } from '../ports/repository';
 import { Queue } from '../ports/queue';
 import { Observability } from '../observability/metrics';
 import { EventBus } from '../events/bus';
+import { DocumentParser } from '../ports/documents';
 import { AgentType, DeadLetterRecord, Run } from '../domain/types';
 
 export interface ControlPlaneDeps {
@@ -15,6 +16,9 @@ export interface ControlPlaneDeps {
   queue: Queue;
   observability: Observability;
   events?: EventBus;
+  // Doc-1 file handling: lets the chat UI extract text from an uploaded file
+  // before it goes into the agent prompt.
+  documents?: DocumentParser;
 }
 
 export class NotFoundError extends Error {
@@ -152,6 +156,32 @@ export class ControlPlane {
     });
     await this.deps.queue.enqueue({ runId });
     return { runId, status: 'queued' };
+  }
+
+  // --- Documents (Doc-1 file handling) ---
+
+  // Extract text from an uploaded file so the chat can inline it into the
+  // prompt. Unreadable files surface their honest, actionable message (the
+  // parser proposes a concrete fix) as a ValidationError, not a 500.
+  async extractDocument(args: {
+    mime?: string;
+    filename?: string;
+    content?: string;
+    base64?: boolean;
+  }): Promise<{ text: string; filename?: string }> {
+    if (!this.deps.documents) throw new ValidationError('document parsing is not configured');
+    if (!args.content) throw new ValidationError('content is required');
+    try {
+      const text = await this.deps.documents.extractText({
+        mime: args.mime || 'application/octet-stream',
+        filename: args.filename,
+        content: args.content,
+        base64: args.base64 !== false,
+      });
+      return { text, filename: args.filename };
+    } catch (err) {
+      throw new ValidationError(err instanceof Error ? err.message : 'не удалось прочитать файл');
+    }
   }
 
   // --- Live events (SSE/WS) ---
