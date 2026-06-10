@@ -15,12 +15,31 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
           --ok:#2ea043; --run:#d29922; --fail:#f85149; --border:#30363d; }
   * { box-sizing:border-box; } html, body { height:100%; }
   body { margin:0; font-family:-apple-system,Segoe UI,Roboto,sans-serif;
-       background:var(--bg); color:var(--fg); display:flex; flex-direction:column; overflow:hidden; }
-  header { padding:16px 24px; border-bottom:1px solid var(--border); font-weight:700; display:flex; gap:18px; align-items:center; }
-  nav { display:flex; gap:6px; margin-left:auto; font-weight:400; }
-  nav button { background:transparent; color:var(--muted); border:1px solid transparent; border-radius:8px; padding:6px 14px; cursor:pointer; font:inherit; }
-  nav button.active { background:var(--card); color:var(--fg); border-color:var(--border); }
+       background:var(--bg); color:var(--fg); display:flex; overflow:hidden; }
+  aside#side { width:240px; min-width:240px; background:#10161d; border-right:1px solid var(--border);
+       display:flex; flex-direction:column; padding:14px 12px 10px; gap:4px; overflow:auto; }
+  .logo { font-weight:700; font-size:15px; padding:2px 6px 12px; display:flex; gap:8px; align-items:center; }
+  .newtask { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:9px 10px; font:inherit;
+       cursor:pointer; font-weight:600; font-size:13px; margin-bottom:8px; }
+  nav.snav { display:flex; flex-direction:column; gap:2px; }
+  nav.snav button { text-align:left; background:transparent; color:var(--muted); border:1px solid transparent;
+       border-radius:8px; padding:8px 10px; cursor:pointer; font:inherit; letter-spacing:.02em; white-space:nowrap; overflow:hidden; }
+  nav.snav button.active { background:var(--card); color:var(--fg); border-color:var(--border); }
+  .sside-title { color:#5b6672; font-size:10.5px; letter-spacing:.09em; margin:14px 6px 4px; }
+  .scard { background:var(--card); border:1px solid var(--border); border-radius:9px; padding:8px 10px;
+       cursor:pointer; display:flex; gap:8px; align-items:center; margin-bottom:5px; }
+  .scard:hover { border-color:var(--accent); }
+  .sava { width:26px; height:26px; min-width:26px; border-radius:7px; display:flex; align-items:center;
+       justify-content:center; font-weight:700; font-size:13px; color:#fff; }
+  .sname { font-size:13px; font-weight:600; } .srole { font-size:10.5px; color:var(--muted); }
+  .sactive { margin-left:auto; font-size:9.5px; color:var(--ok); background:rgba(46,160,67,.15); padding:2px 6px; border-radius:999px; }
+  .sbottom { margin-top:auto; padding-top:10px; border-top:1px solid #1b232c; color:var(--muted); font-size:12px; padding-left:6px; }
+  .content { flex:1; display:flex; flex-direction:column; min-height:0; }
   main { flex:1; width:100%; max-width:1500px; margin:0 auto; padding:18px 22px; overflow:auto; min-height:0; }
+  @media (max-width: 920px){ aside#side { width:68px; min-width:68px; padding:14px 8px; }
+    aside#side .sname, aside#side .srole, aside#side .sactive, aside#side .sside-title,
+    aside#side .logo .vbadge, aside#side .logo .ltext, aside#side .sbottom { display:none; }
+    aside#side .newtask { font-size:16px; padding:7px 0; } }
   .tab { display:none; } .tab.active { display:flex; flex-direction:column; flex:1; min-height:0; }
   form { display:flex; gap:8px; margin-bottom:16px; }
   input, textarea, select { background:var(--card); color:var(--fg); border:1px solid var(--border);
@@ -90,15 +109,24 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </style>
 </head>
 <body>
-<header>
-  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v19 · журнал агента</span>
-  <nav>
-    <button data-tab="coord" class="active">Координатор</button>
-    <button data-tab="staff">Сотрудники</button>
-    <button data-tab="team">Команда</button>
-    <button data-tab="admin">Админ</button>
+<aside id="side">
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v20 · сайдбар</span></div>
+  <button class="newtask" id="sideNew">+ Новая задача</button>
+  <nav class="snav">
+    <button data-tab="coord" class="active">🏢 Офис</button>
+    <button data-tab="tasks">☑️ Задачи</button>
+    <button data-tab="activity">📈 Активность</button>
+    <button data-tab="staff">💬 Сотрудники</button>
+    <button data-tab="team">👥 Команда</button>
+    <button data-tab="admin">⚙️ Админ</button>
   </nav>
-</header>
+  <div class="sside-title">КООРДИНАТОР</div>
+  <div id="sideCoord"></div>
+  <div class="sside-title">СОТРУДНИКИ <span id="scount"></span></div>
+  <div id="sideStaff"></div>
+  <div class="sbottom">agent-os · личная команда ИИ</div>
+</aside>
+<div class="content">
 <main>
   <!-- Координатор -->
   <section class="tab active" id="tab-coord">
@@ -156,6 +184,18 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
     <div class="graph" id="agents"></div>
   </section>
 
+  <!-- Задачи -->
+  <section class="tab" id="tab-tasks">
+    <div class="section-title">Задачи организации (последние 30)</div>
+    <div id="tasksList" class="dfeed" style="max-height:none;flex:1"></div>
+  </section>
+
+  <!-- Активность -->
+  <section class="tab" id="tab-activity">
+    <div class="section-title">Активность офиса</div>
+    <div id="activityBig" class="actfeed" style="max-height:none;flex:1"></div>
+  </section>
+
   <!-- Админ -->
   <section class="tab" id="tab-admin">
     <div class="section-title">Журнал агента (наблюдаемость + Debug)</div>
@@ -172,6 +212,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
     <table><thead><tr><th>Run</th><th>Причина</th><th>Попыток</th><th></th></tr></thead><tbody id="dlq"></tbody></table>
   </section>
 </main>
+</div>
 <script>
 const ORG = 'demo';
 const $ = (id) => document.getElementById(id);
@@ -186,7 +227,11 @@ document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click
   if (b.dataset.tab === 'coord') loadOffice();
   if (b.dataset.tab === 'staff') loadStaff();
   if (b.dataset.tab === 'admin') loadAdmin();
+  if (b.dataset.tab === 'tasks') loadTasks();
+  if (b.dataset.tab === 'activity') renderActivity('activityBig', 200);
 }));
+function openTab(name){ var btn=document.querySelector('nav.snav button[data-tab="'+name+'"]'); if(btn) btn.click(); }
+$('sideNew').addEventListener('click', function(){ openTab('coord'); var t=$('task'); if(t) t.focus(); });
 
 // --- Coordinator ---
 let es = null;
@@ -347,6 +392,7 @@ async function loadStaff(){
   staffAgents.forEach(function(a){ var el=document.createElement('div'); el.className='staff-item'+(currentAgent&&currentAgent.id===a.id?' active':''); el.id='st_'+a.id;
     el.innerHTML='<div>'+escapeHtml(shortName(a.name))+'</div><div class="role">'+escapeHtml(roleOf(a))+'</div>';
     el.addEventListener('click', function(){ selectAgent(a.id); }); list.appendChild(el); });
+  if(pendingStaffSelect){ var pid=pendingStaffSelect; pendingStaffSelect=null; selectAgent(pid); }
 }
 function selectAgent(id){
   currentAgent = staffAgents.filter(function(a){ return a.id===id; })[0]; if(!currentAgent) return;
@@ -694,12 +740,26 @@ function layoutOffice(){
     officeTgt[a.name]={gx:t[0],gy:t[1]}; officeDwell[a.name]=120+Math.floor(Math.random()*200); }
 }
 function setBubble(name,text,frames){ officeBubble[name]={text:text, until:officeFrame+(frames||200)}; }
+// Activity log: shared array renders both the office feed and the
+// «Активность» tab (Event Timeline — what happened, when, who initiated).
+var actLog=[];
+function renderActivity(elId,cap){
+  var f=document.getElementById(elId); if(!f) return;
+  f.innerHTML='';
+  var items=actLog.slice(-cap);
+  for(var i=items.length-1;i>=0;i--){
+    var row=document.createElement('div'); row.className='act';
+    row.innerHTML='<span class="act-t">'+items[i].t+'</span> '+items[i].html;
+    f.appendChild(row);
+  }
+}
 function pushActivity(text){
-  var f=document.getElementById('activityFeed'); if(!f) return;
-  var row=document.createElement('div'); row.className='act';
   var t=new Date().toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  row.innerHTML='<span class="act-t">'+t+'</span> '+text; f.insertBefore(row,f.firstChild);
-  while(f.children.length>40) f.removeChild(f.lastChild);
+  actLog.push({t:t, html:text});
+  if(actLog.length>250) actLog.shift();
+  renderActivity('activityFeed',40);
+  var big=document.getElementById('activityBig');
+  if(big && big.offsetParent) renderActivity('activityBig',200);
 }
 function socialTile(){ var pts=[{gx:MEET_TILE[0],gy:MEET_TILE[1]},{gx:11,gy:7},{gx:2,gy:7},{gx:GRIDW-2,gy:1}]; return pick(pts); }
 function updateOffice(){
@@ -934,10 +994,53 @@ function ambient(){
   var idle=officeAgents.filter(function(a){ return (officeState[a.name]||'idle')==='idle'; });
   if(idle.length){ var a=pick(idle); setBubble(a.name, pick(SMALLTALK), 90); }
 }
+// Sidebar: coordinator card + employee list (click = open their personal chat).
+var pendingStaffSelect=null;
+function loadSidebar(){
+  var coordEl=$('sideCoord'), stEl=$('sideStaff'); if(!coordEl||!stEl) return;
+  coordEl.innerHTML=''; stEl.innerHTML='';
+  var coord=null, staff=[];
+  officeAgents.forEach(function(a){ if(a.type==='orchestrator'&&!coord) coord=a; else staff.push(a); });
+  function card(a,isCoord){
+    var el=document.createElement('div'); el.className='scard';
+    el.innerHTML='<span class="sava" style="background:'+roleColor(a.type)+'">'+escapeHtml(shortName(a.name).charAt(0))+'</span>'
+      +'<span><div class="sname">'+escapeHtml(shortName(a.name))+'</div><div class="srole">'+escapeHtml(roleOf(a))+'</div></span>'
+      +(isCoord?'<span class="sactive">АКТИВЕН</span>':'');
+    el.addEventListener('click', function(){ pendingStaffSelect=a.id; openTab('staff'); });
+    return el;
+  }
+  if(coord) coordEl.appendChild(card(coord,true));
+  staff.forEach(function(a){ stEl.appendChild(card(a,false)); });
+  var sc=$('scount'); if(sc) sc.textContent='('+staff.length+')';
+}
+// Tasks view: org-level runs with honest statuses; «Открыть» resumes the live
+// lifecycle/discussion view for team tasks.
+async function loadTasks(){
+  var el=$('tasksList'); el.innerHTML='<small class="muted">загрузка…</small>';
+  var items = await api('/orgs/'+ORG+'/tasks').catch(function(){ return null; });
+  if(!items||!items.length){ el.innerHTML='<small class="muted">задач пока нет — поставьте первую во вкладке «Офис»</small>'; return; }
+  el.innerHTML='';
+  items.forEach(function(t){
+    var color = t.status==='succeeded'?'#2ea043' : t.status==='failed'?'#f85149' : t.status==='running'?'#d29922' : '#8b949e';
+    var row=document.createElement('div'); row.className='dmsg';
+    var kind = t.chat ? '<span class="tag">чат</span>' : '<span class="tag" style="color:#d29922">команда</span>';
+    var html='<span style="color:'+color+';font-weight:600">'+t.status+'</span> '+kind+' <span style="font-size:12.5px">'+escapeHtml(t.prompt||'(без текста)')+'</span>';
+    if(t.errorHuman) html+='<div style="color:#f85149;font-size:12px">'+escapeHtml(t.errorHuman)+'</div>';
+    row.innerHTML=html;
+    if(!t.chat){ var b=document.createElement('button'); b.className='primary'; b.textContent='Открыть';
+      b.style.cssText='margin-left:8px;padding:2px 10px;font-size:11.5px';
+      b.addEventListener('click', (function(rid){ return function(){
+        try{ localStorage.setItem('agentos_last_task',rid); }catch(e){}
+        openTab('coord'); pollTeam(rid);
+      }; })(t.runId)); row.appendChild(b); }
+    el.appendChild(row);
+  });
+}
 async function loadOffice(){
   try { officeAgents = await api('/orgs/'+ORG+'/agents'); } catch(e) { officeAgents=[]; }
   if(!officeAgents||!officeAgents.length) officeAgents=[];
   officeAgents.forEach(function(a){ if(!officeState[a.name]) officeState[a.name]='idle'; });
+  loadSidebar();
   fitOffice();
   layoutOffice();
   var leg=document.getElementById('olegend');

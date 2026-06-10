@@ -116,6 +116,10 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
       if (method === 'GET' && seg[0] === 'orgs' && seg[2] === 'token-burn') {
         return json(res, 200, await cp.tokenBurn(seg[1]));
       }
+      // GET /orgs/:id/tasks — top-level runs for the «Задачи» view
+      if (method === 'GET' && seg[0] === 'orgs' && seg[2] === 'tasks') {
+        return json(res, 200, await cp.listOrgTasks(seg[1]));
+      }
       // POST /documents/extract  — Doc-1: extract text from an uploaded file
       if (method === 'POST' && path === '/documents/extract') {
         const body = JSON.parse((await readBody(req)) || '{}');

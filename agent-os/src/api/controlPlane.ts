@@ -221,6 +221,29 @@ export class ControlPlane {
     return { run, phase, phaseLabel: PHASE_LABEL[phase], children: childViews, review, discussion };
   }
 
+  // Org-level task list: top-level runs only (chat + team), newest first.
+  async listOrgTasks(orgId: string) {
+    const org = await this.deps.repo.getOrg(orgId);
+    if (!org) throw new NotFoundError(`org ${orgId}`);
+    const runs = await this.deps.repo.listRunsByOrg(orgId, { limit: 200 });
+    return runs
+      .filter((r) => !r.parentRunId)
+      .slice(-30)
+      .reverse()
+      .map((run) => {
+        const input = run.input as { prompt?: unknown; chat?: unknown } | null;
+        const prompt =
+          input && typeof input.prompt === 'string' ? input.prompt.slice(0, 140) : '';
+        return {
+          runId: run.id,
+          status: run.status,
+          chat: input?.chat === true,
+          prompt,
+          errorHuman: humanizeRunError(run.error, run.status),
+        };
+      });
+  }
+
   // Per-agent run journal (observability / debug).
   async listAgentRuns(orgId: string, agentId: string, limit = 20) {
     const agent = await this.deps.repo.getAgent(agentId);
