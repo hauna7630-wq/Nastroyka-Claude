@@ -71,7 +71,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <header>
-  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v7 · офис</span>
+  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v8 · изо-офис</span>
   <nav>
     <button data-tab="coord" class="active">Координатор</button>
     <button data-tab="staff">Сотрудники</button>
@@ -335,16 +335,21 @@ function drawCharacter(ctx,fx,fy,look,bob,step){
   if(look.glasses){ ctx.strokeStyle='#15181c'; ctx.lineWidth=1; ctx.strokeRect(fx-6,fy-41+ty,5,4); ctx.strokeRect(fx+1,fy-41+ty,5,4);
     ctx.beginPath(); ctx.moveTo(fx-1,fy-39+ty); ctx.lineTo(fx+1,fy-39+ty); ctx.stroke(); }
 }
+// --- isometric projection (2:1) ---
+var ISO_TW2=34, ISO_TH2=17, ISO_OX=0, ISO_OY=70, GRIDW=13, GRIDH=8;
+var DESK_TILES=[[6,2],[3,1],[9,1],[2,4],[10,3],[11,5],[3,6],[8,6]];
+var MEET_TILE=[6,6];
+function isoTop(gx,gy){ return { x: ISO_OX+(gx-gy)*ISO_TW2, y: ISO_OY+(gx+gy)*ISO_TH2 }; }
+function groundAt(gx,gy){ return { x: ISO_OX+(gx-gy)*ISO_TW2, y: ISO_OY+(gx+gy)*ISO_TH2+ISO_TH2 }; }
 function layoutOffice(){
   var cv=document.getElementById('office'); if(cv){ offW=cv.width; offH=cv.height; }
   var n=officeAgents.length; if(!n) return;
+  ISO_OX=Math.round(offW/2); ISO_OY=72;
   var ord=officeAgents.slice().sort(function(a,b){ return (b.type==='orchestrator'?1:0)-(a.type==='orchestrator'?1:0); });
-  var perRow = n<=4 ? n : Math.ceil(n/2); var rows=Math.ceil(n/perRow); var startY=96; var rowH=(offH-150)/rows;
-  for(var i=0;i<ord.length;i++){ var a=ord[i]; var rIdx=Math.floor(i/perRow); var inRow=Math.min(perRow,n-rIdx*perRow); var cIdx=i%perRow;
-    var cellW=offW/inRow; var cx=Math.round(cIdx*cellW+cellW/2); var cy=Math.round(startY+rIdx*rowH+rowH/2);
-    officeHome[a.name]={x:cx,y:cy};
-    if(!officePos[a.name]) officePos[a.name]={x:cx,y:cy};
-    officeTgt[a.name]={x:cx,y:cy}; officeDwell[a.name]=120+Math.floor(Math.random()*200); }
+  for(var i=0;i<ord.length;i++){ var a=ord[i]; var t=DESK_TILES[i%DESK_TILES.length];
+    officeHome[a.name]={gx:t[0],gy:t[1]};
+    if(!officePos[a.name]) officePos[a.name]={gx:t[0],gy:t[1]};
+    officeTgt[a.name]={gx:t[0],gy:t[1]}; officeDwell[a.name]=120+Math.floor(Math.random()*200); }
 }
 function setBubble(name,text,frames){ officeBubble[name]={text:text, until:officeFrame+(frames||200)}; }
 function pushActivity(text){
@@ -354,107 +359,106 @@ function pushActivity(text){
   row.innerHTML='<span class="act-t">'+t+'</span> '+text; f.insertBefore(row,f.firstChild);
   while(f.children.length>40) f.removeChild(f.lastChild);
 }
-function socialPoint(){ var pts=[{x:offW-70,y:offH-70},{x:Math.round(offW/2),y:offH-58},{x:70,y:offH-70}]; return pick(pts); }
+function socialTile(){ var pts=[{gx:MEET_TILE[0],gy:MEET_TILE[1]},{gx:11,gy:7},{gx:2,gy:7},{gx:GRIDW-2,gy:1}]; return pick(pts); }
 function updateOffice(){
   officeAgents.forEach(function(a){ var nm=a.name; var home=officeHome[nm]; if(!home) return; var st=officeState[nm]||'idle';
     var tgt;
     if(st==='working'||st==='done'||st==='failed'){ tgt=home; }
     else if(officeMeetUntil[nm] && officeFrame<officeMeetUntil[nm]){ tgt=officeTgt[nm]; }
-    else { officeDwell[nm]=(officeDwell[nm]||0)-1; if(officeDwell[nm]<=0){ tgt = Math.random()<0.45 ? socialPoint() : home; officeTgt[nm]=tgt; officeDwell[nm]=180+Math.floor(Math.random()*260); } tgt=officeTgt[nm]; }
-    var p=officePos[nm]; if(!p){ p={x:home.x,y:home.y}; officePos[nm]=p; }
-    p.x += (tgt.x-p.x)*0.05; p.y += (tgt.y-p.y)*0.05;
+    else { officeDwell[nm]=(officeDwell[nm]||0)-1; if(officeDwell[nm]<=0){ tgt = Math.random()<0.45 ? socialTile() : home; officeTgt[nm]=tgt; officeDwell[nm]=180+Math.floor(Math.random()*260); } tgt=officeTgt[nm]; }
+    var p=officePos[nm]; if(!p){ p={gx:home.gx,gy:home.gy}; officePos[nm]=p; }
+    p.gx += (tgt.gx-p.gx)*0.06; p.gy += (tgt.gy-p.gy)*0.06;
   });
+}
+function isoBox(ctx,sx,sy,hw,hh,h,top,left,right){
+  var Tx=sx,Ty=sy-h-hh, Rx=sx+hw,Ry=sy-h, Fx=sx,Fy=sy-h+hh, Lx=sx-hw,Ly=sy-h;
+  var Fbx=sx,Fby=sy+hh, Rbx=sx+hw,Rby=sy, Lbx=sx-hw,Lby=sy;
+  ctx.fillStyle=right; ctx.beginPath(); ctx.moveTo(Fx,Fy); ctx.lineTo(Rx,Ry); ctx.lineTo(Rbx,Rby); ctx.lineTo(Fbx,Fby); ctx.closePath(); ctx.fill();
+  ctx.fillStyle=left; ctx.beginPath(); ctx.moveTo(Lx,Ly); ctx.lineTo(Fx,Fy); ctx.lineTo(Fbx,Fby); ctx.lineTo(Lbx,Lby); ctx.closePath(); ctx.fill();
+  ctx.fillStyle=top; ctx.beginPath(); ctx.moveTo(Tx,Ty); ctx.lineTo(Rx,Ry); ctx.lineTo(Fx,Fy); ctx.lineTo(Lx,Ly); ctx.closePath(); ctx.fill();
 }
 function drawStation(ctx,a){
   var nm=a.name; var home=officeHome[nm]; if(!home) return; var p=officePos[nm]||home; var st=officeState[nm]||'idle'; var col=roleColor(a.type);
-  var cx=home.x, cy=home.y;
-  var atDesk = Math.abs(p.x-cx)<7 && Math.abs(p.y-cy)<7;
-  var walking=!atDesk;
-  var step = walking ? (Math.floor(officeFrame/7)%2===0) : false;
-  var bob = (st==='working'&&atDesk) ? (Math.sin((officeFrame+cx)/9)>0?1:0) : 0;
-  var look = a._look || (a._look=lookFor(a));
-  // chair back (behind person)
-  ctx.fillStyle='#10151a'; roundRect(ctx,cx-13,cy-36,26,9,3); ctx.fill();
-  ctx.fillStyle='#1b232c'; roundRect(ctx,cx-11,cy-33,22,5,2); ctx.fill();
-  // person (feet at moving position)
-  drawCharacter(ctx, p.x, p.y, look, bob, step);
-  // desk
-  ctx.fillStyle='#7a5a32'; ctx.fillRect(cx-40,cy-6,80,6);
-  ctx.fillStyle='#6b4f2a'; ctx.fillRect(cx-40,cy,80,12);
-  ctx.fillStyle='#4a3520'; ctx.fillRect(cx-38,cy+12,6,16); ctx.fillRect(cx+32,cy+12,6,16);
-  // monitor (bezel + screen + content)
-  ctx.fillStyle='#0e1318'; roundRect(ctx,cx-17,cy-27,34,23,2); ctx.fill();
+  var dg=groundAt(home.gx,home.gy); var pg=groundAt(p.gx,p.gy);
+  var dist=Math.abs(p.gx-home.gx)+Math.abs(p.gy-home.gy); var atDesk=dist<0.3; var walking=!atDesk;
+  var step=walking?(Math.floor(officeFrame/7)%2===0):false;
+  var bob=(st==='working'&&atDesk)?(Math.sin((officeFrame+dg.x)/9)>0?1:0):0;
+  var look=a._look||(a._look=lookFor(a));
+  // person (feet on iso ground)
+  drawCharacter(ctx, pg.x, pg.y, look, bob, step);
+  // desk as iso box
+  isoBox(ctx, dg.x, dg.y-2, 32, 16, 13, '#7a5a32','#5d4427','#49351f');
+  // mug + papers on the desk top
+  ctx.fillStyle=col; ctx.fillRect(dg.x-22,dg.y-9,6,7); ctx.fillStyle='#eceff2'; ctx.fillRect(dg.x+13,dg.y-7,10,6);
+  // monitor (billboard at the back of the desk)
+  var mx=dg.x, my=dg.y-22;
+  ctx.fillStyle='#0e1318'; roundRect(ctx,mx-15,my-12,30,20,2); ctx.fill();
   var screen=(!atDesk||st==='idle')?'#2a3742' : st==='done'?'#2ea043' : st==='failed'?'#f85149' : col;
   if(st==='working'&&atDesk){ ctx.globalAlpha=0.62+0.38*(0.5+0.5*Math.sin(officeFrame/6)); }
-  ctx.fillStyle=screen; ctx.fillRect(cx-15,cy-25,30,18); ctx.globalAlpha=1;
-  if(atDesk){ ctx.fillStyle='rgba(255,255,255,.4)'; ctx.fillRect(cx-12,cy-22,16,1); ctx.fillRect(cx-12,cy-19,12,1); ctx.fillRect(cx-12,cy-16,18,1); ctx.fillRect(cx-12,cy-13,9,1); }
-  ctx.fillStyle='#0e1318'; ctx.fillRect(cx-2,cy-4,4,3); ctx.fillRect(cx-7,cy-2,14,2);
-  // keyboard, mouse, mug, papers
-  ctx.fillStyle='#2a323b'; ctx.fillRect(cx-13,cy+1,20,4); ctx.fillRect(cx+9,cy+1,5,3);
-  ctx.fillStyle=col; ctx.fillRect(cx-24,cy-3,6,7); ctx.fillStyle='#e9e9e9'; ctx.fillRect(cx-18,cy-1,2,3);
-  ctx.fillStyle='#eceff2'; ctx.fillRect(cx+16,cy+1,9,6); ctx.fillStyle='#cfd6dc'; ctx.fillRect(cx+16,cy+1,9,1);
-  // status dot
+  ctx.fillStyle=screen; ctx.fillRect(mx-13,my-10,26,15); ctx.globalAlpha=1;
+  if(atDesk){ ctx.fillStyle='rgba(255,255,255,.42)'; ctx.fillRect(mx-10,my-7,15,1); ctx.fillRect(mx-10,my-4,11,1); ctx.fillRect(mx-10,my-1,17,1); ctx.fillRect(mx-10,my+2,8,1); }
+  ctx.fillStyle='#0e1318'; ctx.fillRect(mx-2,my+8,4,3);
   var dot=st==='working'?'#d29922':st==='done'?'#2ea043':st==='failed'?'#f85149':'#3a4450';
-  ctx.fillStyle=dot; ctx.beginPath(); ctx.arc(cx+19,cy-25,2.5,0,Math.PI*2); ctx.fill();
-  // speech bubble
+  ctx.fillStyle=dot; ctx.beginPath(); ctx.arc(mx+17,my-10,2.5,0,Math.PI*2); ctx.fill();
+  // speech bubble above person
   var b=officeBubble[nm];
   if(b && officeFrame<b.until){ ctx.font='11px system-ui,Segoe UI,sans-serif'; var w=ctx.measureText(b.text).width+14;
-    var bx=Math.round(p.x-w/2), by=Math.round(p.y-60);
+    var bx=Math.round(pg.x-w/2), by=Math.round(pg.y-62);
     ctx.fillStyle='#f4f7fa'; roundRect(ctx,bx,by,w,18,5); ctx.fill();
-    ctx.fillStyle='#0d1117'; ctx.textAlign='center'; ctx.fillText(b.text,p.x,by+13);
-    ctx.fillStyle='#f4f7fa'; ctx.beginPath(); ctx.moveTo(p.x-3,by+18); ctx.lineTo(p.x+4,by+18); ctx.lineTo(p.x,by+22); ctx.fill(); }
-  // labels
-  ctx.fillStyle='#eef2f6'; ctx.font='bold 11px system-ui,Segoe UI,sans-serif'; ctx.textAlign='center'; ctx.fillText(shortName(a.name),cx,cy+40);
-  ctx.fillStyle='#9aa4ad'; ctx.font='9px system-ui,Segoe UI,sans-serif'; ctx.fillText(roleOf(a),cx,cy+51);
+    ctx.fillStyle='#0d1117'; ctx.textAlign='center'; ctx.fillText(b.text,pg.x,by+13);
+    ctx.fillStyle='#f4f7fa'; ctx.beginPath(); ctx.moveTo(pg.x-3,by+18); ctx.lineTo(pg.x+4,by+18); ctx.lineTo(pg.x,by+22); ctx.fill(); }
+  // name + role under the desk
+  ctx.fillStyle='#eef2f6'; ctx.font='bold 11px system-ui,Segoe UI,sans-serif'; ctx.textAlign='center'; ctx.fillText(shortName(a.name),dg.x,dg.y+22);
+  ctx.fillStyle='#9aa4ad'; ctx.font='9px system-ui,Segoe UI,sans-serif'; ctx.fillText(roleOf(a),dg.x,dg.y+33);
 }
-function drawWindow(ctx,x){
-  ctx.fillStyle='#0e1620'; ctx.fillRect(x-3,8,90,40);
-  var g=ctx.createLinearGradient(0,10,0,46); g.addColorStop(0,'#7fb6e6'); g.addColorStop(1,'#d6eaf8');
-  ctx.fillStyle=g; ctx.fillRect(x,10,84,36);
-  ctx.fillStyle='#7d9fbe'; ctx.fillRect(x+6,28,11,18); ctx.fillRect(x+22,20,9,26); ctx.fillRect(x+38,32,13,14); ctx.fillRect(x+56,24,10,22); ctx.fillRect(x+70,30,10,16);
-  ctx.fillStyle='rgba(255,255,255,.5)'; ctx.fillRect(x+24,23,2,3); ctx.fillRect(x+58,27,2,3);
-  ctx.fillStyle='#0e1620'; ctx.fillRect(x+41,10,2,36); ctx.fillRect(x,27,84,2);
+function lerpP(a,b,t){ return {x:a.x+(b.x-a.x)*t, y:a.y+(b.y-a.y)*t}; }
+function drawWall(ctx,A,B,h,base,topc,nwin){
+  var A2={x:A.x,y:A.y-h}, B2={x:B.x,y:B.y-h};
+  var g=ctx.createLinearGradient(0,Math.min(A2.y,B2.y),0,Math.max(A.y,B.y)); g.addColorStop(0,topc); g.addColorStop(1,base);
+  ctx.fillStyle=g; ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.lineTo(B2.x,B2.y); ctx.lineTo(A2.x,A2.y); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(A2.x,A2.y); ctx.lineTo(B2.x,B2.y); ctx.stroke();
+  var dir={x:B.x-A.x,y:B.y-A.y};
+  for(var k=0;k<nwin;k++){ var t=(k+0.5)/nwin; var c=lerpP(A,B,t); var ww=0.09, up=h*0.78, wh=h*0.5;
+    var p0={x:c.x-dir.x*ww, y:c.y-dir.y*ww-up}, p1={x:c.x+dir.x*ww, y:c.y+dir.y*ww-up}, p2={x:p1.x,y:p1.y-wh}, p3={x:p0.x,y:p0.y-wh};
+    var sg=ctx.createLinearGradient(0,p3.y,0,p0.y); sg.addColorStop(0,'#7fb6e6'); sg.addColorStop(1,'#d6eaf8');
+    ctx.fillStyle=sg; ctx.beginPath(); ctx.moveTo(p0.x,p0.y); ctx.lineTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y); ctx.lineTo(p3.x,p3.y); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='#0e1620'; ctx.lineWidth=2; ctx.stroke();
+    var m0=lerpP(p3,p2,0.5), m1=lerpP(p0,p1,0.5); ctx.beginPath(); ctx.moveTo(m0.x,m0.y); ctx.lineTo(m1.x,m1.y); ctx.stroke();
+  }
 }
-function drawPlant(ctx,x,y){
-  ctx.fillStyle='#b5643c'; ctx.fillRect(x,y,18,15); ctx.fillStyle='#9c4f2e'; ctx.fillRect(x,y,18,3);
-  ctx.fillStyle='#2f8f4a'; for(var i=0;i<7;i++){ ctx.save(); ctx.translate(x+9,y); ctx.rotate((i-3)*0.34); ctx.fillRect(-2,-22,4,22); ctx.restore(); }
-  ctx.fillStyle='#3fae5a'; ctx.beginPath(); ctx.arc(x+9,y-8,11,0,Math.PI*2); ctx.fill();
-  ctx.fillStyle='#2f8f4a'; ctx.beginPath(); ctx.arc(x+3,y-3,5,0,Math.PI*2); ctx.arc(x+15,y-3,5,0,Math.PI*2); ctx.fill();
-}
-function drawShelf(ctx,x,y){ ctx.fillStyle='#5a4126'; ctx.fillRect(x,y,44,30); var cols=['#c0563c','#2f81f7','#2ea043','#d29922','#a371f7','#db61a2','#e6edf3'];
-  for(var s=0;s<3;s++){ var sy=y+3+s*9; for(var b=0;b<6;b++){ ctx.fillStyle=cols[(s*2+b)%cols.length]; ctx.fillRect(x+3+b*6.5,sy,5,7); } ctx.fillStyle='#3f2d1a'; ctx.fillRect(x,sy+7,44,2); } }
-function drawCooler(ctx,x,y){ ctx.fillStyle='#bfe3f5'; ctx.fillRect(x,y-13,15,13); ctx.fillStyle='#5fbfe0'; ctx.fillRect(x+1,y-12,13,9); ctx.fillStyle='#e2eaf0'; ctx.fillRect(x-1,y,17,18); ctx.fillStyle='#9fb2c0'; ctx.fillRect(x+5,y+8,5,3); }
-function drawSofa(ctx,x,y){ ctx.fillStyle='#3a4a63'; ctx.fillRect(x,y,48,16); ctx.fillStyle='#46587a'; ctx.fillRect(x,y-9,48,9); ctx.fillRect(x-6,y-9,6,25); ctx.fillRect(x+48,y-9,6,25); ctx.fillStyle='#566c92'; ctx.fillRect(x+4,y+2,18,8); ctx.fillRect(x+26,y+2,18,8); }
+function isoTileDiamond(ctx,gx,gy){ var t=isoTop(gx,gy); ctx.beginPath(); ctx.moveTo(t.x,t.y); ctx.lineTo(t.x+ISO_TW2,t.y+ISO_TH2); ctx.lineTo(t.x,t.y+ISO_TH2*2); ctx.lineTo(t.x-ISO_TW2,t.y+ISO_TH2); ctx.closePath(); }
+function isoPlant(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,9,5,9,'#b5643c','#9c4f2e','#86421f');
+  ctx.fillStyle='#2f8f4a'; ctx.beginPath(); ctx.arc(g.x,g.y-17,11,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#3fae5a'; ctx.beginPath(); ctx.arc(g.x-5,g.y-21,7,0,Math.PI*2); ctx.arc(g.x+6,g.y-19,6,0,Math.PI*2); ctx.fill(); }
+function isoCooler(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,7,4,16,'#e2eaf0','#c4d2dc','#aebecb'); ctx.fillStyle='#bfe3f5'; ctx.fillRect(g.x-6,g.y-31,12,11); ctx.fillStyle='#5fbfe0'; ctx.fillRect(g.x-5,g.y-30,10,8); }
 function drawOffice(){
   var cv=document.getElementById('office'); if(!cv)return; var ctx=cv.getContext('2d'); var W=cv.width,H=cv.height; offW=W; offH=H;
-  var floorY=58;
-  // wood floor (planks with grain)
-  var ph=22;
-  for(var y=floorY;y<H;y+=ph){ var even=(Math.floor((y-floorY)/ph))%2===0; ctx.fillStyle=even?'#9a7048':'#8e6540'; ctx.fillRect(0,y,W,ph);
-    ctx.fillStyle='rgba(60,38,18,.28)'; ctx.fillRect(0,y,W,1);
-    var off=even?0:70; for(var x=off;x<W;x+=140){ ctx.fillStyle='rgba(60,38,18,.18)'; ctx.fillRect(x,y,1,ph); } }
-  // back wall
-  ctx.fillStyle='#2c3744'; ctx.fillRect(0,0,W,floorY); ctx.fillStyle='#37434f'; ctx.fillRect(0,floorY-7,W,5); ctx.fillStyle='#1f2731'; ctx.fillRect(0,floorY-2,W,2);
-  // wall decor: windows, whiteboard, clock
-  drawWindow(ctx,40); drawWindow(ctx,W-130);
-  ctx.fillStyle='#eef2f5'; ctx.fillRect(W/2-52,10,104,30); ctx.fillStyle='#cfd6dc'; ctx.fillRect(W/2-52,10,104,2);
-  ctx.strokeStyle='#2f81f7'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(W/2-42,34); ctx.lineTo(W/2-22,22); ctx.lineTo(W/2,30); ctx.lineTo(W/2+22,18); ctx.stroke();
-  ctx.fillStyle='#db61a2'; ctx.fillRect(W/2-46,15,18,2); ctx.fillRect(W/2-46,19,11,2);
-  ctx.fillStyle='#e6edf3'; ctx.beginPath(); ctx.arc(W/2+78,24,8,0,Math.PI*2); ctx.fill(); ctx.strokeStyle='#39424c'; ctx.lineWidth=1; ctx.beginPath(); ctx.arc(W/2+78,24,8,0,Math.PI*2); ctx.stroke();
-  ctx.strokeStyle='#1f2731'; ctx.beginPath(); ctx.moveTo(W/2+78,24); ctx.lineTo(W/2+78,19); ctx.moveTo(W/2+78,24); ctx.lineTo(W/2+82,24); ctx.stroke();
-  // meeting rug + table (center bottom)
-  ctx.fillStyle='#2f4d80'; roundRect(ctx,W/2-86,H-94,172,76,8); ctx.fill(); ctx.strokeStyle='#5a7fb8'; ctx.lineWidth=2; roundRect(ctx,W/2-80,H-88,160,64,6); ctx.stroke();
-  ctx.fillStyle='#7a5a32'; ctx.fillRect(W/2-44,H-70,88,6); ctx.fillStyle='#6b4f2a'; ctx.fillRect(W/2-44,H-64,88,8);
-  // decor at edges
-  drawShelf(ctx,8,floorY+6); drawSofa(ctx,W-72,floorY+10); drawCooler(ctx,W-30,H-34);
-  drawPlant(ctx,18,H-30); drawPlant(ctx,W-44,floorY+44);
-  // title
-  ctx.fillStyle='rgba(13,17,23,.55)'; roundRect(ctx,10,8,210,20,5); ctx.fill();
-  ctx.fillStyle='#cdd6df'; ctx.font='bold 12px system-ui,Segoe UI,sans-serif'; ctx.textAlign='left'; ctx.fillText('🏢 Офис команды agent-os',16,22);
+  ctx.fillStyle='#0b0f14'; ctx.fillRect(0,0,W,H);
+  ISO_OX=Math.round(W/2); ISO_OY=72;
   var n=officeAgents.length;
   if(!n){ ctx.fillStyle='#cdd6df'; ctx.font='13px system-ui,sans-serif'; ctx.textAlign='center'; ctx.fillText('Команда не нанята — запустите сид команды',W/2,H/2); return; }
+  // back walls (two iso parallelograms meeting at the back corner)
+  drawWall(ctx, isoTop(0,0), isoTop(GRIDW,0), 78, '#2b3340','#3b4654', 3);   // right-back
+  drawWall(ctx, isoTop(0,0), isoTop(0,GRIDH), 78, '#232a35','#323c49', 2);   // left-back
+  // floor diamonds (wood checker + soft department tint near desks)
+  for(var gy=0; gy<GRIDH; gy++){ for(var gx=0; gx<GRIDW; gx++){
+    isoTileDiamond(ctx,gx,gy);
+    ctx.fillStyle=(((gx+gy)%2)===0)?'#9a7048':'#8d6440'; ctx.fill();
+    ctx.strokeStyle='rgba(45,30,15,.28)'; ctx.lineWidth=1; ctx.stroke();
+    var near=null,bd=99; for(var ai=0;ai<officeAgents.length;ai++){ var hm=officeHome[officeAgents[ai].name]; if(!hm)continue; var d=Math.abs(hm.gx-gx)+Math.abs(hm.gy-gy); if(d<bd){bd=d;near=officeAgents[ai];} }
+    if(near && bd<=1){ isoTileDiamond(ctx,gx,gy); ctx.globalAlpha=0.16; ctx.fillStyle=roleColor(near.type); ctx.fill(); ctx.globalAlpha=1; }
+  } }
+  // meeting rug (3x3 tiles around MEET) + iso table
+  for(var dy=-1;dy<=1;dy++){ for(var dx=-1;dx<=1;dx++){ var rgx=MEET_TILE[0]+dx, rgy=MEET_TILE[1]+dy; if(rgx<0||rgy<0||rgx>=GRIDW||rgy>=GRIDH)continue;
+    isoTileDiamond(ctx,rgx,rgy); ctx.globalAlpha=0.5; ctx.fillStyle='#2f4d80'; ctx.fill(); ctx.globalAlpha=1; } }
+  var mg=groundAt(MEET_TILE[0],MEET_TILE[1]); isoBox(ctx,mg.x,mg.y-2,42,21,9,'#7a5a32','#5d4427','#49351f');
+  // static decor at back edges (low depth, drawn before people)
+  isoPlant(ctx,1,1); isoPlant(ctx,GRIDW-2,1); isoCooler(ctx,GRIDW-1,2);
+  // title chip
+  ctx.fillStyle='rgba(13,17,23,.55)'; roundRect(ctx,10,8,210,20,5); ctx.fill();
+  ctx.fillStyle='#dfe6ee'; ctx.font='bold 12px system-ui,Segoe UI,sans-serif'; ctx.textAlign='left'; ctx.fillText('🏢 Офис команды agent-os',16,22);
+  // people + desks, depth-sorted (back to front)
   updateOffice();
-  officeAgents.slice().sort(function(a,b){ return (officePos[a.name]?officePos[a.name].y:0)-(officePos[b.name]?officePos[b.name].y:0); }).forEach(function(a){ drawStation(ctx,a); });
+  officeAgents.slice().sort(function(a,b){ var pa=officePos[a.name]||officeHome[a.name]||{gx:0,gy:0}, pb=officePos[b.name]||officeHome[b.name]||{gx:0,gy:0}; return (pa.gx+pa.gy)-(pb.gx+pb.gy); }).forEach(function(a){ drawStation(ctx,a); });
 }
 function officeLoop(){ officeFrame++; drawOffice(); officeRAF=requestAnimationFrame(officeLoop); }
 function matchAgent(name,type){ var i;
@@ -475,8 +479,8 @@ function officeResetIdle(){ officeAgents.forEach(function(a){ officeState[a.name
 function startMeeting(){
   var idle=officeAgents.filter(function(a){ return (officeState[a.name]||'idle')==='idle'; });
   if(idle.length<2) return; idle.sort(function(){return Math.random()-0.5;}); var crew=idle.slice(0,Math.min(3,idle.length));
-  var mx=Math.round(offW/2), my=offH-62; var dur=420;
-  crew.forEach(function(a,i){ officeTgt[a.name]={x:mx+(i-1)*30, y:my-14}; officeDwell[a.name]=dur; officeMeetUntil[a.name]=officeFrame+dur; });
+  var dur=420; var slots=[[MEET_TILE[0]-1,MEET_TILE[1]],[MEET_TILE[0]+1,MEET_TILE[1]],[MEET_TILE[0],MEET_TILE[1]+1]];
+  crew.forEach(function(a,i){ var s=slots[i%slots.length]; officeTgt[a.name]={gx:s[0],gy:s[1]}; officeDwell[a.name]=dur; officeMeetUntil[a.name]=officeFrame+dur; });
   pushActivity('☕ <b>'+crew.map(function(a){return shortName(a.name);}).join(', ')+'</b> собрались обсудить задачи');
   var ticks=0; var iv=setInterval(function(){ ticks++; crew.forEach(function(a){ setBubble(a.name, pick(SMALLTALK), 90); }); if(ticks>=5){ clearInterval(iv); } }, 1400);
 }
