@@ -71,7 +71,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <header>
-  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v13 · живой</span>
+  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v14 · живой</span>
   <nav>
     <button data-tab="coord" class="active">Координатор</button>
     <button data-tab="staff">Сотрудники</button>
@@ -515,6 +515,8 @@ function drawOffice(){
   ISO_OX=Math.round(W/2); ISO_OY=72;
   var n=officeAgents.length;
   if(!n){ ctx.fillStyle='#cdd6df'; ctx.font='13px system-ui,sans-serif'; ctx.textAlign='center'; ctx.fillText('Команда не нанята — запустите сид команды',W/2,H/2); return; }
+  // camera: scene drawn under pan/zoom; HUD (chip/hint) stays fixed
+  ctx.save(); ctx.translate(camX,camY); ctx.scale(camZ,camZ);
   // back walls (two iso parallelograms meeting at the back corner)
   drawWall(ctx, isoTop(0,0), isoTop(GRIDW,0), 78, '#2b3340','#3b4654', 3);   // right-back
   drawWall(ctx, isoTop(0,0), isoTop(0,GRIDH), 78, '#232a35','#323c49', 2);   // left-back
@@ -532,14 +534,18 @@ function drawOffice(){
   var mg=groundAt(MEET_TILE[0],MEET_TILE[1]); isoBox(ctx,mg.x,mg.y-2,42,21,9,'#7a5a32','#5d4427','#49351f');
   // static decor at back edges (low depth, drawn before people)
   isoPlant(ctx,1,0); isoPlant(ctx,0,1); isoCooler(ctx,2,0); isoPrinter(ctx,0,2); isoCoffee(ctx,3,0);
-  // title chip
-  ctx.fillStyle='rgba(13,17,23,.55)'; roundRect(ctx,10,8,210,20,5); ctx.fill();
-  ctx.fillStyle='#dfe6ee'; ctx.font='bold 12px system-ui,Segoe UI,sans-serif'; ctx.textAlign='left'; ctx.fillText('🏢 Офис команды agent-os',16,22);
   // people + desks, depth-sorted (back to front)
   updateOffice();
   officeAgents.slice().sort(function(a,b){ var pa=officePos[a.name]||officeHome[a.name]||{gx:0,gy:0}, pb=officePos[b.name]||officeHome[b.name]||{gx:0,gy:0}; return (pa.gx+pa.gy)-(pb.gx+pb.gy); }).forEach(function(a){ drawStation(ctx,a); });
   // agent-interaction layer: orchestrator → each working agent (animated link + data packet)
   drawAgentLinks(ctx);
+  ctx.restore();
+  // HUD: title chip + camera hint (fixed, unaffected by the camera)
+  ctx.fillStyle='rgba(13,17,23,.55)'; roundRect(ctx,10,8,210,20,5); ctx.fill();
+  ctx.fillStyle='#dfe6ee'; ctx.font='bold 12px system-ui,Segoe UI,sans-serif'; ctx.textAlign='left'; ctx.fillText('🏢 Офис команды agent-os',16,22);
+  ctx.fillStyle='rgba(139,148,158,.85)'; ctx.font='10px system-ui,Segoe UI,sans-serif'; ctx.textAlign='right';
+  ctx.fillText(camZ===1&&camX===0&&camY===0 ? 'колесо — зум · мышь — двигать' : 'двойной клик — сброс камеры (' + Math.round(camZ*100) + '%)', W-10, H-8);
+  ctx.textAlign='left';
 }
 function agentGround(a){ var p=officePos[a.name]||officeHome[a.name]; if(!p) return null; var g=groundAt(p.gx,p.gy); return {x:g.x, y:g.y-30}; }
 function drawAgentLinks(ctx){
@@ -565,6 +571,26 @@ function drawAgentLinks(ctx){
   }
 }
 function officeLoop(){ officeFrame++; drawOffice(); officeRAF=requestAnimationFrame(officeLoop); }
+// --- camera (P1): wheel zoom at cursor, drag pan, double-click reset ---
+var camZ=1, camX=0, camY=0, camDrag=null;
+(function(){
+  var cv=document.getElementById('office'); if(!cv) return;
+  function toCanvas(e){ var r=cv.getBoundingClientRect(); return {x:(e.clientX-r.left)*(cv.width/r.width), y:(e.clientY-r.top)*(cv.height/r.height)}; }
+  cv.addEventListener('wheel', function(e){
+    e.preventDefault();
+    var p=toCanvas(e);
+    var nz=Math.max(0.6, Math.min(2.6, camZ*(e.deltaY<0?1.12:0.89)));
+    // keep the world point under the cursor fixed while zooming
+    camX = p.x - (p.x - camX) * (nz/camZ);
+    camY = p.y - (p.y - camY) * (nz/camZ);
+    camZ = nz;
+    if(Math.abs(camZ-1)<0.04 && Math.abs(camX)<14 && Math.abs(camY)<14){ camZ=1; camX=0; camY=0; }
+  }, {passive:false});
+  cv.addEventListener('mousedown', function(e){ var p=toCanvas(e); camDrag={x:p.x-camX, y:p.y-camY}; cv.style.cursor='grabbing'; });
+  window.addEventListener('mousemove', function(e){ if(!camDrag) return; var p=toCanvas(e); camX=p.x-camDrag.x; camY=p.y-camDrag.y; });
+  window.addEventListener('mouseup', function(){ camDrag=null; cv.style.cursor=''; });
+  cv.addEventListener('dblclick', function(e){ e.preventDefault(); camZ=1; camX=0; camY=0; });
+})();
 function matchAgent(name,type){ var i;
   for(i=0;i<officeAgents.length;i++){ if(name && officeAgents[i].name===name) return officeAgents[i]; }
   if(name){ for(i=0;i<officeAgents.length;i++){ if(shortName(officeAgents[i].name)===name) return officeAgents[i]; } }
