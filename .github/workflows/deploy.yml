@@ -96,7 +96,7 @@ jobs:
             docker compose -f docker-compose.prod.yml exec -T agentos node /tmp/e2e.cjs
             echo "===== Caddy-served HTML (exact browser path) ====="
             curl -sk --resolve ${{ secrets.AGENT_DOMAIN }}:443:127.0.0.1 https://${{ secrets.AGENT_DOMAIN }}/ -o /tmp/c.html -w "code=%{http_code} size=%{size_download}\n"
-            echo "markers: v18=$(grep -c 'v18' /tmp/c.html) Сотрудники=$(grep -c Сотрудники /tmp/c.html) spriteRows=$(grep -c spriteRows /tmp/c.html) chatReply=$(grep -c chatReply /tmp/c.html) phaseBar=$(grep -c phaseBar /tmp/c.html) loadChatHistory=$(grep -c loadChatHistory /tmp/c.html)"
+            echo "markers: v19=$(grep -c 'v19' /tmp/c.html) Сотрудники=$(grep -c Сотрудники /tmp/c.html) spriteRows=$(grep -c spriteRows /tmp/c.html) chatReply=$(grep -c chatReply /tmp/c.html) phaseBar=$(grep -c phaseBar /tmp/c.html) loadJournal=$(grep -c loadJournal /tmp/c.html) loadChatHistory=$(grep -c loadChatHistory /tmp/c.html)"
             echo "===== EXTRACT ENDPOINT (docx happy-path + honest .doc error) ====="
             curl -s -X POST -H 'content-type: application/json' --resolve ${{ secrets.AGENT_DOMAIN }}:443:127.0.0.1 -k https://${{ secrets.AGENT_DOMAIN }}/documents/extract -d '{"mime":"text/csv","filename":"t.csv","content":"'$(printf 'a,b\n1,2' | base64 -w0)'"}'; echo
             curl -s -X POST -H 'content-type: application/json' --resolve ${{ secrets.AGENT_DOMAIN }}:443:127.0.0.1 -k https://${{ secrets.AGENT_DOMAIN }}/documents/extract -d '{"mime":"application/msword","filename":"old.doc","content":"eHh4"}'; echo

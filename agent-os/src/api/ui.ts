@@ -91,7 +91,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <header>
-  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v18 · живой цикл задачи</span>
+  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v19 · журнал агента</span>
   <nav>
     <button data-tab="coord" class="active">Координатор</button>
     <button data-tab="staff">Сотрудники</button>
@@ -158,7 +158,15 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 
   <!-- Админ -->
   <section class="tab" id="tab-admin">
-    <div class="section-title">Расход токенов по агентам</div>
+    <div class="section-title">Журнал агента (наблюдаемость + Debug)</div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+      <select id="j_agent"></select>
+      <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px;cursor:pointer">
+        <input type="checkbox" id="j_debug" /> Debug (промпт, шаги, токены)
+      </label>
+    </div>
+    <div id="journal" class="dfeed" style="max-height:340px"></div>
+    <div class="section-title" style="margin-top:24px">Расход токенов по агентам</div>
     <table><thead><tr><th>Агент</th><th>Тип</th><th>Токены</th></tr></thead><tbody id="burn"></tbody></table>
     <div class="section-title" style="margin-top:24px">Очередь мёртвых писем (DLQ)</div>
     <table><thead><tr><th>Run</th><th>Причина</th><th>Попыток</th><th></th></tr></thead><tbody id="dlq"></tbody></table>
@@ -265,10 +273,52 @@ $('a_create').addEventListener('click', async ()=>{
   else $('tstatus').textContent='Ошибка: '+(res.error||'не удалось создать');
 });
 
-// --- Admin ---
+// --- Admin: agent journal + debug mode ---
+function fmtRunRow(item, debug){
+  var run=item.run; var st=run.status;
+  var color = st==='succeeded'?'#2ea043' : st==='failed'?'#f85149' : st==='running'?'#d29922' : '#8b949e';
+  var html='<div><span style="color:'+color+';font-weight:600">'+st+'</span> <small class="muted">'+run.id.slice(0,8)+'…</small> ';
+  var p=run.input&&run.input.prompt?String(run.input.prompt):JSON.stringify(run.input);
+  html+='<span style="font-size:12.5px">'+escapeHtml(String(p).replace(/\\s+/g,' ').slice(0,110))+'</span>';
+  if(item.errorHuman) html+='<div style="color:#f85149;font-size:12px;margin-top:2px">'+escapeHtml(item.errorHuman)+'</div>';
+  if(debug) html+='<div class="jsteps" data-run="'+run.id+'" style="margin-top:4px;font-size:11.5px;color:var(--muted)">загружаю шаги…</div>';
+  html+='</div>';
+  return html;
+}
+async function fillSteps(el){
+  var r = await api('/runs/'+el.dataset.run);
+  var steps=(r&&r.trace)||[];
+  if(!steps.length){ el.textContent='шагов нет'; return; }
+  var html='';
+  steps.forEach(function(s){
+    html+='<div style="border-top:1px dashed #2a323b;padding:3px 0">#'+s.index+' '+s.role+(s.toolName?(' · '+s.toolName):'')
+      +(s.latencyMs!=null?(' · '+s.latencyMs+'мс'):'')
+      +((s.tokensIn||s.tokensOut)?(' · '+(s.tokensIn||0)+'→'+(s.tokensOut||0)+' ток.'):'');
+    if(s.inputPreview) html+='<div style="color:#7d8896;white-space:pre-wrap">PROMPT: '+escapeHtml(String(s.inputPreview).slice(0,400))+'</div>';
+    if(s.outputPreview) html+='<div style="color:#9aa4ad;white-space:pre-wrap">OUT: '+escapeHtml(String(s.outputPreview).slice(0,400))+'</div>';
+    html+='</div>';
+  });
+  el.innerHTML=html;
+}
+async function loadJournal(){
+  var aid=$('j_agent').value; if(!aid) return;
+  var debug=$('j_debug').checked;
+  var jr=$('journal'); jr.innerHTML='<small class="muted">загрузка…</small>';
+  var items = await api('/orgs/'+ORG+'/agents/'+aid+'/runs');
+  jr.innerHTML='';
+  if(!items||!items.length){ jr.innerHTML='<small class="muted">у агента ещё нет задач</small>'; return; }
+  items.slice().reverse().forEach(function(item){
+    var el=document.createElement('div'); el.className='dmsg'; el.innerHTML=fmtRunRow(item, debug); jr.appendChild(el); });
+  if(debug){ var nodes=jr.querySelectorAll('.jsteps'); for(var i=0;i<nodes.length;i++){ await fillSteps(nodes[i]); } }
+}
 async function loadAdmin(){
   const [agents, burn, dlq] = await Promise.all([ api('/orgs/'+ORG+'/agents'), api('/orgs/'+ORG+'/token-burn'), api('/dlq') ]);
   const byId={}; agents.forEach(a=>byId[a.id]=a);
+  // journal agent picker
+  const sel=$('j_agent'); const prev=sel.value; sel.innerHTML='';
+  agents.forEach((a)=>{ const o=document.createElement('option'); o.value=a.id; o.textContent=a.name; sel.appendChild(o); });
+  if(prev) sel.value=prev;
+  if(agents.length) loadJournal();
   const tb=$('burn'); tb.innerHTML='';
   Object.keys(burn).forEach((id)=>{ const a=byId[id]||{}; const tr=document.createElement('tr');
     tr.innerHTML='<td>'+(a.name||id)+'</td><td>'+(a.type||'')+'</td><td>'+burn[id]+'</td>'; tb.appendChild(tr); });
@@ -279,6 +329,8 @@ async function loadAdmin(){
   if(!dlq.length) td.innerHTML='<tr><td colspan="4"><small class="muted">пусто</small></td></tr>';
   td.querySelectorAll('button[data-run]').forEach((b)=>b.addEventListener('click', async ()=>{ await api('/dlq/'+b.dataset.run+'/requeue',{method:'POST'}); loadAdmin(); }));
 }
+$('j_agent').addEventListener('change', loadJournal);
+$('j_debug').addEventListener('change', loadJournal);
 
 // --- Staff direct chat (polling + localStorage history) -------------------
 var staffAgents=[]; var currentAgent=null;
@@ -332,7 +384,7 @@ function renderReplyChip(){
   var el=$('chatReply');
   if(!chatReplyTo){ el.style.display='none'; el.innerHTML=''; return; }
   var who = chatReplyTo.role==='agent' ? (currentAgent?shortName(currentAgent.name):'Агент') : 'Вы';
-  var snip = chatReplyTo.text.replace(/\s+/g,' ').slice(0,90);
+  var snip = chatReplyTo.text.replace(/\\s+/g,' ').slice(0,90);
   el.style.display='block';
   el.innerHTML='<div class="rchip"><b>↪ '+escapeHtml(who)+'</b><span>'+escapeHtml(snip)+'</span><a href="#" id="replyDrop">✕</a></div>';
   var d=document.getElementById('replyDrop');
@@ -466,7 +518,7 @@ $('chatForm').addEventListener('submit', async function(e){
   }
   if(chatReplyTo){
     replyForServer={ role:chatReplyTo.role, text:chatReplyTo.text };
-    shown='↪ '+chatReplyTo.text.replace(/\s+/g,' ').slice(0,120)+'\n'+shown;
+    shown='↪ '+chatReplyTo.text.replace(/\\s+/g,' ').slice(0,120)+'\n'+shown;
     chatReplyTo=null; renderReplyChip();
   }
   pushMsg(aid,'me',shown); $('chatInput').value='';
