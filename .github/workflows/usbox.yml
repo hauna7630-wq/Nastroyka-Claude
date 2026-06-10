@@ -34,4 +34,4 @@ jobs:
             curl -sS -o /dev/null -w "anthropic=%{http_code}\n" https://api.anthropic.com/v1/models || echo "no egress"
             echo "===== TLS CERT (llm.work8n.ru) ====="
             journalctl -u caddy --no-pager 2>/dev/null | grep -i "certificate obtained" | tail -1 || true
-            echo "===== DONE ====="
+            echo "===== DONE (control check) ====="
