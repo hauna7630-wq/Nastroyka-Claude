@@ -15,6 +15,7 @@ import {
   topoSort,
   InvalidPlanError,
 } from '../src/orchestrator/planner';
+import { buildTeamReport } from '../src/orchestrator/orchestrator';
 
 const ORG: Org = { id: 'org_1', name: 'Acme' };
 
@@ -127,6 +128,27 @@ describe('planner', () => {
   });
 });
 
+describe('team report', () => {
+  it('renders an attributed write-up with a synthesis and per-agent sections', () => {
+    const report = buildTeamReport('задача', [
+      { subtaskId: 'r', agentType: 'researcher', agentName: 'Iskara', output: 'нашла данные' },
+      { subtaskId: 'w', agentType: 'writer', agentName: 'Slovena', output: 'итоговый текст' },
+    ]);
+    expect(report).toContain('## Ответ команды');
+    expect(report).toContain('итоговый текст'); // synthesis = last contribution
+    expect(report).toContain('Iskara · Исследователь');
+    expect(report).toContain('Slovena · Райтер');
+  });
+
+  it('omits the contributors section for a single-agent result', () => {
+    const report = buildTeamReport('задача', [
+      { subtaskId: 's', agentType: 'analyst', agentName: 'Analita', output: 'ответ' },
+    ]);
+    expect(report).toContain('## Ответ команды');
+    expect(report).not.toContain('Вклад участников');
+  });
+});
+
 describe('orchestrator (end-to-end)', () => {
   it('takes the single-agent fast path for a simple task', async () => {
     const { repo, queue } = await setup({
@@ -192,8 +214,17 @@ describe('orchestrator (end-to-end)', () => {
     expect(analystInput.prompt).toContain('Context from prior subtasks');
 
     // Aggregation of the three subtask outputs.
-    const out = parent?.output as { summary: unknown; subtasks: Record<string, unknown> };
+    const out = parent?.output as {
+      summary: unknown;
+      subtasks: Record<string, unknown>;
+      report: string;
+      contributions: { agentName: string; agentType: string }[];
+    };
     expect(Object.keys(out.subtasks).sort()).toEqual(['a', 'r', 'w']);
+    // Structured team report (Doc-2): attributed, readable, names every contributor.
+    expect(out.report).toContain('Ответ команды');
+    expect(out.report).toContain('Вклад участников');
+    expect(out.contributions.map((c) => c.agentName)).toEqual(['res_1', 'ana_1', 'wri_1']);
 
     // Live graph: each subtask emitted running then succeeded.
     const succeeded = subtaskEvents.filter((e) => e.status === 'succeeded').map((e) => e.subtaskId);

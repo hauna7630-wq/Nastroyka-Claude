@@ -96,6 +96,9 @@ export async function executeOrchestration(
 
     const order = topoSort(plan.subtasks);
     const outputs: Record<string, unknown> = {};
+    // Track each contributor so the aggregate is a readable, attributed team
+    // report (Doc-2 "structured team responses") rather than raw nested JSON.
+    const contributions: TeamContribution[] = [];
 
     for (const subtask of order) {
       const childAgent = await repo.findAgentByType(parent.orgId, subtask.agentType);
@@ -149,6 +152,12 @@ export async function executeOrchestration(
         );
       }
       outputs[subtask.id] = child.output;
+      contributions.push({
+        subtaskId: subtask.id,
+        agentType: subtask.agentType,
+        agentName: childAgent.name,
+        output: child.output,
+      });
       emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
         subtaskId: subtask.id,
         agentType: subtask.agentType,
@@ -158,9 +167,15 @@ export async function executeOrchestration(
     }
 
     // Aggregate: the last subtask in topological order is treated as the
-    // synthesis/summary; all subtask outputs are retained.
+    // synthesis/summary; all subtask outputs are retained. The `report` field is
+    // a human-facing, attributed team write-up of who did what (Doc-2).
     const lastId = order[order.length - 1].id;
-    const aggregated = { summary: outputs[lastId], subtasks: outputs };
+    const aggregated = {
+      summary: outputs[lastId],
+      report: buildTeamReport(task, contributions),
+      contributions,
+      subtasks: outputs,
+    };
 
     await repo.updateRunStatus(parentRunId, transition('running', 'succeeded'), {
       output: aggregated,
@@ -226,4 +241,45 @@ function composePrompt(
 
 function stringify(value: unknown): string {
   return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+export interface TeamContribution {
+  subtaskId: string;
+  agentType: AgentType;
+  agentName: string;
+  output: unknown;
+}
+
+// Role labels for the attributed team report (Russian UI).
+const ROLE_LABEL: Record<AgentType, string> = {
+  orchestrator: 'Координатор',
+  researcher: 'Исследователь',
+  analyst: 'Аналитик',
+  writer: 'Райтер',
+  coder: 'Инженер',
+  reviewer: 'Ревьюер',
+};
+
+// Render an attributed, readable team write-up: a synthesis up top, then each
+// agent's contribution under its own heading. This is what the user reads as
+// "the team's answer", instead of raw nested JSON.
+export function buildTeamReport(task: string, contributions: TeamContribution[]): string {
+  if (contributions.length === 0) return '';
+  const synthesis = contributions[contributions.length - 1];
+  const lines: string[] = [];
+  lines.push('## Ответ команды');
+  lines.push('');
+  lines.push(stringify(synthesis.output).trim());
+  if (contributions.length > 1) {
+    lines.push('');
+    lines.push('---');
+    lines.push('### Вклад участников');
+    for (const c of contributions) {
+      const label = ROLE_LABEL[c.agentType] ?? c.agentType;
+      lines.push('');
+      lines.push(`**${c.agentName} · ${label}**`);
+      lines.push(stringify(c.output).trim());
+    }
+  }
+  return lines.join('\n');
 }
