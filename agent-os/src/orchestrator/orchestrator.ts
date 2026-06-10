@@ -212,12 +212,64 @@ export async function executeOrchestration(
       }
     }
 
+    // Revision round (Doc-2, closes the loop): when the reviewer's verdict asks
+    // for rework, the synthesis agent revises its output against the critique —
+    // one round only, deterministic id, non-fatal on failure.
+    let summary = outputs[lastId];
+    if (review && verdictNeedsRework(review.output)) {
+      const synthSubtask = order[order.length - 1];
+      const synthAgent = await repo.findAgentByType(parent.orgId, synthSubtask.agentType);
+      if (synthAgent) {
+        const revRunId = `${parentRunId}::rev1`;
+        await repo.createRun({
+          id: revRunId,
+          orgId: parent.orgId,
+          agentId: synthAgent.id,
+          status: 'queued',
+          input: {
+            prompt: revisionPrompt(task, summary, review.output),
+            parentRunId,
+            subtaskId: 'rev1',
+          },
+          attempts: 0,
+          parentRunId,
+        });
+        emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
+          subtaskId: 'rev1',
+          agentType: synthSubtask.agentType,
+          agentName: synthAgent.name,
+          status: 'running',
+        });
+        try {
+          await runChild(deps, revRunId);
+          const revRun = await repo.getRun(revRunId);
+          if (revRun?.status === 'succeeded') {
+            summary = revRun.output;
+            contributions.push({
+              subtaskId: 'rev1',
+              agentType: synthSubtask.agentType,
+              agentName: synthAgent.name,
+              output: revRun.output,
+            });
+            emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
+              subtaskId: 'rev1',
+              agentType: synthSubtask.agentType,
+              agentName: synthAgent.name,
+              status: 'succeeded',
+            });
+          }
+        } catch {
+          // Non-fatal: ship the pre-revision answer with the critique attached.
+        }
+      }
+    }
+
     // Aggregate: the last subtask in topological order is treated as the
-    // synthesis/summary; all subtask outputs are retained. The `report` field is
-    // a human-facing, attributed team write-up of who did what (Doc-2), with the
-    // reviewer's critique appended when present.
+    // synthesis/summary (replaced by the revision when one ran); all subtask
+    // outputs are retained. The `report` field is a human-facing, attributed
+    // team write-up of who did what (Doc-2), with the reviewer's critique.
     const aggregated = {
-      summary: outputs[lastId],
+      summary,
       report: buildTeamReport(task, contributions, review),
       contributions,
       review: review?.output,
@@ -340,6 +392,36 @@ export function buildTeamReport(
     lines.push(stringify(review.output).trim());
   }
   return lines.join('\n');
+}
+
+// Verdict detection for the revision round. The reviewer is instructed to end
+// with exactly one of «Готово к выпуску» / «Нужны доработки: …»; rework only
+// when the rework phrase appears WITHOUT the ship phrase (ambiguous output —
+// e.g. both quoted — ships as-is rather than burning an extra round).
+export function verdictNeedsRework(reviewOutput: unknown): boolean {
+  const text = typeof reviewOutput === 'string' ? reviewOutput : JSON.stringify(reviewOutput ?? '');
+  const lower = text.toLowerCase();
+  return lower.includes('нужны доработки') && !lower.includes('готово к выпуску');
+}
+
+// Prompt for the one revision round: the synthesis agent reworks its own output
+// against the reviewer's critique.
+export function revisionPrompt(task: string, synthesis: unknown, critique: unknown): string {
+  return [
+    `Исходная задача: ${task}`,
+    '',
+    'Твой текущий вариант ответа:',
+    '"""',
+    stringify(synthesis),
+    '"""',
+    '',
+    'Ревьюер запросил доработки:',
+    '"""',
+    stringify(critique),
+    '"""',
+    '',
+    'Доработай ответ по замечаниям ревьюера и выдай финальную версию целиком.',
+  ].join('\n');
 }
 
 // Prompt for the reviewer's collective-thinking pass: critique the team's

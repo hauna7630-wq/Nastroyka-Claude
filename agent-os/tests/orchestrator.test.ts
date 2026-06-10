@@ -15,7 +15,12 @@ import {
   topoSort,
   InvalidPlanError,
 } from '../src/orchestrator/planner';
-import { buildTeamReport, reviewPrompt } from '../src/orchestrator/orchestrator';
+import {
+  buildTeamReport,
+  reviewPrompt,
+  revisionPrompt,
+  verdictNeedsRework,
+} from '../src/orchestrator/orchestrator';
 
 const ORG: Org = { id: 'org_1', name: 'Acme' };
 
@@ -169,6 +174,22 @@ describe('team report', () => {
     expect(p).toContain('Iskara (Исследователь)');
     expect(p).toContain('вердикт');
   });
+
+  it('verdictNeedsRework triggers only on an unambiguous rework verdict', () => {
+    expect(verdictNeedsRework('Нужны доработки: добавить источники')).toBe(true);
+    expect(verdictNeedsRework('Готово к выпуску')).toBe(false);
+    // Ambiguous (quotes both phrases, e.g. an echoed instruction) ships as-is.
+    expect(verdictNeedsRework('«Готово к выпуску» или «Нужны доработки: …»')).toBe(false);
+    expect(verdictNeedsRework(undefined)).toBe(false);
+  });
+
+  it('revisionPrompt carries the task, the draft, and the critique', () => {
+    const p = revisionPrompt('задача', 'черновик', 'Нужны доработки: мало данных');
+    expect(p).toContain('Исходная задача: задача');
+    expect(p).toContain('черновик');
+    expect(p).toContain('мало данных');
+    expect(p).toContain('Доработай');
+  });
 });
 
 describe('orchestrator (end-to-end)', () => {
@@ -285,6 +306,48 @@ describe('orchestrator (end-to-end)', () => {
     expect(out.report).toContain('Ревью · rev_1');
     expect(out.contributions).toHaveLength(2);
     expect(out.review).toBeDefined();
+  });
+
+  it('runs one revision round when the reviewer demands rework', async () => {
+    // Review prompts ask for a verdict — answer with a rework demand; revision
+    // prompts ask to rework — produce the final version; everything else echoes.
+    class ReworkingModel implements ModelProvider {
+      async complete(args: { messages: { role: string; content: string }[] }): Promise<ModelTurn> {
+        const lastUser = [...args.messages].reverse().find((m) => m.role === 'user');
+        const p = lastUser?.content ?? '';
+        if (p.includes('вердикт')) return { ...finalTurn('Нужны доработки: добавь источники') };
+        if (p.includes('Доработай')) return { ...finalTurn('финальная версия с источниками') };
+        return { ...finalTurn(`echo:${p}`) };
+      }
+    }
+    const plan = {
+      subtasks: [
+        { id: 'r', agentType: 'researcher' as AgentType, prompt: 'research', dependsOn: [] },
+        { id: 'w', agentType: 'writer' as AgentType, prompt: 'write', dependsOn: ['r'] },
+      ],
+    };
+    const { repo, queue } = await setup({
+      model: new ReworkingModel(),
+      planner: new StaticPlanner(plan),
+      agents: [
+        agent('orch_1', 'orchestrator'),
+        agent('res_1', 'researcher'),
+        agent('wri_1', 'writer'),
+        agent('rev_1', 'reviewer'),
+      ],
+      task: 'Research the market and then write a report about it in detail.',
+    });
+    await queue.enqueue({ runId: 'parent_1' });
+
+    const parent = await repo.getRun('parent_1');
+    expect(parent?.status).toBe('succeeded');
+    // The revision child ran via the synthesis (writer) agent.
+    expect((await repo.getRun('parent_1::rev1'))?.agentId).toBe('wri_1');
+    const out = parent?.output as { summary: unknown; contributions: { subtaskId: string }[]; report: string };
+    // The final summary is the REVISED output, and the revision is attributed.
+    expect(out.summary).toBe('финальная версия с источниками');
+    expect(out.contributions.map((c) => c.subtaskId)).toEqual(['r', 'w', 'rev1']);
+    expect(out.report).toContain('финальная версия с источниками');
   });
 
   it('retries the orchestration without re-billing already-succeeded subtasks', async () => {
