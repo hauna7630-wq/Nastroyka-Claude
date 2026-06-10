@@ -71,7 +71,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <header>
-  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v10 · отделы</span>
+  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v11 · живой</span>
   <nav>
     <button data-tab="coord" class="active">Координатор</button>
     <button data-tab="staff">Сотрудники</button>
@@ -307,18 +307,19 @@ function lookFor(a){ var h=hashStr(a.name); var shirt=roleColor(a.type); var sty
     glasses:(a.type==='analyst'||a.type==='reviewer'||((h>>12)%3===0)) }; }
 function drawCharacter(ctx,fx,fy,look,bob,step){
   fx=Math.round(fx); fy=Math.round(fy); bob=bob||0; var ty=-bob;
+  var ph=step?Math.sin((officeFrame+fx)/3.2):0; var stride=Math.round(ph*3); ty-=step?Math.round(Math.abs(ph)*2):0;
   // shadow
   ctx.save(); ctx.globalAlpha=0.22; ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(fx,fy,13,4,0,0,Math.PI*2); ctx.fill(); ctx.restore();
-  // legs + shoes
-  ctx.fillStyle=look.pants; ctx.fillRect(fx-6,fy-12,5,12); ctx.fillRect(fx+1,fy-12,5,12);
-  ctx.fillStyle='#15191e'; ctx.fillRect(fx-7,fy-3,6,3); ctx.fillRect(fx+1,fy-3,6,3);
+  // legs + shoes (stride when walking)
+  ctx.fillStyle=look.pants; ctx.fillRect(fx-6+stride,fy-12,5,12); ctx.fillRect(fx+1-stride,fy-12,5,12);
+  ctx.fillStyle='#15191e'; ctx.fillRect(fx-7+stride,fy-3,6,3); ctx.fillRect(fx+1-stride,fy-3,6,3);
   // torso
   ctx.fillStyle=look.shirt; ctx.fillRect(fx-9,fy-30+ty,18,18);
   ctx.globalAlpha=0.12; ctx.fillStyle='#fff'; ctx.fillRect(fx-9,fy-30+ty,18,4); ctx.fillStyle='#000'; ctx.fillRect(fx+5,fy-30+ty,4,18); ctx.globalAlpha=1;
   ctx.fillStyle=look.collar; ctx.fillRect(fx-3,fy-30+ty,6,4);
   ctx.fillStyle='rgba(0,0,0,.25)'; ctx.fillRect(fx-1,fy-26+ty,1,9);
   // arms + hands (swing while walking)
-  var sw=step?2:0; ctx.fillStyle=look.shirt; ctx.fillRect(fx-12,fy-29+ty+sw,4,13); ctx.fillRect(fx+8,fy-29+ty-sw,4,13);
+  var sw=Math.round(ph*3); ctx.fillStyle=look.shirt; ctx.fillRect(fx-12,fy-29+ty+sw,4,13); ctx.fillRect(fx+8,fy-29+ty-sw,4,13);
   ctx.fillStyle=look.skin; ctx.fillRect(fx-12,fy-16+ty+sw,4,3); ctx.fillRect(fx+8,fy-16+ty-sw,4,3);
   // neck + head
   ctx.fillStyle=look.skin; ctx.fillRect(fx-3,fy-33+ty,6,4); ctx.fillRect(fx-8,fy-48+ty,16,16);
@@ -449,6 +450,8 @@ function isoTileDiamond(ctx,gx,gy){ var t=isoTop(gx,gy); ctx.beginPath(); ctx.mo
 function isoPlant(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,9,5,9,'#b5643c','#9c4f2e','#86421f');
   ctx.fillStyle='#2f8f4a'; ctx.beginPath(); ctx.arc(g.x,g.y-17,11,0,Math.PI*2); ctx.fill(); ctx.fillStyle='#3fae5a'; ctx.beginPath(); ctx.arc(g.x-5,g.y-21,7,0,Math.PI*2); ctx.arc(g.x+6,g.y-19,6,0,Math.PI*2); ctx.fill(); }
 function isoCooler(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,7,4,16,'#e2eaf0','#c4d2dc','#aebecb'); ctx.fillStyle='#bfe3f5'; ctx.fillRect(g.x-6,g.y-31,12,11); ctx.fillStyle='#5fbfe0'; ctx.fillRect(g.x-5,g.y-30,10,8); }
+function isoPrinter(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,11,6,11,'#cdd3da','#aab2bb','#9098a1'); ctx.fillStyle='#2a323b'; ctx.fillRect(g.x-7,g.y-15,14,3); ctx.fillStyle='#eef2f5'; ctx.fillRect(g.x-5,g.y-13,10,4); }
+function isoCoffee(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,8,5,16,'#2a323b','#1e242b','#171c22'); ctx.fillStyle='#d29922'; ctx.fillRect(g.x-4,g.y-22,8,3); ctx.fillStyle='#7a4a2a'; ctx.fillRect(g.x-3,g.y-12,6,4); }
 function drawOffice(){
   var cv=document.getElementById('office'); if(!cv)return; var ctx=cv.getContext('2d'); var W=cv.width,H=cv.height; offW=W; offH=H;
   ctx.fillStyle='#0b0f14'; ctx.fillRect(0,0,W,H);
@@ -471,7 +474,7 @@ function drawOffice(){
     isoTileDiamond(ctx,rgx,rgy); ctx.globalAlpha=0.5; ctx.fillStyle='#2f4d80'; ctx.fill(); ctx.globalAlpha=1; } }
   var mg=groundAt(MEET_TILE[0],MEET_TILE[1]); isoBox(ctx,mg.x,mg.y-2,42,21,9,'#7a5a32','#5d4427','#49351f');
   // static decor at back edges (low depth, drawn before people)
-  isoPlant(ctx,1,1); isoPlant(ctx,GRIDW-2,1); isoCooler(ctx,GRIDW-1,2);
+  isoPlant(ctx,1,0); isoPlant(ctx,0,1); isoCooler(ctx,2,0); isoPrinter(ctx,0,2); isoCoffee(ctx,3,0);
   // title chip
   ctx.fillStyle='rgba(13,17,23,.55)'; roundRect(ctx,10,8,210,20,5); ctx.fill();
   ctx.fillStyle='#dfe6ee'; ctx.font='bold 12px system-ui,Segoe UI,sans-serif'; ctx.textAlign='left'; ctx.fillText('🏢 Офис команды agent-os',16,22);

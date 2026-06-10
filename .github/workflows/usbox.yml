@@ -1,0 +1,37 @@
+name: USBox
+
+# Lets me operate the US relay box (138.124.123.234) over SSH from CI and read
+# the output in the run log — the same pattern used for the RU host. Runs on a
+# push that touches this file (edit the script + push to re-run), so it works
+# from the feature branch without being registered on the default branch.
+#
+# Setup (one-time): add the CI deploy public key to the US box's
+# /root/.ssh/authorized_keys, and add a GitHub secret US_SSH_HOST=138.124.123.234.
+# It reuses the existing SSH_KEY secret (same CI keypair as the RU host).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/inspiring-ride-OUkyL]
+    paths: ['.github/workflows/usbox.yml']
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Operate the US box over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.US_SSH_HOST }}
+          username: root
+          key: ${{ secrets.SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            echo "===== HOST ====="; uname -a; uptime; echo
+            echo "===== DISK ====="; df -h / | tail -1
+            echo "===== CADDY (relay) ====="; systemctl is-active caddy || true
+            echo "===== RELAY → ANTHROPIC ====="
+            curl -sS -o /dev/null -w "anthropic=%{http_code}\n" https://api.anthropic.com/v1/models || echo "no egress"
+            echo "===== TLS CERT (llm.work8n.ru) ====="
+            journalctl -u caddy --no-pager 2>/dev/null | grep -i "certificate obtained" | tail -1 || true
+            echo "===== DONE ====="
