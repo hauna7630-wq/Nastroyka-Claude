@@ -15,7 +15,7 @@ import {
   topoSort,
   InvalidPlanError,
 } from '../src/orchestrator/planner';
-import { buildTeamReport } from '../src/orchestrator/orchestrator';
+import { buildTeamReport, reviewPrompt } from '../src/orchestrator/orchestrator';
 
 const ORG: Org = { id: 'org_1', name: 'Acme' };
 
@@ -147,6 +147,28 @@ describe('team report', () => {
     expect(report).toContain('## Ответ команды');
     expect(report).not.toContain('Вклад участников');
   });
+
+  it('appends a reviewer critique section when a review is provided', () => {
+    const report = buildTeamReport(
+      'задача',
+      [
+        { subtaskId: 'r', agentType: 'researcher', agentName: 'Iskara', output: 'данные' },
+        { subtaskId: 'w', agentType: 'writer', agentName: 'Slovena', output: 'текст' },
+      ],
+      { subtaskId: 'review', agentType: 'reviewer', agentName: 'Revisa', output: 'Готово к выпуску' },
+    );
+    expect(report).toContain('Ревью · Revisa');
+    expect(report).toContain('Готово к выпуску');
+  });
+
+  it('reviewPrompt lists every contributor and asks for a verdict', () => {
+    const p = reviewPrompt('задача', [
+      { subtaskId: 'r', agentType: 'researcher', agentName: 'Iskara', output: 'данные' },
+    ]);
+    expect(p).toContain('Исходная задача: задача');
+    expect(p).toContain('Iskara (Исследователь)');
+    expect(p).toContain('вердикт');
+  });
 });
 
 describe('orchestrator (end-to-end)', () => {
@@ -230,6 +252,39 @@ describe('orchestrator (end-to-end)', () => {
     const succeeded = subtaskEvents.filter((e) => e.status === 'succeeded').map((e) => e.subtaskId);
     expect(succeeded.sort()).toEqual(['a', 'r', 'w']);
     expect(subtaskEvents.filter((e) => e.status === 'running')).toHaveLength(3);
+  });
+
+  it('runs a reviewer critique pass when a reviewer agent is available', async () => {
+    const plan = {
+      subtasks: [
+        { id: 'r', agentType: 'researcher' as AgentType, prompt: 'research', dependsOn: [] },
+        { id: 'w', agentType: 'writer' as AgentType, prompt: 'write', dependsOn: ['r'] },
+      ],
+    };
+    const { repo, queue } = await setup({
+      model: new EchoModel(),
+      planner: new StaticPlanner(plan),
+      agents: [
+        agent('orch_1', 'orchestrator'),
+        agent('res_1', 'researcher'),
+        agent('wri_1', 'writer'),
+        agent('rev_1', 'reviewer'),
+      ],
+      task: 'Research the market and then write a report about it in detail.',
+    });
+    await queue.enqueue({ runId: 'parent_1' });
+
+    const parent = await repo.getRun('parent_1');
+    expect(parent?.status).toBe('succeeded');
+    // A deterministic review child ran and is attributed to the reviewer agent.
+    const reviewRun = await repo.getRun('parent_1::review');
+    expect(reviewRun?.status).toBe('succeeded');
+    expect(reviewRun?.agentId).toBe('rev_1');
+    // The report carries the reviewer section; contributions stay the 2 workers.
+    const out = parent?.output as { report: string; contributions: unknown[]; review: unknown };
+    expect(out.report).toContain('Ревью · rev_1');
+    expect(out.contributions).toHaveLength(2);
+    expect(out.review).toBeDefined();
   });
 
   it('retries the orchestration without re-billing already-succeeded subtasks', async () => {

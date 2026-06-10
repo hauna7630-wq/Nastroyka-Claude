@@ -166,14 +166,61 @@ export async function executeOrchestration(
       });
     }
 
+    // Collective-thinking pass (Doc-2): after the team produces a synthesis, the
+    // reviewer (Revisa) critiques the combined work and gives a ship/revise
+    // verdict. Only for genuinely orchestrated work (>1 subtask), only if the
+    // plan didn't already end on a reviewer, and only if a reviewer agent exists.
+    const lastId = order[order.length - 1].id;
+    let review: TeamContribution | undefined;
+    const planHasReviewer = plan.subtasks.some((s) => s.agentType === 'reviewer');
+    if (orchestrated && contributions.length > 1 && !planHasReviewer) {
+      const reviewer = await repo.findAgentByType(parent.orgId, 'reviewer');
+      if (reviewer) {
+        const reviewRunId = `${parentRunId}::review`;
+        await repo.createRun({
+          id: reviewRunId,
+          orgId: parent.orgId,
+          agentId: reviewer.id,
+          status: 'queued',
+          input: { prompt: reviewPrompt(task, contributions), parentRunId, subtaskId: 'review' },
+          attempts: 0,
+          parentRunId,
+        });
+        emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
+          subtaskId: 'review',
+          agentType: 'reviewer',
+          agentName: reviewer.name,
+          status: 'running',
+        });
+        await runChild(deps, reviewRunId);
+        const reviewRun = await repo.getRun(reviewRunId);
+        if (reviewRun?.status === 'succeeded') {
+          review = {
+            subtaskId: 'review',
+            agentType: 'reviewer',
+            agentName: reviewer.name,
+            output: reviewRun.output,
+          };
+          emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
+            subtaskId: 'review',
+            agentType: 'reviewer',
+            agentName: reviewer.name,
+            status: 'succeeded',
+          });
+        }
+        // A failed review is non-fatal: the team's answer still stands.
+      }
+    }
+
     // Aggregate: the last subtask in topological order is treated as the
     // synthesis/summary; all subtask outputs are retained. The `report` field is
-    // a human-facing, attributed team write-up of who did what (Doc-2).
-    const lastId = order[order.length - 1].id;
+    // a human-facing, attributed team write-up of who did what (Doc-2), with the
+    // reviewer's critique appended when present.
     const aggregated = {
       summary: outputs[lastId],
-      report: buildTeamReport(task, contributions),
+      report: buildTeamReport(task, contributions, review),
       contributions,
+      review: review?.output,
       subtasks: outputs,
     };
 
@@ -261,9 +308,14 @@ const ROLE_LABEL: Record<AgentType, string> = {
 };
 
 // Render an attributed, readable team write-up: a synthesis up top, then each
-// agent's contribution under its own heading. This is what the user reads as
-// "the team's answer", instead of raw nested JSON.
-export function buildTeamReport(task: string, contributions: TeamContribution[]): string {
+// agent's contribution under its own heading, and (when present) the reviewer's
+// critique. This is what the user reads as "the team's answer", instead of raw
+// nested JSON.
+export function buildTeamReport(
+  task: string,
+  contributions: TeamContribution[],
+  review?: TeamContribution,
+): string {
   if (contributions.length === 0) return '';
   const synthesis = contributions[contributions.length - 1];
   const lines: string[] = [];
@@ -281,5 +333,30 @@ export function buildTeamReport(task: string, contributions: TeamContribution[])
       lines.push(stringify(c.output).trim());
     }
   }
+  if (review) {
+    lines.push('');
+    lines.push('---');
+    lines.push(`### Ревью · ${review.agentName} (${ROLE_LABEL.reviewer})`);
+    lines.push(stringify(review.output).trim());
+  }
   return lines.join('\n');
+}
+
+// Prompt for the reviewer's collective-thinking pass: critique the team's
+// combined work against the original task and end with a clear verdict.
+export function reviewPrompt(task: string, contributions: TeamContribution[]): string {
+  const body = contributions
+    .map((c) => {
+      const label = ROLE_LABEL[c.agentType] ?? c.agentType;
+      return `### ${c.agentName} (${label})\n${stringify(c.output)}`;
+    })
+    .join('\n\n');
+  return [
+    `Исходная задача: ${task}`,
+    '',
+    'Ниже — работа команды. Кратко и по делу: укажи пробелы, риски и неточности,',
+    'затем дай вердикт одной строкой: «Готово к выпуску» или «Нужны доработки: …».',
+    '',
+    body,
+  ].join('\n');
 }
