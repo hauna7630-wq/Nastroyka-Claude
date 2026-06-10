@@ -71,7 +71,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <header>
-  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v8 · изо-офис</span>
+  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v9 · отделы</span>
   <nav>
     <button data-tab="coord" class="active">Координатор</button>
     <button data-tab="staff">Сотрудники</button>
@@ -377,6 +377,17 @@ function isoBox(ctx,sx,sy,hw,hh,h,top,left,right){
   ctx.fillStyle=left; ctx.beginPath(); ctx.moveTo(Lx,Ly); ctx.lineTo(Fx,Fy); ctx.lineTo(Fbx,Fby); ctx.lineTo(Lbx,Lby); ctx.closePath(); ctx.fill();
   ctx.fillStyle=top; ctx.beginPath(); ctx.moveTo(Tx,Ty); ctx.lineTo(Rx,Ry); ctx.lineTo(Fx,Fy); ctx.lineTo(Lx,Ly); ctx.closePath(); ctx.fill();
 }
+function drawCubicle(ctx,gx,gy,color){
+  var wallH=26; var T=isoTop(gx,gy);
+  var R={x:T.x+ISO_TW2,y:T.y+ISO_TH2}, L={x:T.x-ISO_TW2,y:T.y+ISO_TH2};
+  var T2={x:T.x,y:T.y-wallH}, R2={x:R.x,y:R.y-wallH}, L2={x:L.x,y:L.y-wallH};
+  // back-right panel (edge T-R)
+  ctx.fillStyle='#3a444f'; ctx.beginPath(); ctx.moveTo(T.x,T.y); ctx.lineTo(R.x,R.y); ctx.lineTo(R2.x,R2.y); ctx.lineTo(T2.x,T2.y); ctx.closePath(); ctx.fill();
+  // back-left panel (edge T-L)
+  ctx.fillStyle='#2f3741'; ctx.beginPath(); ctx.moveTo(T.x,T.y); ctx.lineTo(L.x,L.y); ctx.lineTo(L2.x,L2.y); ctx.lineTo(T2.x,T2.y); ctx.closePath(); ctx.fill();
+  // department-coloured top rail
+  ctx.strokeStyle=color; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(L2.x,L2.y); ctx.lineTo(T2.x,T2.y); ctx.lineTo(R2.x,R2.y); ctx.stroke();
+}
 function drawStation(ctx,a){
   var nm=a.name; var home=officeHome[nm]; if(!home) return; var p=officePos[nm]||home; var st=officeState[nm]||'idle'; var col=roleColor(a.type);
   var dg=groundAt(home.gx,home.gy); var pg=groundAt(p.gx,p.gy);
@@ -384,6 +395,8 @@ function drawStation(ctx,a){
   var step=walking?(Math.floor(officeFrame/7)%2===0):false;
   var bob=(st==='working'&&atDesk)?(Math.sin((officeFrame+dg.x)/9)>0?1:0):0;
   var look=a._look||(a._look=lookFor(a));
+  // cubicle partitions (back edges) — department room divider, behind the person
+  drawCubicle(ctx, home.gx, home.gy, col);
   // person (feet on iso ground)
   drawCharacter(ctx, pg.x, pg.y, look, bob, step);
   // desk as iso box
