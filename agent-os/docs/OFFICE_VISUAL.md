@@ -43,7 +43,8 @@ audit → gap list → prioritized backlog that precedes visual changes.
    writer doc+pen, orchestrator diagram board). Hand-off/review pulses → still P1.
 
 **P1 — depth & readability**
-3. Camera: smooth zoom (wheel/buttons) + pan; focus/follow active agent.
+3. ✅ Camera (v14): wheel zoom anchored at cursor (0.6–2.6x), drag pan, double-click
+   reset; HUD stays fixed; hint line shows current zoom. Follow-active-agent → later.
 4. Richer activity feed: icons + categories + agent links + grouping.
 5. More office: dedicated meeting room, server zone, lounge, glass partitions, corridors.
 
