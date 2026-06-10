@@ -90,6 +90,18 @@ describe('Personal chat — dialog memory', () => {
     expect(hist.pending[0].errorHuman).toMatch(/таймаут/i);
   });
 
+  it('chat with the ORCHESTRATOR is a direct conversation (no planner, no children)', async () => {
+    const { cp, repo } = build(new EchoModel());
+    repo.seedAgent({ id: 'orch_1', orgId: 'org_1', name: 'Arkesha — Оркестратор', type: 'orchestrator', systemPrompt: 'coord' });
+    const sent = await cp.sendChatMessage({ orgId: 'org_1', agentId: 'orch_1', text: 'дай мне отчет по окончании принятой тобой задачей!' });
+    const hist = await cp.getChatHistory({ orgId: 'org_1', agentId: 'orch_1' });
+    expect(hist.pending).toHaveLength(0);
+    expect(hist.messages[1].role).toBe('agent');
+    expect(hist.messages[1].text).toContain('ECHO::');
+    // No orchestration children were spawned for a chat message.
+    expect(await repo.listChildRuns(sent.runId)).toHaveLength(0);
+  });
+
   it('composes an attachment into the prompt but keeps the thread text short', async () => {
     const { cp, repo } = build(new EchoModel());
     const sent = await cp.sendChatMessage({

@@ -71,14 +71,32 @@ export async function executeOrchestration(
   const task = toPrompt(parent.input);
 
   try {
-    const orchestrated = shouldOrchestrate(task, threshold);
-    const plan: OrchestrationPlan = orchestrated
-      ? await planner.plan({ task })
-      : {
-          subtasks: [
-            { id: 'single', agentType: defaultAgentType, prompt: task, dependsOn: [] },
-          ],
-        };
+    let orchestrated = shouldOrchestrate(task, threshold);
+    const singlePlan: OrchestrationPlan = {
+      subtasks: [
+        { id: 'single', agentType: defaultAgentType, prompt: task, dependsOn: [] },
+      ],
+    };
+    let plan: OrchestrationPlan = singlePlan;
+    if (orchestrated) {
+      // Planner robustness: the model sometimes answers conversationally
+      // instead of emitting a JSON plan (e.g. a chatty/ambiguous task). That
+      // must NOT fail the run — fall back to the single-agent path so an agent
+      // still picks the task up.
+      try {
+        plan = await planner.plan({ task });
+      } catch (err) {
+        orchestrated = false;
+        plan = singlePlan;
+        await repo.audit({
+          orgId: parent.orgId,
+          runId: parentRunId,
+          actor: 'orchestrator',
+          action: 'orchestration.plan_fallback',
+          meta: { error: err instanceof Error ? err.message : String(err) },
+        });
+      }
+    }
 
     await repo.audit({
       orgId: parent.orgId,

@@ -212,6 +212,26 @@ describe('orchestrator (end-to-end)', () => {
     expect(repo.auditLog.some((a) => a.action === 'orchestration.single_agent')).toBe(true);
   });
 
+  it('falls back to the single-agent path when the planner returns garbage', async () => {
+    class BrokenPlanner implements Planner {
+      async plan(): Promise<never> {
+        throw new Error('Invalid orchestration plan: no JSON object found in model output');
+      }
+    }
+    const { repo, queue } = await setup({
+      model: new EchoModel(),
+      planner: new BrokenPlanner(),
+      agents: [agent('orch_1', 'orchestrator'), agent('res_1', 'researcher')],
+      task: 'Research the market and then analyze competitors and finally write a report.',
+    });
+    await queue.enqueue({ runId: 'parent_1' });
+
+    // The run SUCCEEDS via the single-agent fallback instead of failing.
+    expect((await repo.getRun('parent_1'))?.status).toBe('succeeded');
+    expect((await repo.getRun('parent_1::single'))?.status).toBe('succeeded');
+    expect(repo.auditLog.some((a) => a.action === 'orchestration.plan_fallback')).toBe(true);
+  });
+
   it('decomposes a complex task into typed-agent subtasks executed in order', async () => {
     const plan = {
       subtasks: [

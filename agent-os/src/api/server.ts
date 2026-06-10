@@ -67,19 +67,24 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
         const body = JSON.parse((await readBody(req)) || '{}');
         return json(res, 201, await cp.createRun(body));
       }
-      // GET /runs/:id  and  GET /runs/:id/(metrics|events)
+      // GET /runs/:id  and  GET /runs/:id/(metrics|events|team)
       if (method === 'GET' && seg[0] === 'runs' && seg[1]) {
         const runId = seg[1];
         if (seg[2] === 'events') return streamEvents(cp, runId, res);
         if (seg[2] === 'metrics') return json(res, 200, await cp.runMetrics(runId));
+        if (seg[2] === 'team') return json(res, 200, await cp.getRunTeam(runId));
         return json(res, 200, await cp.getRun(runId));
       }
       // POST /runs/:id/retry — re-enqueue a failed run (chat «Повторить»)
       if (method === 'POST' && seg[0] === 'runs' && seg[1] && seg[2] === 'retry') {
         return json(res, 200, await cp.retryRun(seg[1]));
       }
-      // Personal chat thread (dialog memory). NOTE: registered BEFORE the
+      // Per-agent run journal (observability). Registered BEFORE the
       // agents-list route, which matches on seg[2] without a length check.
+      if (method === 'GET' && seg[0] === 'orgs' && seg[2] === 'agents' && seg[3] && seg[4] === 'runs') {
+        return json(res, 200, await cp.listAgentRuns(seg[1], seg[3]));
+      }
+      // Personal chat thread (dialog memory). Same ordering note as above.
       if (seg[0] === 'orgs' && seg[2] === 'agents' && seg[3] && seg[4] === 'chat') {
         if (method === 'GET') {
           return json(res, 200, await cp.getChatHistory({ orgId: seg[1], agentId: seg[3] }));

@@ -11,6 +11,8 @@ import { EventBus } from '../events/bus';
 import { DocumentParser } from '../ports/documents';
 import { humanizeRunError } from '../domain/errors';
 import { assembleChatPrompt, outputToReplyText } from '../agent/chatPrompt';
+import { deriveTeamPhase, PHASE_LABEL, subtaskIdOf, TeamPhase } from '../orchestrator/phase';
+import { verdictNeedsRework } from '../orchestrator/orchestrator';
 import {
   AgentType,
   ChatMessageRecord,
@@ -138,6 +140,96 @@ export class ControlPlane {
   // attaches to the same thread message).
   async retryRun(runId: string): Promise<{ runId: string; status: string }> {
     return this.requeueDeadLetter(runId);
+  }
+
+  // --- Task lifecycle: phases + internal team discussion (Doc-A stages 5-8) ---
+
+  // Everything here is derived from already-persisted runs: child runs ARE the
+  // internal discussion (contributions, review critique, revision), so the
+  // feed survives reloads/restarts for free.
+  async getRunTeam(runId: string): Promise<{
+    run: Run;
+    phase: TeamPhase;
+    phaseLabel: string;
+    children: Array<{
+      runId: string;
+      subtaskId: string;
+      agentName: string;
+      agentType: string;
+      status: string;
+      errorHuman?: string;
+      outputPreview?: string;
+    }>;
+    review?: { agentName: string; verdict: 'approved' | 'rework' | null; text: string };
+    discussion: Array<{
+      author: string;
+      agentType: string;
+      kind: 'contribution' | 'review' | 'revision';
+      text: string;
+    }>;
+  }> {
+    const { repo } = this.deps;
+    const run = await repo.getRun(runId);
+    if (!run) throw new NotFoundError(`run ${runId}`);
+    const children = await repo.listChildRuns(runId);
+    const phase = deriveTeamPhase(run, children);
+
+    const agentNames = new Map<string, { name: string; type: string }>();
+    const childViews = [] as Array<{
+      runId: string; subtaskId: string; agentName: string; agentType: string;
+      status: string; errorHuman?: string; outputPreview?: string;
+    }>;
+    const discussion = [] as Array<{
+      author: string; agentType: string; kind: 'contribution' | 'review' | 'revision'; text: string;
+    }>;
+    let review: { agentName: string; verdict: 'approved' | 'rework' | null; text: string } | undefined;
+
+    for (const child of children) {
+      let who = agentNames.get(child.agentId);
+      if (!who) {
+        const agent = await repo.getAgent(child.agentId);
+        who = { name: agent?.name ?? child.agentId, type: agent?.type ?? 'researcher' };
+        agentNames.set(child.agentId, who);
+      }
+      const sid = subtaskIdOf(child);
+      const text = child.output !== undefined ? outputToReplyText(child.output) : '';
+      childViews.push({
+        runId: child.id,
+        subtaskId: sid,
+        agentName: who.name,
+        agentType: who.type,
+        status: child.status,
+        errorHuman: humanizeRunError(child.error, child.status),
+        outputPreview: text ? text.slice(0, 280) : undefined,
+      });
+      if (!text) continue;
+      const kind = sid === 'review' ? 'review' : sid === 'rev1' ? 'revision' : 'contribution';
+      discussion.push({ author: who.name, agentType: who.type, kind, text });
+      if (kind === 'review') {
+        review = {
+          agentName: who.name,
+          verdict: verdictNeedsRework(child.output)
+            ? 'rework'
+            : /готово к выпуску/i.test(text)
+              ? 'approved'
+              : null,
+          text,
+        };
+      }
+    }
+
+    return { run, phase, phaseLabel: PHASE_LABEL[phase], children: childViews, review, discussion };
+  }
+
+  // Per-agent run journal (observability / debug).
+  async listAgentRuns(orgId: string, agentId: string, limit = 20) {
+    const agent = await this.deps.repo.getAgent(agentId);
+    if (!agent || agent.orgId !== orgId) throw new NotFoundError(`agent ${agentId}`);
+    const runs = await this.deps.repo.listRunsByOrg(orgId, { agentId, limit });
+    return runs.map((run) => ({
+      run,
+      errorHuman: humanizeRunError(run.error, run.status),
+    }));
   }
 
   // --- Personal chat (dialog memory; one persistent thread per org+agent) ---

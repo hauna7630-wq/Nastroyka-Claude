@@ -24,7 +24,16 @@ export async function dispatchRun(runId: string, deps: DispatchDeps): Promise<vo
   const agent = await deps.repo.getAgent(run.agentId);
   if (!agent) throw new Error(`Agent not found: ${run.agentId}`);
 
-  if (agent.type === 'orchestrator') {
+  // Personal-chat runs are a CONVERSATION with the agent's persona — even for
+  // the orchestrator. Routing them through orchestration made the planner
+  // demand a JSON plan for small talk ("Invalid orchestration plan"). Team
+  // execution still goes through /tasks → executeOrchestration.
+  const isChat =
+    run.input != null &&
+    typeof run.input === 'object' &&
+    (run.input as { chat?: unknown }).chat === true;
+
+  if (agent.type === 'orchestrator' && !isChat) {
     if (!deps.planner) {
       throw new Error('Orchestrator run dispatched without a planner');
     }
