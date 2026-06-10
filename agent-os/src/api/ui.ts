@@ -71,7 +71,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <header>
-  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v11 · живой</span>
+  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v12 · живой</span>
   <nav>
     <button data-tab="coord" class="active">Координатор</button>
     <button data-tab="staff">Сотрудники</button>
@@ -390,6 +390,20 @@ function drawCubicle(ctx,gx,gy,color){
   // department-coloured top rail
   ctx.strokeStyle=color; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(L2.x,L2.y); ctx.lineTo(T2.x,T2.y); ctx.lineTo(R2.x,R2.y); ctx.stroke();
 }
+function drawRoleProps(ctx,x,y,type){
+  if(type==='analyst'){ ctx.fillStyle='#0e1318'; ctx.fillRect(x+17,y-27,17,15); ctx.fillStyle='#16323f'; ctx.fillRect(x+19,y-25,13,11);
+    var bars=[6,10,4,8]; for(var i=0;i<4;i++){ ctx.fillStyle='#2ea043'; ctx.fillRect(x+20+i*3,y-14-bars[i],2,bars[i]); } }
+  else if(type==='researcher'){ var bc=['#c0563c','#2f81f7','#d29922']; for(var i=0;i<3;i++){ ctx.fillStyle=bc[i]; ctx.fillRect(x-32,y-7-i*3,13,3); }
+    ctx.strokeStyle='#cfd6dc'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(x-35,y-13,3,0,Math.PI*2); ctx.moveTo(x-33,y-11); ctx.lineTo(x-30,y-8); ctx.stroke(); }
+  else if(type==='coder'){ ctx.fillStyle='#0e1318'; ctx.fillRect(x+16,y-25,18,16); ctx.fillStyle='#0c241a'; ctx.fillRect(x+18,y-23,14,12);
+    ctx.fillStyle='#3fae5a'; for(var i=0;i<4;i++) ctx.fillRect(x+19,y-21+i*2.6,7+(i%2)*4,1); }
+  else if(type==='reviewer'){ ctx.fillStyle='#eceff2'; ctx.fillRect(x+17,y-23,12,16); ctx.fillStyle='#9aa4ad'; ctx.fillRect(x+21,y-25,4,2);
+    ctx.strokeStyle='#2ea043'; ctx.lineWidth=1.4; for(var i=0;i<3;i++){ ctx.beginPath(); ctx.moveTo(x+19,y-18+i*4); ctx.lineTo(x+20.5,y-16.5+i*4); ctx.lineTo(x+23,y-19+i*4); ctx.stroke(); } }
+  else if(type==='writer'){ ctx.fillStyle='#eceff2'; ctx.fillRect(x+17,y-23,12,16); ctx.fillStyle='#9aa4ad'; for(var i=0;i<5;i++) ctx.fillRect(x+19,y-20+i*3,8,1);
+    ctx.strokeStyle='#d29922'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(x+27,y-10); ctx.lineTo(x+31,y-15); ctx.stroke(); }
+  else if(type==='orchestrator'){ ctx.fillStyle='#0e1318'; ctx.fillRect(x+16,y-27,21,17); var ns=[[x+20,y-23],[x+31,y-21],[x+25,y-14]];
+    ctx.strokeStyle='#8b949e'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(ns[0][0],ns[0][1]); ctx.lineTo(ns[1][0],ns[1][1]); ctx.lineTo(ns[2][0],ns[2][1]); ctx.stroke();
+    ctx.fillStyle='#d29922'; ns.forEach(function(n){ ctx.beginPath(); ctx.arc(n[0],n[1],2,0,Math.PI*2); ctx.fill(); }); } }
 function drawStation(ctx,a){
   var nm=a.name; var home=officeHome[nm]; if(!home) return; var p=officePos[nm]||home; var st=officeState[nm]||'idle'; var col=roleColor(a.type);
   var dg=groundAt(home.gx,home.gy); var pg=groundAt(p.gx,p.gy);
@@ -415,6 +429,8 @@ function drawStation(ctx,a){
   ctx.fillStyle='#0e1318'; ctx.fillRect(mx-2,my+8,4,3);
   var dot=st==='working'?'#d29922':st==='done'?'#2ea043':st==='failed'?'#f85149':'#3a4450';
   ctx.fillStyle=dot; ctx.beginPath(); ctx.arc(mx+17,my-10,2.5,0,Math.PI*2); ctx.fill();
+  // role-specific desk props (analyst charts, coder 2nd monitor, researcher books, …)
+  if(atDesk) drawRoleProps(ctx, dg.x, dg.y, a.type);
   // speech bubble above person
   var b=officeBubble[nm];
   if(b && officeFrame<b.until){ ctx.font='11px system-ui,Segoe UI,sans-serif'; var w=ctx.measureText(b.text).width+14;
@@ -481,6 +497,31 @@ function drawOffice(){
   // people + desks, depth-sorted (back to front)
   updateOffice();
   officeAgents.slice().sort(function(a,b){ var pa=officePos[a.name]||officeHome[a.name]||{gx:0,gy:0}, pb=officePos[b.name]||officeHome[b.name]||{gx:0,gy:0}; return (pa.gx+pa.gy)-(pb.gx+pb.gy); }).forEach(function(a){ drawStation(ctx,a); });
+  // agent-interaction layer: orchestrator → each working agent (animated link + data packet)
+  drawAgentLinks(ctx);
+}
+function agentGround(a){ var p=officePos[a.name]||officeHome[a.name]; if(!p) return null; var g=groundAt(p.gx,p.gy); return {x:g.x, y:g.y-30}; }
+function drawAgentLinks(ctx){
+  var orch=null; for(var i=0;i<officeAgents.length;i++){ if(officeAgents[i].type==='orchestrator'){ orch=officeAgents[i]; break; } }
+  if(!orch) return; var o=agentGround(orch); if(!o) return;
+  for(var j=0;j<officeAgents.length;j++){ var a=officeAgents[j]; if(a===orch) continue;
+    var st=officeState[a.name]||'idle'; if(st!=='working'&&st!=='done') continue;
+    var t=agentGround(a); if(!t) continue;
+    var live=(st==='working'); var lc=live?'#d29922':'#2ea043';
+    // dashed animated link, arcing slightly upward at the midpoint
+    var mx2=(o.x+t.x)/2, my2=(o.y+t.y)/2-26;
+    ctx.save(); ctx.strokeStyle=lc; ctx.globalAlpha=live?0.55:0.3; ctx.lineWidth=1.6;
+    ctx.setLineDash([5,6]); ctx.lineDashOffset=-officeFrame*0.6;
+    ctx.beginPath(); ctx.moveTo(o.x,o.y); ctx.quadraticCurveTo(mx2,my2,t.x,t.y); ctx.stroke();
+    ctx.restore();
+    if(live){
+      // moving data-packet along the quadratic curve
+      var tt=((officeFrame+j*23)%70)/70; var u=1-tt;
+      var px=u*u*o.x+2*u*tt*mx2+tt*tt*t.x, py=u*u*o.y+2*u*tt*my2+tt*tt*t.y;
+      ctx.save(); ctx.shadowColor=lc; ctx.shadowBlur=8; ctx.fillStyle='#ffd98a';
+      ctx.beginPath(); ctx.arc(px,py,3,0,Math.PI*2); ctx.fill(); ctx.restore();
+    }
+  }
 }
 function officeLoop(){ officeFrame++; drawOffice(); officeRAF=requestAnimationFrame(officeLoop); }
 function matchAgent(name,type){ var i;
