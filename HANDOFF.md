@@ -76,12 +76,19 @@ cd /home/deploy/app && docker compose -f docker-compose.prod.yml up -d --no-deps
 - **Skills**: в образ агентов зашиты `anthropics/skills` (18: docx/pptx/pdf/xlsx/canvas/…)
   + `mukul975/Anthropic-Cybersecurity-Skills` (форензика/IR/малварь-анализ, blue-team) в
   `~/.claude/skills` (см. `agent-os/Dockerfile`).
-- **UI** (`src/api/ui.ts`, бейдж `v6 · live`): вкладки Координатор/Сотрудники/Команда/Админ.
-  Пиксельный офис (canvas): сотрудники ходят, собираются на совещание, реплики-пузыри, лента
-  активности. **Личный чат** (Сотрудники): опрос статуса (не SSE), история в localStorage,
-  **эффект печати** (typewriter). HTML отдаётся с `no-store`.
-- **Воркер**: BullMQ — у Worker СВОЁ Redis-соединение (критично; общее с Queue не работает →
-  было причиной зависаний `queued`).
+- **UI** (`src/api/ui.ts`, бейдж `v12 · живой`): вкладки Координатор/Сотрудники/Команда/Админ.
+  Изометрический офис (canvas, 2:1): сотрудники ходят, собираются на совещание, реплики-пузыри,
+  лента активности. **v12**: рабочие места по роли (`drawRoleProps`) + анимированные линии
+  взаимодействия Координатор→агент с «пакетами данных» (`drawAgentLinks`). **Личный чат**
+  (Сотрудники): опрос статуса (не SSE), история в localStorage, **эффект печати** (typewriter).
+  HTML отдаётся с `no-store`.
+- **Воркер**: BullMQ — у Worker СВОЁ Redis-соединение (критично). Плюс **concurrency=4 +
+  lockDuration=10мин + removeOnComplete/Fail** (`queue.bullmq.ts`, env `BULLMQ_CONCURRENCY`/
+  `BULLMQ_LOCK_MS`): один медленный/застрявший run больше не блокирует очередь и не убивается
+  как «stalled». Это устранило зависания `queued` (E2E: queued→running→succeeded ~4с).
+- **Оркестрация**: `executeOrchestration` агрегирует ответ как **структурированный отчёт
+  команды** (`buildTeamReport`): синтез + вклад каждого агента с ролевыми подписями
+  (`output.report`/`contributions`), а не сырой вложенный JSON.
 
 ### Проверено рабочим
 Подписка Max через релей отвечает (E2E: run queued→running→succeeded ~4с, реальный текст

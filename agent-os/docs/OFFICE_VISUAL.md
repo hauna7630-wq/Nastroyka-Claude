@@ -34,11 +34,13 @@ audit → gap list → prioritized backlog that precedes visual changes.
 
 ## Prioritized backlog
 
-**P0 — make it feel alive (highest impact, this iteration)**
-1. **Agent interaction visualization** — animated link + moving data-packet from the
-   orchestrator (Arkesha) to each agent while its subtask runs; review/hand-off pulses.
-2. **Role-specific workstations** — distinct props per role (charts, multi-monitor,
-   books, checklist, diagram board, server rack).
+**P0 — make it feel alive (highest impact, this iteration)** — ✅ SHIPPED (v12)
+1. ✅ **Agent interaction visualization** — `drawAgentLinks`: animated dashed link +
+   moving glowing data-packet from the orchestrator (Arkesha) to each working agent;
+   settles to a green link when the agent's subtask is done. (Verified served: `drawAgentLinks=2`.)
+2. ✅ **Role-specific workstations** — `drawRoleProps`: distinct desk props per role
+   (analyst bar-chart, researcher books+magnifier, coder 2nd monitor, reviewer checklist,
+   writer doc+pen, orchestrator diagram board). Hand-off/review pulses → still P1.
 
 **P1 — depth & readability**
 3. Camera: smooth zoom (wheel/buttons) + pan; focus/follow active agent.
