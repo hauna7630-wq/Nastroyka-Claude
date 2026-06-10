@@ -71,7 +71,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <header>
-  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v9 · отделы</span>
+  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v10 · отделы</span>
   <nav>
     <button data-tab="coord" class="active">Координатор</button>
     <button data-tab="staff">Сотрудники</button>
@@ -286,6 +286,7 @@ Object.keys(chatPending).forEach(function(aid){ var p=chatPending[aid]; if(p&&p.
 var PX=3;
 var SPR=["..HHHH..",".HHHHHH.",".HSSSSH.",".SSSSSS.",".SeSSeS.",".SSSSSS.",".CCCCCC.","CCCCCCCC","CCCCCCCC","CC.CC.CC",".PP..PP."];
 var TYPE_COLOR={orchestrator:'#d29922',analyst:'#2ea043',researcher:'#2f81f7',writer:'#a371f7',coder:'#f0883e',reviewer:'#db61a2'};
+var DEPT={orchestrator:'Управление',analyst:'Аналитика',researcher:'Исследования',writer:'Контент',coder:'Инженерия',reviewer:'QA'};
 var SAY_WORK={researcher:['Ищу источники…','Собираю данные…'],analyst:['Анализирую…','Считаю варианты…'],writer:['Пишу черновик…','Редактирую текст…'],coder:['Пишу код…','Гоняю тесты…'],reviewer:['Проверяю…','Ищу баги…'],orchestrator:['Распределяю задачи','Собираю команду'],_def:['Работаю…']};
 var SMALLTALK=['Кофе? ☕','Как дела?','Глянь мою задачу','Почти готово','Нужна помощь?','Класс! 👍','Я на созвоне','Передаю дальше','Согласен','Сделаю'];
 var officeAgents=[]; var officeState={}; var officePos={}; var officeHome={}; var officeTgt={}; var officeDwell={}; var officeBubble={}; var officeMeetUntil={};
@@ -423,6 +424,11 @@ function drawStation(ctx,a){
   // name + role under the desk
   ctx.fillStyle='#eef2f6'; ctx.font='bold 11px system-ui,Segoe UI,sans-serif'; ctx.textAlign='center'; ctx.fillText(shortName(a.name),dg.x,dg.y+22);
   ctx.fillStyle='#9aa4ad'; ctx.font='9px system-ui,Segoe UI,sans-serif'; ctx.fillText(roleOf(a),dg.x,dg.y+33);
+  // department name plate above the cubicle
+  var ct=isoTop(home.gx,home.gy); var dep=DEPT[a.type]||roleOf(a);
+  ctx.font='bold 9px system-ui,Segoe UI,sans-serif'; var dw=ctx.measureText(dep).width+10;
+  ctx.fillStyle='rgba(13,17,23,.62)'; roundRect(ctx,ct.x-dw/2,ct.y-42,dw,13,3); ctx.fill();
+  ctx.fillStyle=col; ctx.textAlign='center'; ctx.fillText(dep,ct.x,ct.y-33);
 }
 function lerpP(a,b,t){ return {x:a.x+(b.x-a.x)*t, y:a.y+(b.y-a.y)*t}; }
 function drawWall(ctx,A,B,h,base,topc,nwin){
