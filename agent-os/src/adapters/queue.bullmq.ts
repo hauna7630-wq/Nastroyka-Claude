@@ -13,6 +13,16 @@ import { RunJob } from '../domain/types';
 
 const QUEUE_NAME = 'agent-runs';
 
+// A single model call (Claude CLI, --max-turns 8 + web search via the relay) can
+// legitimately run up to ~3 min, and an orchestrator parent runs its children
+// inline, so a job can hold the worker far longer than BullMQ's 30s default lock.
+// We therefore (a) give the lock a generous duration so a slow-but-healthy job is
+// not mistaken for "stalled" and killed, and (b) run several jobs concurrently so
+// one slow/stuck run never blocks the whole queue (the symptom that left chat runs
+// stuck in `queued`). Tunable via env for the 2-core/4GB prod host.
+const LOCK_DURATION_MS = Number(process.env.BULLMQ_LOCK_MS ?? 600000); // 10 min
+const WORKER_CONCURRENCY = Number(process.env.BULLMQ_CONCURRENCY ?? 4);
+
 export class BullMQQueue implements Queue {
   private readonly connection: IORedis;
   private readonly queue: BullQueue;
@@ -32,7 +42,14 @@ export class BullMQQueue implements Queue {
   }
 
   async enqueue(job: RunJob): Promise<void> {
-    await this.queue.add('run', job, { attempts: 1 });
+    // Don't let completed/failed jobs pile up in Redis across deploys (stale jobs
+    // were being reprocessed by a fresh worker). Keep a small failed tail for
+    // post-mortems; drop succeeded jobs immediately.
+    await this.queue.add('run', job, {
+      attempts: 1,
+      removeOnComplete: true,
+      removeOnFail: 200,
+    });
   }
 
   process(processor: JobProcessor): void {
@@ -48,7 +65,11 @@ export class BullMQQueue implements Queue {
           maxAttempts: this.maxAttempts,
         });
       },
-      { connection: this.workerConnection as any },
+      {
+        connection: this.workerConnection as any,
+        concurrency: WORKER_CONCURRENCY,
+        lockDuration: LOCK_DURATION_MS,
+      },
     );
     this.worker.on('error', (err) => {
       // eslint-disable-next-line no-console
