@@ -13,6 +13,7 @@ import { humanizeRunError } from '../domain/errors';
 import { assembleChatPrompt, outputToReplyText } from '../agent/chatPrompt';
 import { deriveTeamPhase, PHASE_LABEL, subtaskIdOf, TeamPhase } from '../orchestrator/phase';
 import { verdictNeedsRework } from '../orchestrator/orchestrator';
+import { findTemplate, TEAM_TEMPLATES } from '../teams/templates';
 import {
   AgentType,
   ChatMessageRecord,
@@ -140,6 +141,47 @@ export class ControlPlane {
   // attaches to the same thread message).
   async retryRun(runId: string): Promise<{ runId: string; status: string }> {
     return this.requeueDeadLetter(runId);
+  }
+
+  // --- Team catalog: ready-made teams hired in one click ---
+
+  listTeamTemplates() {
+    return TEAM_TEMPLATES.map((t) => ({
+      id: t.id,
+      title: t.title,
+      description: t.description,
+      recommended: t.recommended === true,
+      members: t.members.map((m) => ({ name: m.name, type: m.type })),
+    }));
+  }
+
+  // Idempotent by member name: re-hiring a team only creates the missing agents.
+  async hireTeam(args: { orgId: string; templateId: string }) {
+    const org = await this.deps.repo.getOrg(args.orgId);
+    if (!org) throw new NotFoundError(`org ${args.orgId}`);
+    const template = findTemplate(args.templateId);
+    if (!template) throw new NotFoundError(`team template ${args.templateId}`);
+
+    const existing = await this.deps.repo.listAgents(args.orgId);
+    const names = new Set(existing.map((a) => a.name));
+    const hired = [];
+    for (const m of template.members) {
+      if (names.has(m.name)) continue;
+      const agent = await this.deps.repo.createAgent({
+        orgId: args.orgId,
+        name: m.name,
+        type: m.type,
+        systemPrompt: m.systemPrompt,
+      });
+      hired.push({ id: agent.id, name: agent.name, type: agent.type });
+    }
+    await this.deps.repo.audit({
+      orgId: args.orgId,
+      actor: 'control-plane',
+      action: 'team.hired',
+      meta: { templateId: template.id, hired: hired.length },
+    });
+    return { templateId: template.id, title: template.title, hired };
   }
 
   // --- Task lifecycle: phases + internal team discussion (Doc-A stages 5-8) ---

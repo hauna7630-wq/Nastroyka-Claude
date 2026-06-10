@@ -93,6 +93,18 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   #chatReply .rchip a { margin-left:auto; color:var(--muted); text-decoration:none; }
   .chat-form { display:flex; gap:8px; padding:10px; border-top:1px solid var(--border); }
   .chat-form input { flex:1; }
+  .hire-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(290px, 1fr)); gap:14px; }
+  .hcard { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 15px; display:flex; flex-direction:column; gap:8px; }
+  .hcard.rec { border-color:rgba(46,160,67,.6); background:linear-gradient(180deg, rgba(46,160,67,.07), var(--card)); }
+  .hcard h4 { margin:0; font-size:15px; }
+  .hcard .hdesc { font-size:12.5px; color:var(--muted); line-height:1.4; min-height:34px; }
+  .hcard .hava { display:flex; gap:8px; align-items:flex-end; }
+  .hcard .hava .hv { display:flex; flex-direction:column; align-items:center; gap:2px; }
+  .hcard .hava .hv span { font-size:10px; color:var(--muted); max-width:74px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .hcard canvas { image-rendering:pixelated; }
+  .hcard .hbtn { margin-top:auto; }
+  .hcard .hired { color:var(--ok); font-size:12px; font-weight:600; }
+  .recbadge { font-size:10px; color:var(--ok); background:rgba(46,160,67,.16); border-radius:999px; padding:2px 8px; margin-left:8px; vertical-align:middle; }
   .phasebar { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
   .phase { font-size:11px; padding:3px 10px; border-radius:999px; background:#30363d; color:var(--muted); letter-spacing:.04em; }
   .phase.on { background:rgba(210,153,34,.2); color:var(--run); }
@@ -110,13 +122,14 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v20 · сайдбар</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v21 · каталог команд</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
     <button data-tab="tasks">☑️ Задачи</button>
     <button data-tab="activity">📈 Активность</button>
     <button data-tab="staff">💬 Сотрудники</button>
+    <button data-tab="hire">🛒 Нанять команду</button>
     <button data-tab="team">👥 Команда</button>
     <button data-tab="admin">⚙️ Админ</button>
   </nav>
@@ -184,6 +197,13 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
     <div class="graph" id="agents"></div>
   </section>
 
+  <!-- Нанять команду: каталог готовых команд -->
+  <section class="tab" id="tab-hire">
+    <div class="section-title">Готовые команды — наймите всю команду в один клик; Arkesha координирует всех</div>
+    <div id="hireStatus" class="status"></div>
+    <div id="hireGrid" class="hire-grid"></div>
+  </section>
+
   <!-- Задачи -->
   <section class="tab" id="tab-tasks">
     <div class="section-title">Задачи организации (последние 30)</div>
@@ -229,6 +249,7 @@ document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click
   if (b.dataset.tab === 'admin') loadAdmin();
   if (b.dataset.tab === 'tasks') loadTasks();
   if (b.dataset.tab === 'activity') renderActivity('activityBig', 200);
+  if (b.dataset.tab === 'hire') loadHire();
 }));
 function openTab(name){ var btn=document.querySelector('nav.snav button[data-tab="'+name+'"]'); if(btn) btn.click(); }
 $('sideNew').addEventListener('click', function(){ openTab('coord'); var t=$('task'); if(t) t.focus(); });
@@ -1034,6 +1055,54 @@ async function loadTasks(){
         openTab('coord'); pollTeam(rid);
       }; })(t.runId)); row.appendChild(b); }
     el.appendChild(row);
+  });
+}
+// «Нанять команду»: catalog of ready-made teams with mini sprite previews.
+function miniAvatar(member){
+  var c=document.createElement('canvas'); var cell=2.1;
+  c.width=Math.ceil(CH_W*cell); c.height=Math.ceil(CH_H*cell);
+  c.style.width=c.width+'px'; c.style.height=c.height+'px';
+  var ctx=c.getContext('2d');
+  var look=lookFor({name:member.name, type:member.type});
+  var rows=spriteRows(look.hairStyle,-1);
+  var pal={H:look.hair,S:look.skin,e:'#141a21',J:look.suit,j:shade(look.suit,-28),T:'#eef2f6',t:look.shirt,P:look.pants,B:'#14181d'};
+  drawGrid(ctx,0,0,rows,pal,cell);
+  return c;
+}
+async function loadHire(){
+  var grid=$('hireGrid'); grid.innerHTML='<small class="muted">загрузка каталога…</small>';
+  var tpls = await api('/teams/templates').catch(function(){ return null; });
+  if(!tpls||!tpls.length){ grid.innerHTML='<small class="muted">каталог недоступен</small>'; return; }
+  var have={}; (staffAgents.length?staffAgents:officeAgents).forEach(function(a){ have[a.name]=1; });
+  grid.innerHTML='';
+  tpls.forEach(function(t){
+    var card=document.createElement('div'); card.className='hcard'+(t.recommended?' rec':'');
+    var h=document.createElement('h4'); h.textContent=t.title;
+    if(t.recommended){ var rb=document.createElement('span'); rb.className='recbadge'; rb.textContent='РЕКОМЕНДУЕМ'; h.appendChild(rb); }
+    card.appendChild(h);
+    var d=document.createElement('div'); d.className='hdesc'; d.textContent=t.description; card.appendChild(d);
+    var ava=document.createElement('div'); ava.className='hava';
+    t.members.forEach(function(m){
+      var hv=document.createElement('div'); hv.className='hv';
+      hv.appendChild(miniAvatar(m));
+      var nm=document.createElement('span'); nm.textContent=shortName(m.name); hv.appendChild(nm);
+      ava.appendChild(hv); });
+    card.appendChild(ava);
+    var allHired = t.members.every(function(m){ return have[m.name]; });
+    if(allHired){ var ok=document.createElement('div'); ok.className='hired'; ok.textContent='✓ Команда нанята'; card.appendChild(ok); }
+    else {
+      var btn=document.createElement('button'); btn.className='primary hbtn'; btn.textContent='Нанять команду';
+      btn.addEventListener('click', (function(tid,b){ return function(){
+        b.disabled=true; b.textContent='Нанимаю…';
+        api('/orgs/'+ORG+'/teams/'+tid+'/hire',{method:'POST',body:'{}'}).then(function(r){
+          if(r&&r.hired){ $('hireStatus').textContent='Наняты: '+(r.hired.length?r.hired.map(function(x){return shortName(x.name);}).join(', '):'все уже в команде');
+            loadOffice(); loadStaff(); loadHire(); }
+          else { $('hireStatus').textContent='Ошибка: '+((r&&r.error)||'не удалось нанять'); b.disabled=false; b.textContent='Нанять команду'; }
+        }).catch(function(){ $('hireStatus').textContent='Сеть: не удалось нанять'; b.disabled=false; b.textContent='Нанять команду'; });
+      }; })(t.id,btn));
+      card.appendChild(btn);
+    }
+    grid.appendChild(card);
   });
 }
 async function loadOffice(){

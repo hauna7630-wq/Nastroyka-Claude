@@ -120,6 +120,13 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
       if (method === 'GET' && seg[0] === 'orgs' && seg[2] === 'tasks') {
         return json(res, 200, await cp.listOrgTasks(seg[1]));
       }
+      // Team catalog: list templates + hire a team into the org
+      if (method === 'GET' && path === '/teams/templates') {
+        return json(res, 200, cp.listTeamTemplates());
+      }
+      if (method === 'POST' && seg[0] === 'orgs' && seg[2] === 'teams' && seg[3] && seg[4] === 'hire') {
+        return json(res, 201, await cp.hireTeam({ orgId: seg[1], templateId: seg[3] }));
+      }
       // POST /documents/extract  — Doc-1: extract text from an uploaded file
       if (method === 'POST' && path === '/documents/extract') {
         const body = JSON.parse((await readBody(req)) || '{}');
