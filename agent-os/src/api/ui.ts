@@ -122,7 +122,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v21 · каталог команд</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v22 · починен SPA</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -461,13 +461,13 @@ function setReplyTarget(m){
   if(!m || !m.text || m.pending) return;
   // Strip a quote line if the message itself was a reply.
   var t=m.text;
-  if(t.indexOf('↪ ')===0){ var nl=t.indexOf('\n'); if(nl>0) t=t.slice(nl+1); }
+  if(t.indexOf('↪ ')===0){ var nl=t.indexOf('\\n'); if(nl>0) t=t.slice(nl+1); }
   chatReplyTo={ role: m.role==='me'?'user':'agent', text:t };
   renderReplyChip(); $('chatInput').focus();
 }
-// Split a stored "↪ quote\nbody" display text into its quote + body parts.
+// Split a stored quote-prefixed display text into its quote + body parts.
 function splitQuote(text){
-  if(text && text.indexOf('↪ ')===0){ var nl=text.indexOf('\n');
+  if(text && text.indexOf('↪ ')===0){ var nl=text.indexOf('\\n');
     if(nl>0) return { quote:text.slice(2,nl), body:text.slice(nl+1) }; }
   return { quote:null, body:text };
 }
@@ -585,7 +585,7 @@ $('chatForm').addEventListener('submit', async function(e){
   }
   if(chatReplyTo){
     replyForServer={ role:chatReplyTo.role, text:chatReplyTo.text };
-    shown='↪ '+chatReplyTo.text.replace(/\\s+/g,' ').slice(0,120)+'\n'+shown;
+    shown='↪ '+chatReplyTo.text.replace(/\\s+/g,' ').slice(0,120)+'\\n'+shown;
     chatReplyTo=null; renderReplyChip();
   }
   pushMsg(aid,'me',shown); $('chatInput').value='';
