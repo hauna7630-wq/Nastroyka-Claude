@@ -85,9 +85,18 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .msg .who { font-size:11px; color:var(--muted); margin-bottom:3px; }
   .msg .quote { font-size:11.5px; opacity:.82; border-left:2px solid rgba(255,255,255,.5); padding:1px 0 1px 7px; margin-bottom:5px; white-space:pre-wrap; }
   .msg.them .quote { border-left-color:#4a5560; color:var(--muted); }
-  .msg .rbtn { display:none; position:absolute; top:-9px; right:-7px; background:#1b232c; color:var(--muted); border:1px solid var(--border); border-radius:6px; font-size:11px; padding:1px 7px; cursor:pointer; }
+  .msg .rbtn { display:none; position:absolute; top:-9px; background:#1b232c; color:var(--muted); border:1px solid var(--border); border-radius:6px; font-size:11px; padding:1px 7px; cursor:pointer; }
+  .msg .rbtn.reply { right:-7px; } .msg .rbtn.react { right:64px; }
   .msg:hover .rbtn { display:block; }
   .msg .rbtn:hover { color:var(--fg); border-color:var(--accent); }
+  .reacts { display:flex; gap:4px; flex-wrap:wrap; margin-top:5px; }
+  .reacts .rx { background:#0d1117; border:1px solid var(--border); border-radius:999px; font-size:13px; padding:1px 7px; cursor:pointer; line-height:1.5; }
+  .msg.me .reacts .rx { background:rgba(0,0,0,.18); border-color:rgba(255,255,255,.25); }
+  .reacts .rx:hover { border-color:var(--accent); }
+  .emojipop { position:absolute; z-index:30; background:#161d24; border:1px solid var(--border); border-radius:10px; padding:7px; box-shadow:0 8px 24px rgba(0,0,0,.45); width:236px; }
+  .emojipop .erow { display:flex; gap:3px; flex-wrap:wrap; }
+  .emojipop button { background:transparent; border:0; font-size:19px; cursor:pointer; padding:3px 4px; border-radius:7px; line-height:1; }
+  .emojipop button:hover { background:#23303b; }
   #chatReply .rchip { display:flex; align-items:center; gap:8px; border-left:3px solid var(--accent); background:#0d1117; border-radius:6px; padding:5px 9px; font-size:12px; color:var(--muted); }
   #chatReply .rchip b { color:var(--fg); font-weight:600; margin-right:4px; }
   #chatReply .rchip a { margin-left:auto; color:var(--muted); text-decoration:none; }
@@ -122,7 +131,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v22 · починен SPA</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v23 · реакции</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -431,7 +440,7 @@ function loadChatHistory(aid){
   api('/orgs/'+ORG+'/agents/'+aid+'/chat').then(function(r){
     if(!r || !r.messages) return;
     var th=[];
-    r.messages.forEach(function(m){ th.push({ role: m.role==='user'?'me':'them', text:m.text, runId:m.runId }); });
+    r.messages.forEach(function(m){ th.push({ role: m.role==='user'?'me':'them', text:m.text, runId:m.runId, id:m.id, reactions:m.reactions||[] }); });
     chatThreads[aid]=th; saveChat();
     if(currentAgent && currentAgent.id===aid) renderChat();
     // Resume any unfinished runs with honest live status.
@@ -471,6 +480,36 @@ function splitQuote(text){
     if(nl>0) return { quote:text.slice(2,nl), body:text.slice(nl+1) }; }
   return { quote:null, body:text };
 }
+// Emoji set for the reaction picker (+ quick row reused as defaults).
+var EMOJI_QUICK=['👍','❤️','😂','🔥','🎉','👏','🤔','✅'];
+var EMOJI_ALL=['👍','👎','❤️','🔥','🎉','👏','😂','😮','😢','🙏','🤔','💡','✅','❌','⭐','🚀','💪','👀','😎','🤝','💯','⚡','📌','🥳'];
+var emojiPop=null;
+function closeEmojiPop(){ if(emojiPop){ emojiPop.remove(); emojiPop=null; document.removeEventListener('click', onDocClickPop, true); } }
+function onDocClickPop(e){ if(emojiPop && !emojiPop.contains(e.target)) closeEmojiPop(); }
+function openEmojiPop(anchor, msg){
+  closeEmojiPop();
+  emojiPop=document.createElement('div'); emojiPop.className='emojipop';
+  var row=document.createElement('div'); row.className='erow';
+  EMOJI_ALL.forEach(function(em){ var b=document.createElement('button'); b.textContent=em;
+    b.addEventListener('click', function(ev){ ev.stopPropagation(); closeEmojiPop(); toggleReaction(msg, em); }); row.appendChild(b); });
+  emojiPop.appendChild(row); document.body.appendChild(emojiPop);
+  var r=anchor.getBoundingClientRect();
+  var top=r.bottom+4, left=Math.max(8, Math.min(window.innerWidth-244, r.left-100));
+  if(top+150>window.innerHeight) top=r.top-152;
+  emojiPop.style.top=top+'px'; emojiPop.style.left=left+'px';
+  setTimeout(function(){ document.addEventListener('click', onDocClickPop, true); },0);
+}
+function toggleReaction(msg, emoji){
+  if(!msg || !msg.id || !currentAgent) return;
+  var aid=currentAgent.id;
+  // optimistic
+  var set={}; (msg.reactions||[]).forEach(function(e){ set[e]=1; });
+  if(set[emoji]) delete set[emoji]; else set[emoji]=1;
+  msg.reactions=Object.keys(set); saveChat(); renderChat();
+  api('/orgs/'+ORG+'/agents/'+aid+'/messages/'+msg.id+'/react',{method:'POST',body:JSON.stringify({emoji:emoji})})
+    .then(function(r){ if(r && r.id){ msg.reactions=r.reactions||[]; saveChat(); if(currentAgent&&currentAgent.id===aid) renderChat(); } })
+    .catch(function(){});
+}
 function renderChat(){
   if(!currentAgent) return; var log=$('chatLog'); log.innerHTML=''; var th=chatThreads[currentAgent.id]||[];
   th.forEach(function(m,i){ var el=document.createElement('div'); el.className='msg '+(m.role==='me'?'me':'them');
@@ -479,8 +518,15 @@ function renderChat(){
     if(parts.quote) inner+='<div class="quote">'+escapeHtml(parts.quote)+'</div>';
     inner+=escapeHtml(parts.body);
     el.innerHTML=inner;
-    if(!m.pending){ var rb=document.createElement('button'); rb.className='rbtn'; rb.textContent='↩ ответить';
+    if(!m.pending){ var rb=document.createElement('button'); rb.className='rbtn reply'; rb.textContent='↩ ответить';
       rb.addEventListener('click', (function(msg){ return function(){ setReplyTarget(msg); }; })(m)); el.appendChild(rb); }
+    // reaction button (only for persisted messages with a server id)
+    if(!m.pending && m.id){ var eb=document.createElement('button'); eb.className='rbtn react'; eb.textContent='☺ реакция';
+      eb.addEventListener('click', (function(msg,btn){ return function(ev){ ev.stopPropagation(); openEmojiPop(btn,msg); }; })(m,eb)); el.appendChild(eb); }
+    // existing reactions
+    if(m.reactions && m.reactions.length){ var rr=document.createElement('div'); rr.className='reacts';
+      m.reactions.forEach(function(em){ var chip=document.createElement('span'); chip.className='rx'; chip.textContent=em; chip.title='убрать реакцию';
+        chip.addEventListener('click', (function(msg,e2){ return function(){ toggleReaction(msg,e2); }; })(m,em)); rr.appendChild(chip); }); el.appendChild(rr); }
     if(m.failedRunId){ var b=document.createElement('button'); b.textContent='Повторить'; b.className='primary'; b.style.cssText='margin-top:6px;padding:4px 10px;font-size:12px';
       b.addEventListener('click', (function(aid,idx,rid){ return function(){ retryChat(aid,idx,rid); }; })(currentAgent.id,i,m.failedRunId)); el.appendChild(b); }
     log.appendChild(el); });
@@ -597,6 +643,8 @@ $('chatForm').addEventListener('submit', async function(e){
   if(replyForServer) body.replyTo=replyForServer;
   var resp = await api('/orgs/'+ORG+'/agents/'+aid+'/chat',{method:'POST',body:JSON.stringify(body)});
   if(!resp||!resp.runId){ setReplyFailed(aid,idx,null,'Ошибка: '+((resp&&resp.error)||'не удалось запустить')); return; }
+  // give the just-sent user message its server id so it can be reacted to
+  if(resp.message && resp.message.id && chatThreads[aid][idx-1]){ chatThreads[aid][idx-1].id=resp.message.id; saveChat(); }
   chatThreads[aid][idx].runId=resp.runId; chatPending[aid]={runId:resp.runId, idx:idx}; saveChat();
   pollRun(aid, resp.runId, idx);
 });

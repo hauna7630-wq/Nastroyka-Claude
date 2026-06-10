@@ -84,6 +84,15 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
       if (method === 'GET' && seg[0] === 'orgs' && seg[2] === 'agents' && seg[3] && seg[4] === 'runs') {
         return json(res, 200, await cp.listAgentRuns(seg[1], seg[3]));
       }
+      // Toggle an emoji reaction on a message. Same ordering note as above.
+      if (method === 'POST' && seg[0] === 'orgs' && seg[2] === 'agents' && seg[3] && seg[4] === 'messages' && seg[5] && seg[6] === 'react') {
+        const body = JSON.parse((await readBody(req)) || '{}');
+        return json(
+          res,
+          200,
+          await cp.reactToMessage({ orgId: seg[1], agentId: seg[3], messageId: seg[5], emoji: body.emoji }),
+        );
+      }
       // Personal chat thread (dialog memory). Same ordering note as above.
       if (seg[0] === 'orgs' && seg[2] === 'agents' && seg[3] && seg[4] === 'chat') {
         if (method === 'GET') {

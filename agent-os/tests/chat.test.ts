@@ -118,6 +118,32 @@ describe('Personal chat — dialog memory', () => {
     expect(prompt).toContain('раздел рисков');
   });
 
+  it('toggles emoji reactions on a message (idempotent set semantics)', async () => {
+    const { cp } = build(new EchoModel());
+    const sent = await cp.sendChatMessage({ orgId: 'org_1', agentId: 'agent_1', text: 'привет' });
+    const mid = sent.message.id as string;
+    let m = await cp.reactToMessage({ orgId: 'org_1', agentId: 'agent_1', messageId: mid, emoji: '👍' });
+    expect(m.reactions).toEqual(['👍']);
+    m = await cp.reactToMessage({ orgId: 'org_1', agentId: 'agent_1', messageId: mid, emoji: '🔥' });
+    expect(m.reactions).toEqual(['👍', '🔥']);
+    m = await cp.reactToMessage({ orgId: 'org_1', agentId: 'agent_1', messageId: mid, emoji: '👍' }); // toggle off
+    expect(m.reactions).toEqual(['🔥']);
+    // reactions persist in the thread history
+    const hist = await cp.getChatHistory({ orgId: 'org_1', agentId: 'agent_1' });
+    expect(hist.messages.find((x) => x.id === mid)?.reactions).toEqual(['🔥']);
+  });
+
+  it('reacting to an unknown message 404s and rejects invalid emoji', async () => {
+    const { cp } = build(new EchoModel());
+    await expect(
+      cp.reactToMessage({ orgId: 'org_1', agentId: 'agent_1', messageId: 'nope', emoji: '👍' }),
+    ).rejects.toThrow(/message/);
+    const sent = await cp.sendChatMessage({ orgId: 'org_1', agentId: 'agent_1', text: 'hi' });
+    await expect(
+      cp.reactToMessage({ orgId: 'org_1', agentId: 'agent_1', messageId: sent.message.id as string, emoji: 'this-is-way-too-long' }),
+    ).rejects.toThrow(/реакц/);
+  });
+
   it('composes an attachment into the prompt but keeps the thread text short', async () => {
     const { cp, repo } = build(new EchoModel());
     const sent = await cp.sendChatMessage({

@@ -92,6 +92,8 @@ export interface ChatMessageRecord {
   role: ChatRole;
   text: string;
   runId?: string;
+  // Emoji reactions on the message (toggle semantics; each emoji present once).
+  reactions?: string[];
   createdAt?: number;
 }
 

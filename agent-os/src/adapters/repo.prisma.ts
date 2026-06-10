@@ -205,6 +205,26 @@ export class PrismaRepository implements Repository {
     return rows.reverse().map((m: any) => this.mapChatMessage(m));
   }
 
+  async toggleChatReaction(
+    orgId: string,
+    agentId: string,
+    messageId: string,
+    emoji: string,
+  ): Promise<ChatMessageRecord | null> {
+    const row = await this.db.chatMessage.findUnique({ where: { id: messageId } });
+    if (!row || row.orgId !== orgId || row.agentId !== agentId) return null;
+    const current: string[] = Array.isArray(row.reactions) ? row.reactions : [];
+    const set = new Set(current);
+    if (set.has(emoji)) set.delete(emoji);
+    else set.add(emoji);
+    const next = [...set];
+    const updated = await this.db.chatMessage.update({
+      where: { id: messageId },
+      data: { reactions: next as any },
+    });
+    return this.mapChatMessage(updated);
+  }
+
   private mapChatMessage(m: any): ChatMessageRecord {
     return {
       id: m.id,
@@ -213,6 +233,7 @@ export class PrismaRepository implements Repository {
       role: m.role,
       text: m.text,
       runId: m.runId ?? undefined,
+      reactions: Array.isArray(m.reactions) ? m.reactions : undefined,
       createdAt: m.createdAt instanceof Date ? m.createdAt.getTime() : m.createdAt,
     };
   }

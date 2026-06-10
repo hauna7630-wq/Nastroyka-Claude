@@ -152,6 +152,8 @@ model ChatMessage {
   text      String
   // No FK — mirrors the DeadLetter/AuditLog precedent for run references.
   runId     String?
+  // Emoji reactions on the message (array of emoji strings; toggle semantics).
+  reactions Json?
   createdAt DateTime @default(now())
 
   @@unique([runId, role])

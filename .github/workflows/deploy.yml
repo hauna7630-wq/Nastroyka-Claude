@@ -100,7 +100,7 @@ jobs:
             docker compose -f docker-compose.prod.yml exec -T agentos node /tmp/e2e.cjs
             echo "===== Caddy-served HTML (exact browser path) ====="
             curl -sk --resolve ${{ secrets.AGENT_DOMAIN }}:443:127.0.0.1 https://${{ secrets.AGENT_DOMAIN }}/ -o /tmp/c.html -w "code=%{http_code} size=%{size_download}\n"
-            echo "markers: v22=$(grep -c 'v22' /tmp/c.html) Сотрудники=$(grep -c Сотрудники /tmp/c.html) spriteRows=$(grep -c spriteRows /tmp/c.html) chatReply=$(grep -c chatReply /tmp/c.html) phaseBar=$(grep -c phaseBar /tmp/c.html) loadJournal=$(grep -c loadJournal /tmp/c.html) sideStaff=$(grep -c sideStaff /tmp/c.html) hireGrid=$(grep -c hireGrid /tmp/c.html) loadChatHistory=$(grep -c loadChatHistory /tmp/c.html)"
+            echo "markers: v23=$(grep -c 'v23' /tmp/c.html) Сотрудники=$(grep -c Сотрудники /tmp/c.html) spriteRows=$(grep -c spriteRows /tmp/c.html) chatReply=$(grep -c chatReply /tmp/c.html) phaseBar=$(grep -c phaseBar /tmp/c.html) loadJournal=$(grep -c loadJournal /tmp/c.html) sideStaff=$(grep -c sideStaff /tmp/c.html) hireGrid=$(grep -c hireGrid /tmp/c.html) loadChatHistory=$(grep -c loadChatHistory /tmp/c.html) emojipop=$(grep -c emojipop /tmp/c.html)"
             echo "===== EXTRACT ENDPOINT (docx happy-path + honest .doc error) ====="
             curl -s -X POST -H 'content-type: application/json' --resolve ${{ secrets.AGENT_DOMAIN }}:443:127.0.0.1 -k https://${{ secrets.AGENT_DOMAIN }}/documents/extract -d '{"mime":"text/csv","filename":"t.csv","content":"'$(printf 'a,b\n1,2' | base64 -w0)'"}'; echo
             curl -s -X POST -H 'content-type: application/json' --resolve ${{ secrets.AGENT_DOMAIN }}:443:127.0.0.1 -k https://${{ secrets.AGENT_DOMAIN }}/documents/extract -d '{"mime":"application/msword","filename":"old.doc","content":"eHh4"}'; echo
@@ -111,6 +111,9 @@ jobs:
             CRID=$(curl -s $RES -X POST -H 'content-type: application/json' "$BASE/orgs/demo/agents/$AID/chat" -d '{"text":"Ответь одним словом: тест"}' | grep -o '"runId":"[^"]*"' | head -1 | cut -d'"' -f4)
             echo "chat runId=$CRID"
             for i in $(seq 1 60); do sleep 3; S=$(curl -s $RES "$BASE/runs/$CRID" | grep -o '"status":"[^"]*"' | head -1); echo -n " $S"; echo "$S" | grep -q succeeded && break; echo "$S" | grep -qE 'failed|canceled' && break; done; echo
+            echo "===== REACTIONS (toggle 👍 on first message) ====="
+            MID=$(curl -s $RES "$BASE/orgs/demo/agents/$AID/chat" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
+            curl -s $RES -X POST -H 'content-type: application/json' "$BASE/orgs/demo/agents/$AID/messages/$MID/react" -d '{"emoji":"👍"}' | grep -o '"reactions":\[[^]]*\]'; echo
             echo "history after 'reopen':"; curl -s $RES "$BASE/orgs/demo/agents/$AID/chat" | grep -o '"role":"[^"]*"' | tr '\n' ' '; echo
             echo "===== INSTALLED SKILLS ====="
             docker compose -f docker-compose.prod.yml exec -T agentos sh -lc 'echo count=$(ls -1 /root/.claude/skills 2>/dev/null | wc -l); ls -1 /root/.claude/skills 2>/dev/null | head -50'

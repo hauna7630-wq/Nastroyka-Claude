@@ -381,6 +381,24 @@ export class ControlPlane {
     return { messages, pending };
   }
 
+  // Toggle an emoji reaction on a chat message (set «Поставить реакцию»).
+  async reactToMessage(args: {
+    orgId: string;
+    agentId: string;
+    messageId: string;
+    emoji: string;
+  }): Promise<ChatMessageRecord> {
+    if (!args.emoji || args.emoji.length > 8) throw new ValidationError('недопустимая реакция');
+    const updated = await this.deps.repo.toggleChatReaction(
+      args.orgId,
+      args.agentId,
+      args.messageId,
+      args.emoji,
+    );
+    if (!updated) throw new NotFoundError(`message ${args.messageId}`);
+    return updated;
+  }
+
   // Lazy reply backfill: Postgres Run.output is the source of truth. For every
   // user message whose run has succeeded but whose reply row is missing, insert
   // it (idempotent via the (runId, role) unique key — crash- and race-safe).
