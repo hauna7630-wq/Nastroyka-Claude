@@ -12,6 +12,7 @@
 import {
   Agent,
   AgentType,
+  ChatMessageRecord,
   DeadLetterRecord,
   MemoryKind,
   MemoryRecord,
@@ -32,6 +33,7 @@ export interface PrismaClientLike {
   agentMemory: any;
   deadLetter: any;
   auditLog: any;
+  chatMessage: any;
   $transaction: <T>(fn: (tx: PrismaClientLike) => Promise<T>) => Promise<T>;
 }
 
@@ -141,13 +143,78 @@ export class PrismaRepository implements Repository {
   }
 
   async listChildRuns(parentRunId: string): Promise<Run[]> {
-    const rows = await this.db.run.findMany({ where: { parentRunId } });
+    // Deterministic order for the team-discussion feed.
+    const rows = await this.db.run.findMany({
+      where: { parentRunId },
+      orderBy: { createdAt: 'asc' },
+    });
     return rows.map((r: any) => this.mapRun(r));
   }
 
-  async listRunsByOrg(orgId: string): Promise<Run[]> {
-    const rows = await this.db.run.findMany({ where: { orgId } });
-    return rows.map((r: any) => this.mapRun(r));
+  async listRunsByOrg(
+    orgId: string,
+    opts: { agentId?: string; limit?: number } = {},
+  ): Promise<Run[]> {
+    const rows = await this.db.run.findMany({
+      where: { orgId, ...(opts.agentId ? { agentId: opts.agentId } : {}) },
+      orderBy: { createdAt: 'desc' },
+      ...(opts.limit ? { take: opts.limit } : {}),
+    });
+    // Callers expect ascending creation order.
+    return rows.reverse().map((r: any) => this.mapRun(r));
+  }
+
+  // --- Chat thread (dialog memory) ---
+  async appendChatMessage(msg: ChatMessageRecord): Promise<ChatMessageRecord> {
+    const row = await this.db.chatMessage.create({
+      data: {
+        orgId: msg.orgId,
+        agentId: msg.agentId,
+        role: msg.role,
+        text: msg.text,
+        runId: msg.runId,
+      },
+    });
+    return this.mapChatMessage(row);
+  }
+
+  async appendChatReplyIfAbsent(
+    msg: ChatMessageRecord & { runId: string },
+  ): Promise<boolean> {
+    // Idempotency via the (runId, role) unique index: a duplicate insert raises
+    // Prisma P2002, which we translate into a no-op `false` (race-safe backfill).
+    try {
+      await this.appendChatMessage(msg);
+      return true;
+    } catch (err: any) {
+      if (err?.code === 'P2002') return false;
+      throw err;
+    }
+  }
+
+  async listChatMessages(
+    orgId: string,
+    agentId: string,
+    limit = 100,
+  ): Promise<ChatMessageRecord[]> {
+    const rows = await this.db.chatMessage.findMany({
+      where: { orgId, agentId },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+    return rows.reverse().map((m: any) => this.mapChatMessage(m));
+  }
+
+  private mapChatMessage(m: any): ChatMessageRecord {
+    return {
+      id: m.id,
+      orgId: m.orgId,
+      agentId: m.agentId,
+      role: m.role,
+      text: m.text,
+      runId: m.runId ?? undefined,
+      createdAt: m.createdAt instanceof Date ? m.createdAt.getTime() : m.createdAt,
+    };
   }
 
   private mapRun(r: any): Run {

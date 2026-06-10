@@ -80,6 +80,21 @@ export interface MemoryRecord {
   createdAt?: number;
 }
 
+// Dialog memory: one persistent chat thread per (org, agent). The user message
+// carries the runId of the run answering it; the agent reply row carries the
+// same runId (uniqueness on (runId, role) makes reply backfill idempotent).
+export type ChatRole = 'user' | 'agent';
+
+export interface ChatMessageRecord {
+  id?: string;
+  orgId: string;
+  agentId: string;
+  role: ChatRole;
+  text: string;
+  runId?: string;
+  createdAt?: number;
+}
+
 // A single tool invocation requested by the model.
 export interface ToolCall {
   id: string;

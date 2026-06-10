@@ -7,6 +7,7 @@
 //   - Surface failure by throwing, so the execution plane can retry / DLQ.
 
 import { isTerminal, transition } from '../domain/runStateMachine';
+import { EMPTY_OUTPUT_ERROR, isPlaceholderText } from '../domain/errors';
 import { ModelMessage, ModelProvider } from '../ports/model';
 import { Repository } from '../ports/repository';
 import { ToolRegistry, ToolNotAllowedError } from '../tools/registry';
@@ -56,6 +57,16 @@ export class MaxIterationsError extends Error {
   constructor(public readonly maxIterations: number) {
     super(`Run exceeded max iterations (${maxIterations}) — needs human review`);
     this.name = 'MaxIterationsError';
+  }
+}
+
+// Degradation guard: the model produced no real final answer (empty text or a
+// placeholder like "…"). The run must FAIL (worker retries → DLQ), never
+// succeed with an empty output the user sees as "...".
+export class EmptyModelOutputError extends Error {
+  constructor() {
+    super(EMPTY_OUTPUT_ERROR);
+    this.name = 'EmptyModelOutputError';
   }
 }
 
@@ -138,12 +149,18 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
       tokensIn += turn.tokensIn;
       tokensOut += turn.tokensOut;
 
-      // Persist the assistant turn.
+      // Persist the assistant turn. The FIRST assistant step also carries a
+      // truncated preview of the composed prompt (system + task) — that is the
+      // debug-mode "what did the agent actually see" trace, with zero schema
+      // change (Step.input already exists; upserts only set input on create).
       await appendStep(repo, {
         runId,
         index: stepIndex++,
         role: 'assistant',
-        input: undefined,
+        input:
+          iter === 0
+            ? { system: truncate(outSystem, 2000), task: truncate(task, 2000) }
+            : undefined,
         output: text,
         latencyMs: Date.now() - started,
         tokensIn: turn.tokensIn,
@@ -157,7 +174,12 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
       });
 
       if (turn.toolCalls.length === 0) {
-        // No tools requested => final answer.
+        // No tools requested => final answer. Degradation guard first: an
+        // empty/placeholder answer is a FAILURE (retried, then DLQ'd with an
+        // honest reason), never a silent empty success.
+        if (!text.trim() || isPlaceholderText(text)) {
+          throw new EmptyModelOutputError();
+        }
         await repo.updateRunStatus(runId, transition('running', 'succeeded'), { output: text });
         await repo.audit({
           orgId: run.orgId,

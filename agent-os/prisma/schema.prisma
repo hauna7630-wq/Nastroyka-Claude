@@ -57,6 +57,11 @@ enum StepRole {
   user
 }
 
+enum ChatRole {
+  user  // human message
+  agent // the agent's reply
+}
+
 // ---------------------------------------------------------------------------
 // Tenancy
 // ---------------------------------------------------------------------------
@@ -69,6 +74,7 @@ model Org {
   agents       Agent[]
   runs         Run[]
   auditLogs    AuditLog[]
+  chatMessages ChatMessage[]
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +96,7 @@ model Agent {
   versions         PromptVersion[] @relation("AgentVersions")
   memories         AgentMemory[]
   runs             Run[]
+  chatMessages     ChatMessage[]
 
   createdAt        DateTime        @default(now())
 
@@ -126,6 +133,29 @@ model AgentMemory {
   createdAt DateTime   @default(now())
 
   @@index([agentId, kind])
+}
+
+// ---------------------------------------------------------------------------
+// Dialog memory: one persistent chat thread per (org, agent). runId links a
+// user message to the run answering it; the agent reply row carries the same
+// runId, and @@unique([runId, role]) makes reply backfill idempotent at the
+// DB level (Postgres allows many NULL runId rows under a unique index).
+// ---------------------------------------------------------------------------
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  orgId     String
+  org       Org      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  agentId   String
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  role      ChatRole
+  text      String
+  // No FK — mirrors the DeadLetter/AuditLog precedent for run references.
+  runId     String?
+  createdAt DateTime @default(now())
+
+  @@unique([runId, role])
+  @@index([orgId, agentId, createdAt])
 }
 
 // ---------------------------------------------------------------------------

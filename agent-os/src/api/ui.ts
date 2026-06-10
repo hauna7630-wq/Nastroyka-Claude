@@ -13,14 +13,15 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 <style>
   :root { --bg:#0f1419; --card:#1b232c; --fg:#e6edf3; --muted:#8b949e; --accent:#2f81f7;
           --ok:#2ea043; --run:#d29922; --fail:#f85149; --border:#30363d; }
-  * { box-sizing:border-box; } body { margin:0; font-family:-apple-system,Segoe UI,Roboto,sans-serif;
-       background:var(--bg); color:var(--fg); }
+  * { box-sizing:border-box; } html, body { height:100%; }
+  body { margin:0; font-family:-apple-system,Segoe UI,Roboto,sans-serif;
+       background:var(--bg); color:var(--fg); display:flex; flex-direction:column; overflow:hidden; }
   header { padding:16px 24px; border-bottom:1px solid var(--border); font-weight:700; display:flex; gap:18px; align-items:center; }
   nav { display:flex; gap:6px; margin-left:auto; font-weight:400; }
   nav button { background:transparent; color:var(--muted); border:1px solid transparent; border-radius:8px; padding:6px 14px; cursor:pointer; font:inherit; }
   nav button.active { background:var(--card); color:var(--fg); border-color:var(--border); }
-  main { max-width:880px; margin:0 auto; padding:24px; }
-  .tab { display:none; } .tab.active { display:block; }
+  main { flex:1; width:100%; max-width:1500px; margin:0 auto; padding:18px 22px; overflow:auto; min-height:0; }
+  .tab { display:none; } .tab.active { display:flex; flex-direction:column; flex:1; min-height:0; }
   form { display:flex; gap:8px; margin-bottom:16px; }
   input, textarea, select { background:var(--card); color:var(--fg); border:1px solid var(--border);
              border-radius:8px; padding:9px 12px; font:inherit; }
@@ -45,17 +46,18 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .tag { display:inline-block; background:#30363d; color:var(--muted); border-radius:6px; padding:1px 7px; font-size:12px; margin:0 4px 4px 0; }
   small.muted { color:var(--muted); }
   #officeWrap { margin:10px 0 4px; }
-  canvas#office { width:100%; max-width:920px; image-rendering:pixelated; border:1px solid var(--border); border-radius:10px; background:#0b0f14; display:block; }
+  canvas#office { image-rendering:pixelated; border:1px solid var(--border); border-radius:10px; background:#0b0f14; display:block; }
+  #officeWrap { display:flex; flex-direction:column; flex:1; min-height:0; }
   .office-legend { display:flex; gap:12px; flex-wrap:wrap; margin-top:6px; }
   .office-legend span { font-size:12px; color:var(--muted); }
   .office-legend i { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:4px; vertical-align:middle; }
-  .staff-wrap { display:grid; grid-template-columns:230px 1fr; gap:14px; }
-  .staff-list { display:flex; flex-direction:column; gap:6px; max-height:460px; overflow:auto; }
+  .staff-wrap { display:grid; grid-template-columns:250px 1fr; gap:14px; flex:1; min-height:0; }
+  .staff-list { display:flex; flex-direction:column; gap:6px; height:100%; overflow:auto; }
   .staff-item { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:9px 11px; cursor:pointer; }
   .staff-item:hover { border-color:var(--accent); }
   .staff-item.active { border-color:var(--accent); background:#11202f; }
   .staff-item .role { font-size:11px; color:var(--muted); margin-top:2px; }
-  .chat { display:flex; flex-direction:column; height:460px; border:1px solid var(--border); border-radius:10px; background:var(--card); }
+  .chat { display:flex; flex-direction:column; height:100%; min-height:0; border:1px solid var(--border); border-radius:10px; background:var(--card); }
   .chat-head { padding:11px 13px; border-bottom:1px solid var(--border); font-weight:600; }
   .chat-log { flex:1; overflow:auto; padding:13px; display:flex; flex-direction:column; gap:9px; }
   .msg { max-width:82%; padding:8px 11px; border-radius:10px; white-space:pre-wrap; font-size:14px; line-height:1.4; }
@@ -71,7 +73,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <header>
-  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v14 · живой</span>
+  🤖 agent-os <span style="color:#2ea043;font-size:12px;font-weight:600">v15 · полноэкранный</span>
   <nav>
     <button data-tab="coord" class="active">Координатор</button>
     <button data-tab="staff">Сотрудники</button>
@@ -221,7 +223,7 @@ try { chatThreads = JSON.parse(localStorage.getItem('agentos_chat')||'{}'); } ca
 try { chatPending = JSON.parse(localStorage.getItem('agentos_chat_pending')||'{}'); } catch(e){ chatPending={}; }
 function saveChat(){ try { localStorage.setItem('agentos_chat', JSON.stringify(chatThreads)); localStorage.setItem('agentos_chat_pending', JSON.stringify(chatPending)); } catch(e){} }
 function escapeHtml(s){ return String(s).replace(/[&<>]/g,function(c){ return c==='&'?'&amp;':c==='<'?'&lt;':'&gt;'; }); }
-function replyText(out){ if(out==null) return '(пустой ответ)'; if(typeof out==='string') return out; if(out.text) return out.text; if(out.summary) return out.summary; return JSON.stringify(out,null,2); }
+function replyText(out){ if(out==null) return '(пустой ответ)'; if(typeof out==='string') return out; if(out.report) return out.report; if(out.text) return out.text; if(out.summary) return (typeof out.summary==='string'?out.summary:JSON.stringify(out.summary)); return JSON.stringify(out,null,2); }
 async function loadStaff(){
   try { staffAgents = await api('/orgs/'+ORG+'/agents'); } catch(e){ staffAgents=[]; }
   var list=$('staffList'); list.innerHTML='';
@@ -235,13 +237,52 @@ function selectAgent(id){
   document.querySelectorAll('.staff-item').forEach(function(x){ x.classList.remove('active'); });
   var c=$('st_'+id); if(c) c.classList.add('active');
   $('chatHead').textContent = shortName(currentAgent.name)+' — '+roleOf(currentAgent);
-  $('chatInput').disabled=false; $('chatSend').disabled=false; $('chatClip').disabled=false; $('chatInput').focus(); renderChat();
+  $('chatInput').disabled=false; $('chatSend').disabled=false; $('chatClip').disabled=false; $('chatInput').focus();
+  renderChat();
+  loadChatHistory(id);
+}
+// Dialog memory: the server thread is the source of truth (survives reload /
+// other devices). localStorage stays only as an offline cache.
+function loadChatHistory(aid){
+  api('/orgs/'+ORG+'/agents/'+aid+'/chat').then(function(r){
+    if(!r || !r.messages) return;
+    var th=[];
+    r.messages.forEach(function(m){ th.push({ role: m.role==='user'?'me':'them', text:m.text, runId:m.runId }); });
+    chatThreads[aid]=th; saveChat();
+    if(currentAgent && currentAgent.id===aid) renderChat();
+    // Resume any unfinished runs with honest live status.
+    (r.pending||[]).forEach(function(p){
+      th.push({role:'them', text: p.errorHuman || 'в очереди…', pending:true, runId:p.runId});
+      var idx=th.length-1;
+      if(p.status==='failed'||p.status==='canceled'){ th[idx].pending=false; th[idx].failedRunId=p.runId; th[idx].text=p.errorHuman||'(не удалось выполнить задачу)'; }
+      else { chatPending[aid]={runId:p.runId, idx:idx}; pollRun(aid,p.runId,idx); }
+    });
+    chatThreads[aid]=th; saveChat();
+    if(currentAgent && currentAgent.id===aid) renderChat();
+  }).catch(function(){});
 }
 function renderChat(){
   if(!currentAgent) return; var log=$('chatLog'); log.innerHTML=''; var th=chatThreads[currentAgent.id]||[];
-  th.forEach(function(m){ var el=document.createElement('div'); el.className='msg '+(m.role==='me'?'me':'them');
-    el.innerHTML=(m.role==='me'?'':'<div class="who">'+escapeHtml(shortName(currentAgent.name))+'</div>')+escapeHtml(m.text); log.appendChild(el); });
+  th.forEach(function(m,i){ var el=document.createElement('div'); el.className='msg '+(m.role==='me'?'me':'them');
+    var inner=(m.role==='me'?'':'<div class="who">'+escapeHtml(shortName(currentAgent.name))+'</div>')+escapeHtml(m.text);
+    el.innerHTML=inner;
+    if(m.failedRunId){ var b=document.createElement('button'); b.textContent='Повторить'; b.className='primary'; b.style.cssText='margin-top:6px;padding:4px 10px;font-size:12px';
+      b.addEventListener('click', (function(aid,idx,rid){ return function(){ retryChat(aid,idx,rid); }; })(currentAgent.id,i,m.failedRunId)); el.appendChild(b); }
+    log.appendChild(el); });
   log.scrollTop=log.scrollHeight;
+}
+function setBubbleText(aid,idx,text){
+  if(!(chatThreads[aid]&&chatThreads[aid][idx])) return;
+  chatThreads[aid][idx].text=text;
+  if(currentAgent&&currentAgent.id===aid) renderChat();
+}
+function retryChat(aid,idx,runId){
+  if(!(chatThreads[aid]&&chatThreads[aid][idx])) return;
+  chatThreads[aid][idx]={role:'them', text:'в очереди…', pending:true, runId:runId};
+  chatPending[aid]={runId:runId, idx:idx}; saveChat();
+  if(currentAgent&&currentAgent.id===aid) renderChat();
+  api('/runs/'+runId+'/retry',{method:'POST',body:'{}'}).then(function(){ pollRun(aid,runId,idx); })
+    .catch(function(){ setReplyFailed(aid,idx,runId,'Сеть: не удалось повторить'); });
 }
 function pushMsg(agentId,role,text){ if(!chatThreads[agentId]) chatThreads[agentId]=[]; chatThreads[agentId].push({role:role,text:text}); saveChat(); if(currentAgent&&currentAgent.id===agentId) renderChat(); }
 var chatTyping={};
@@ -260,16 +301,31 @@ function setReply(aid,idx,text){
     if(shown>=full.length){ clearInterval(chatTyping[key]); delete chatTyping[key]; saveChat(); }
   },18);
 }
+// Honest failure: show the real reason + a «Повторить» button (no silent giving up).
+function setReplyFailed(aid,idx,runId,reason){
+  if(!(chatThreads[aid]&&chatThreads[aid][idx])) return;
+  if(chatPending[aid]&&chatPending[aid].idx===idx) delete chatPending[aid];
+  chatThreads[aid][idx]={role:'them', text:reason||'(не удалось выполнить задачу)', failedRunId:runId};
+  saveChat(); if(currentAgent&&currentAgent.id===aid) renderChat();
+}
+// pollRun NEVER gives up while a run is non-terminal (runs live server-side);
+// the bubble shows a live status; backoff grows but is capped.
 function pollRun(aid, runId, idx, tries){
   tries = tries||0;
-  if(tries > 120){ setReply(aid,idx,'(ответ слишком долго — попробуйте ещё раз)'); return; }
   api('/runs/'+runId).then(function(r){
     var run = r && r.run; var st = run && run.status;
-    if(st==='succeeded') setReply(aid,idx, replyText(run.output));
-    else if(st==='failed'||st==='canceled') setReply(aid,idx, '(не удалось выполнить задачу)');
-    else if(st==='paused') setReply(aid,idx, '(нужно ваше решение — достигнут лимит итераций)');
-    else setTimeout(function(){ pollRun(aid,runId,idx,tries+1); }, 2000);
-  }).catch(function(){ setTimeout(function(){ pollRun(aid,runId,idx,tries+1); }, 2500); });
+    if(st==='succeeded'){
+      setReply(aid,idx, replyText(run.output));
+      // persist the agent reply into the server thread for other devices
+      if(currentAgent && currentAgent.id===aid) loadChatHistory(aid);
+      return;
+    }
+    if(st==='failed'||st==='canceled'){ setReplyFailed(aid,idx,runId, (r&&r.errorHuman)||'Не удалось выполнить задачу.'); return; }
+    if(st==='paused'){ setBubbleText(aid,idx, (r&&r.errorHuman)||'нужно ваше решение'); }
+    else { setBubbleText(aid,idx, tries<2?'в очереди…':('думает…'+(tries>30?' ('+Math.floor(tries*3/60)+' мин)':''))); }
+    var delay=Math.min(10000, 2000 + tries*250);
+    setTimeout(function(){ pollRun(aid,runId,idx,tries+1); }, delay);
+  }).catch(function(){ setTimeout(function(){ pollRun(aid,runId,idx,tries+1); }, Math.min(10000, 2500 + tries*250)); });
 }
 // --- file attachment (Doc-1): extract text server-side, inline into the prompt
 var chatAttachment=null; // {filename, text}
@@ -306,22 +362,23 @@ $('chatForm').addEventListener('submit', async function(e){
   if(!text && !chatAttachment) return;
   if(!text) text='Изучи приложенный файл и дай краткие выводы.';
   var aid=currentAgent.id;
-  var prompt=text; var shown=text;
+  var shown=text; var attachForServer=null;
   if(chatAttachment){
-    prompt='Файл "'+chatAttachment.filename+'":\n"""\n'+chatAttachment.text+'\n"""\n\n'+text;
+    attachForServer={ filename:chatAttachment.filename, text:chatAttachment.text };
     shown=text+' 📎 '+chatAttachment.filename;
     chatAttachment=null; renderAttach(null);
   }
   pushMsg(aid,'me',shown); $('chatInput').value='';
   if(!chatThreads[aid]) chatThreads[aid]=[];
-  chatThreads[aid].push({role:'them', text:'…'}); var idx=chatThreads[aid].length-1; saveChat(); renderChat();
-  var resp = await api('/runs',{method:'POST',body:JSON.stringify({orgId:ORG,agentId:aid,input:{prompt:prompt}})});
-  if(!resp||!resp.runId){ setReply(aid,idx,'Ошибка: '+((resp&&resp.error)||'не удалось запустить')); return; }
-  chatPending[aid]={runId:resp.runId, idx:idx}; saveChat();
+  chatThreads[aid].push({role:'them', text:'в очереди…', pending:true}); var idx=chatThreads[aid].length-1; saveChat(); renderChat();
+  // Server-side chat: persists the message + assembles dialog context.
+  var body={ text:text };
+  if(attachForServer) body.attachment=attachForServer;
+  var resp = await api('/orgs/'+ORG+'/agents/'+aid+'/chat',{method:'POST',body:JSON.stringify(body)});
+  if(!resp||!resp.runId){ setReplyFailed(aid,idx,null,'Ошибка: '+((resp&&resp.error)||'не удалось запустить')); return; }
+  chatThreads[aid][idx].runId=resp.runId; chatPending[aid]={runId:resp.runId, idx:idx}; saveChat();
   pollRun(aid, resp.runId, idx);
 });
-// Resume any runs that were still pending when the page was last open.
-Object.keys(chatPending).forEach(function(aid){ var p=chatPending[aid]; if(p&&p.runId!=null&&p.idx!=null) pollRun(aid,p.runId,p.idx); });
 
 // --- Living pixel office --------------------------------------------------
 var PX=3;
@@ -571,6 +628,21 @@ function drawAgentLinks(ctx){
   }
 }
 function officeLoop(){ officeFrame++; drawOffice(); officeRAF=requestAnimationFrame(officeLoop); }
+// Full-window fit: size the canvas backing store to its container, 1:1 with CSS
+// pixels (crisp pixel-art), recomputed on every window resize.
+function fitOffice(){
+  var cv=document.getElementById('office'); if(!cv) return;
+  var host=cv.parentElement; if(!host) return;
+  var w=Math.max(640, Math.floor(host.clientWidth));
+  var rect=cv.getBoundingClientRect();
+  var avail=window.innerHeight - rect.top - 210; // room for legend + activity feed
+  var h=Math.max(360, Math.min(avail, Math.round(w/1.7)));
+  cv.width=w; cv.height=h; cv.style.width=w+'px'; cv.style.height=h+'px';
+  offW=w; offH=h;
+}
+var fitTimer=null;
+function scheduleFit(){ if(fitTimer) return; fitTimer=setTimeout(function(){ fitTimer=null; fitOffice(); }, 120); }
+window.addEventListener('resize', scheduleFit);
 // --- camera (P1): wheel zoom at cursor, drag pan, double-click reset ---
 var camZ=1, camX=0, camY=0, camDrag=null;
 (function(){
@@ -624,6 +696,7 @@ async function loadOffice(){
   try { officeAgents = await api('/orgs/'+ORG+'/agents'); } catch(e) { officeAgents=[]; }
   if(!officeAgents||!officeAgents.length) officeAgents=[];
   officeAgents.forEach(function(a){ if(!officeState[a.name]) officeState[a.name]='idle'; });
+  fitOffice();
   layoutOffice();
   var leg=document.getElementById('olegend');
   if(leg){ var seen={}, html=''; officeAgents.forEach(function(a){ if(seen[a.type])return; seen[a.type]=1; html+='<span><i style="background:'+roleColor(a.type)+'"></i>'+a.type+'</span>'; }); leg.innerHTML=html; }

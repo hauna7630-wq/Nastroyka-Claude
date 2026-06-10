@@ -9,7 +9,15 @@ import { Queue } from '../ports/queue';
 import { Observability } from '../observability/metrics';
 import { EventBus } from '../events/bus';
 import { DocumentParser } from '../ports/documents';
-import { AgentType, DeadLetterRecord, Run } from '../domain/types';
+import { humanizeRunError } from '../domain/errors';
+import { assembleChatPrompt, outputToReplyText } from '../agent/chatPrompt';
+import {
+  AgentType,
+  ChatMessageRecord,
+  DeadLetterRecord,
+  Run,
+  RunStatus,
+} from '../domain/types';
 
 export interface ControlPlaneDeps {
   repo: Repository;
@@ -70,6 +78,9 @@ export class ControlPlane {
     orgId: string;
     agentId: string;
     input: unknown;
+    // Caller-supplied id (chat persists the user message linked to the run
+    // BEFORE enqueue, so it needs the id up front). Defaults to a fresh UUID.
+    runId?: string;
   }): Promise<{ runId: string; status: string }> {
     const org = await this.deps.repo.getOrg(args.orgId);
     if (!org) throw new NotFoundError(`org ${args.orgId}`);
@@ -78,7 +89,7 @@ export class ControlPlane {
       throw new NotFoundError(`agent ${args.agentId}`);
     }
 
-    const runId = randomUUID();
+    const runId = args.runId ?? randomUUID();
     const run: Run = {
       id: runId,
       orgId: args.orgId,
@@ -116,7 +127,129 @@ export class ControlPlane {
     const run = await this.deps.repo.getRun(runId);
     if (!run) throw new NotFoundError(`run ${runId}`);
     const trace = await this.deps.observability.runTrace(runId);
-    return { run, trace };
+    // Honest error surface: a human-readable reason alongside the raw error.
+    const errorHuman = humanizeRunError(run.error, run.status);
+    return { run, trace, ...(errorHuman ? { errorHuman } : {}) };
+  }
+
+  // Operator "Повторить" for a failed run (chat retry button). Reuses the DLQ
+  // requeue path: validates the failed state, resets the attempt budget,
+  // audits, and re-enqueues the SAME run id (the chat reply backfill then
+  // attaches to the same thread message).
+  async retryRun(runId: string): Promise<{ runId: string; status: string }> {
+    return this.requeueDeadLetter(runId);
+  }
+
+  // --- Personal chat (dialog memory; one persistent thread per org+agent) ---
+
+  async sendChatMessage(args: {
+    orgId: string;
+    agentId: string;
+    text: string;
+    attachment?: { filename: string; text: string };
+  }): Promise<{ runId: string; status: string; message: ChatMessageRecord }> {
+    const { repo } = this.deps;
+    if (!args.text?.trim() && !args.attachment) {
+      throw new ValidationError('текст сообщения пуст');
+    }
+    const org = await repo.getOrg(args.orgId);
+    if (!org) throw new NotFoundError(`org ${args.orgId}`);
+    const agent = await repo.getAgent(args.agentId);
+    if (!agent || agent.orgId !== args.orgId) {
+      throw new NotFoundError(`agent ${args.agentId}`);
+    }
+
+    const text = args.text?.trim() || 'Изучи приложенный файл и дай краткие выводы.';
+
+    // Context: the persisted thread (with any completed replies backfilled
+    // first, so the prompt sees them).
+    const history = await repo.listChatMessages(args.orgId, args.agentId, 12);
+    await this.backfillChatReplies(args.orgId, args.agentId, history);
+    const fresh = await repo.listChatMessages(args.orgId, args.agentId, 12);
+
+    // The new user turn: inline the attachment for the model, keep the thread
+    // display text short.
+    const promptPart = args.attachment
+      ? 'Файл "' + args.attachment.filename + '":\n"""\n' + args.attachment.text + '\n"""\n\n' + text
+      : text;
+    const displayText = args.attachment ? text + ' 📎 ' + args.attachment.filename : text;
+
+    const runId = randomUUID();
+    const message = await repo.appendChatMessage({
+      orgId: args.orgId,
+      agentId: args.agentId,
+      role: 'user',
+      text: displayText,
+      runId,
+    });
+
+    const prompt = assembleChatPrompt(fresh, promptPart);
+    const { status } = await this.createRun({
+      orgId: args.orgId,
+      agentId: args.agentId,
+      runId,
+      input: { prompt, chat: true, message: text },
+    });
+    return { runId, status, message };
+  }
+
+  async getChatHistory(args: {
+    orgId: string;
+    agentId: string;
+    limit?: number;
+  }): Promise<{
+    messages: ChatMessageRecord[];
+    pending: Array<{ runId: string; status: RunStatus; errorHuman?: string }>;
+  }> {
+    const { repo } = this.deps;
+    const agent = await repo.getAgent(args.agentId);
+    if (!agent || agent.orgId !== args.orgId) {
+      throw new NotFoundError(`agent ${args.agentId}`);
+    }
+    const history = await repo.listChatMessages(args.orgId, args.agentId, args.limit ?? 100);
+    const pending = await this.backfillChatReplies(args.orgId, args.agentId, history);
+    const messages = await repo.listChatMessages(args.orgId, args.agentId, args.limit ?? 100);
+    return { messages, pending };
+  }
+
+  // Lazy reply backfill: Postgres Run.output is the source of truth. For every
+  // user message whose run has succeeded but whose reply row is missing, insert
+  // it (idempotent via the (runId, role) unique key — crash- and race-safe).
+  // Failed/non-terminal runs are reported as `pending` with an honest reason,
+  // NOT materialized as messages (a later retry of the same run id can still
+  // land its one reply).
+  private async backfillChatReplies(
+    orgId: string,
+    agentId: string,
+    history: ChatMessageRecord[],
+  ): Promise<Array<{ runId: string; status: RunStatus; errorHuman?: string }>> {
+    const { repo } = this.deps;
+    const replied = new Set(
+      history.filter((m) => m.role === 'agent' && m.runId).map((m) => m.runId),
+    );
+    const pending: Array<{ runId: string; status: RunStatus; errorHuman?: string }> = [];
+    for (const m of history) {
+      if (m.role !== 'user' || !m.runId || replied.has(m.runId)) continue;
+      const run = await repo.getRun(m.runId);
+      if (!run) continue;
+      if (run.status === 'succeeded') {
+        await repo.appendChatReplyIfAbsent({
+          orgId,
+          agentId,
+          role: 'agent',
+          text: outputToReplyText(run.output),
+          runId: m.runId,
+        });
+        replied.add(m.runId);
+      } else {
+        pending.push({
+          runId: m.runId,
+          status: run.status,
+          errorHuman: humanizeRunError(run.error, run.status),
+        });
+      }
+    }
+    return pending;
   }
 
   // --- Observability ---

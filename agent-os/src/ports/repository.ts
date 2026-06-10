@@ -6,6 +6,7 @@
 import {
   Agent,
   AgentType,
+  ChatMessageRecord,
   DeadLetterRecord,
   MemoryKind,
   MemoryRecord,
@@ -33,14 +34,22 @@ export interface Repository {
   }): Promise<Agent>;
   listAgents(orgId: string): Promise<Agent[]>;
 
+  // --- Chat thread (dialog memory; one thread per org+agent) ---
+  appendChatMessage(msg: ChatMessageRecord): Promise<ChatMessageRecord>;
+  // Idempotent agent-reply insert keyed by (runId, role='agent'): returns false
+  // when the reply already exists (race-safe backfill).
+  appendChatReplyIfAbsent(msg: ChatMessageRecord & { runId: string }): Promise<boolean>;
+  // Ascending by createdAt; returns the last `limit` messages (default 100).
+  listChatMessages(orgId: string, agentId: string, limit?: number): Promise<ChatMessageRecord[]>;
+
   // --- Runs ---
   getRun(runId: string): Promise<Run | null>;
   // Idempotent by run id: if a run with this id already exists it is returned
   // unchanged (so orchestration retries don't reset completed child runs).
   createRun(run: Run): Promise<Run>;
   listChildRuns(parentRunId: string): Promise<Run[]>;
-  // Control-plane reads (observability).
-  listRunsByOrg(orgId: string): Promise<Run[]>;
+  // Control-plane reads (observability). Optional filter by agent + cap.
+  listRunsByOrg(orgId: string, opts?: { agentId?: string; limit?: number }): Promise<Run[]>;
   updateRunStatus(runId: string, status: RunStatus, patch?: Partial<Run>): Promise<void>;
   incrementRunAttempts(runId: string): Promise<number>;
 

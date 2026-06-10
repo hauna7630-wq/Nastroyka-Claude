@@ -74,6 +74,30 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
         if (seg[2] === 'metrics') return json(res, 200, await cp.runMetrics(runId));
         return json(res, 200, await cp.getRun(runId));
       }
+      // POST /runs/:id/retry — re-enqueue a failed run (chat «Повторить»)
+      if (method === 'POST' && seg[0] === 'runs' && seg[1] && seg[2] === 'retry') {
+        return json(res, 200, await cp.retryRun(seg[1]));
+      }
+      // Personal chat thread (dialog memory). NOTE: registered BEFORE the
+      // agents-list route, which matches on seg[2] without a length check.
+      if (seg[0] === 'orgs' && seg[2] === 'agents' && seg[3] && seg[4] === 'chat') {
+        if (method === 'GET') {
+          return json(res, 200, await cp.getChatHistory({ orgId: seg[1], agentId: seg[3] }));
+        }
+        if (method === 'POST') {
+          const body = JSON.parse((await readBody(req)) || '{}');
+          return json(
+            res,
+            201,
+            await cp.sendChatMessage({
+              orgId: seg[1],
+              agentId: seg[3],
+              text: body.text,
+              attachment: body.attachment,
+            }),
+          );
+        }
+      }
       // POST /agents  (Agent Factory)
       if (method === 'POST' && path === '/agents') {
         const body = JSON.parse((await readBody(req)) || '{}');

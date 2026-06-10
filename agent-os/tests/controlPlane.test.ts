@@ -212,6 +212,28 @@ describe('HTTP server adapter (smoke)', () => {
       const dlq = await fetch(`${base}/dlq`);
       expect(dlq.status).toBe(200);
       expect(await dlq.json()).toEqual([]);
+
+      // Chat thread routes (must beat the /orgs/:id/agents list route).
+      const chatGet = await fetch(`${base}/orgs/org_1/agents/agent_1/chat`);
+      expect(chatGet.status).toBe(200);
+      expect(await chatGet.json()).toMatchObject({ messages: [], pending: [] });
+
+      const chatPost = await fetch(`${base}/orgs/org_1/agents/agent_1/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'привет' }),
+      });
+      expect(chatPost.status).toBe(201);
+      const chatBody = (await chatPost.json()) as { runId?: string };
+      expect(chatBody.runId).toBeTruthy();
+
+      // Unknown agent in the chat route → 404 (proves the route ordering fix).
+      const chatMissing = await fetch(`${base}/orgs/org_1/agents/nope/chat`);
+      expect(chatMissing.status).toBe(404);
+
+      // Retry on a non-failed run → 400 (validation).
+      const retry = await fetch(`${base}/runs/whatever/retry`, { method: 'POST', body: '{}' });
+      expect([400, 404]).toContain(retry.status);
     } finally {
       await new Promise<void>((r) => server.close(() => r()));
     }
