@@ -14,7 +14,7 @@ import { codeExecTool } from './tools/codeExec';
 import { webSearchTool } from './tools/webSearch';
 import { readDocumentTool } from './tools/document';
 import { TavilySearchProvider } from './adapters/search.tavily';
-import { PlainTextDocumentParser } from './adapters/documents.text';
+import { RichDocumentParser } from './adapters/documents.rich';
 import { WorkerDeps } from './worker/worker';
 import { PrismaRepository, PrismaClientLike } from './adapters/repo.prisma';
 import { BullMQQueue } from './adapters/queue.bullmq';
@@ -80,7 +80,8 @@ export function buildApp(): App {
   const sandbox = new SubprocessSandbox();
   // PRD §3 integration tools.
   const search = config.tavilyApiKey ? new TavilySearchProvider({ apiKey: config.tavilyApiKey }) : undefined;
-  const documents = new PlainTextDocumentParser();
+  // Doc-1 file handling: docx/pdf/xlsx + text/csv/json, honest actionable errors.
+  const documents = new RichDocumentParser();
   // Mask PII before prompts leave for external LLMs.
   const pii = new RegexPiiMasker();
   // F4: cross-process event bus (Redis pub/sub) + observability + control-plane API.
