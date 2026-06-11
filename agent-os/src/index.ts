@@ -14,6 +14,7 @@ import { codeExecTool } from './tools/codeExec';
 import { webSearchTool } from './tools/webSearch';
 import { readDocumentTool } from './tools/document';
 import { TavilySearchProvider } from './adapters/search.tavily';
+import { PerplexitySearchProvider } from './adapters/search.perplexity';
 import { RichDocumentParser } from './adapters/documents.rich';
 import { WorkerDeps } from './worker/worker';
 import { PrismaRepository, PrismaClientLike } from './adapters/repo.prisma';
@@ -78,8 +79,15 @@ export function buildApp(): App {
   // F3: isolate for code_exec (Linux namespaces + rlimits). Swap for
   // DockerSandbox where a container runtime + images are available.
   const sandbox = new SubprocessSandbox();
-  // PRD §3 integration tools.
-  const search = config.tavilyApiKey ? new TavilySearchProvider({ apiKey: config.tavilyApiKey }) : undefined;
+  // PRD §3 integration tools. Provider cascade: Perplexity (preferred) → Tavily.
+  // Used by the agent-os web_search tool on tool-capable paths (API path); the
+  // subscription/CLI path uses the CLI's built-in WebSearch instead (see runtime
+  // capabilities + model.claudeSubscription).
+  const search = config.perplexityApiKey
+    ? new PerplexitySearchProvider({ apiKey: config.perplexityApiKey })
+    : config.tavilyApiKey
+      ? new TavilySearchProvider({ apiKey: config.tavilyApiKey })
+      : undefined;
   // Doc-1 file handling: docx/pdf/xlsx + text/csv/json, honest actionable errors.
   const documents = new RichDocumentParser();
   // Mask PII before prompts leave for external LLMs.

@@ -111,6 +111,9 @@ jobs:
             CRID=$(curl -s $RES -X POST -H 'content-type: application/json' "$BASE/orgs/demo/agents/$AID/chat" -d '{"text":"Ответь одним словом: тест"}' | grep -o '"runId":"[^"]*"' | head -1 | cut -d'"' -f4)
             echo "chat runId=$CRID"
             for i in $(seq 1 60); do sleep 3; S=$(curl -s $RES "$BASE/runs/$CRID" | grep -o '"status":"[^"]*"' | head -1); echo -n " $S"; echo "$S" | grep -q succeeded && break; echo "$S" | grep -qE 'failed|canceled' && break; done; echo
+            echo "chat reply (should be a direct answer, NOT 'Принято'):"; curl -s $RES "$BASE/runs/$CRID" | grep -o '"output":"[^"]*"' | head -1; echo
+            echo "===== WEB SEARCH WIRING ====="
+            docker compose -f docker-compose.prod.yml exec -T agentos sh -lc 'echo "CLAUDE_CLI_WEB_SEARCH=$CLAUDE_CLI_WEB_SEARCH"; echo "PERPLEXITY set: $([ -n \"$PERPLEXITY_API_KEY\" ] && echo yes || echo no); TAVILY set: $([ -n \"$TAVILY_API_KEY\" ] && echo yes || echo no)"'
             echo "===== REACTIONS (toggle 👍 on first message) ====="
             MID=$(curl -s $RES "$BASE/orgs/demo/agents/$AID/chat" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4)
             curl -s $RES -X POST -H 'content-type: application/json' "$BASE/orgs/demo/agents/$AID/messages/$MID/react" -d '{"emoji":"👍"}' | grep -o '"reactions":\[[^]]*\]'; echo

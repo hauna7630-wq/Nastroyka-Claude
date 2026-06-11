@@ -6,8 +6,12 @@ function msg(role: 'user' | 'agent', text: string, t: number): ChatMessageRecord
 }
 
 describe('assembleChatPrompt', () => {
-  it('passes the new message through unchanged when there is no history', () => {
-    expect(assembleChatPrompt([], 'привет')).toBe('привет');
+  it('frames a no-history message as a live chat (direct answer, no "Принято")', () => {
+    const p = assembleChatPrompt([], 'Ответь одним словом: тест');
+    expect(p).toContain('Сообщение пользователя:\nОтветь одним словом: тест');
+    // The directive that prevents the "task received → Принято" coordinator reply.
+    expect(p).toContain('НЕ говори «Принято»');
+    expect(p).toMatch(/ЖИВОГО личного чата/);
   });
 
   it('renders dialog context oldest→newest with speakers and the new message', () => {

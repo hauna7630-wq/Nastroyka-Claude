@@ -16,6 +16,9 @@ export interface Config {
   toolCpuMs: number;
   toolMemMb: number;
   tavilyApiKey: string;
+  // Optional Perplexity key — preferred web-search provider for the agent-os
+  // web_search tool (API/tool path) when set; falls back to Tavily.
+  perplexityApiKey: string;
   // HTTP server.
   port: number;
 }
@@ -40,6 +43,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     toolCpuMs: Number(env.TOOL_CPU_MS ?? 5000),
     toolMemMb: Number(env.TOOL_MEM_MB ?? 256),
     tavilyApiKey: env.TAVILY_API_KEY ?? '',
+    perplexityApiKey: env.PERPLEXITY_API_KEY ?? '',
     port: Number(env.PORT ?? 3000),
   };
 }

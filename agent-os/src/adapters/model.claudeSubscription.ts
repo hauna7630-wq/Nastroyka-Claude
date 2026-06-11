@@ -185,6 +185,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     messages: ModelMessage[];
     tools: ToolSchema[];
     onText?: (delta: string) => void;
+    capabilities?: { webSearch?: boolean };
   }): Promise<ModelTurn> {
     // Streaming is strictly best-effort: only attempted when a live-token sink
     // is supplied, and ANY failure falls back to the proven buffered path so a
@@ -199,8 +200,22 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     return this.completeBuffered(args);
   }
 
+  // Allow the CLI's built-in WebSearch/WebFetch tools, but only for agents whose
+  // allowlist includes web_search (capabilities.webSearch). Gated by env so it
+  // can be disabled fleet-wide without a redeploy: CLAUDE_CLI_WEB_SEARCH=0.
+  private webSearchArgs(capabilities?: { webSearch?: boolean }): string[] {
+    if (!capabilities?.webSearch) return [];
+    if (process.env.CLAUDE_CLI_WEB_SEARCH === '0') return [];
+    return ['--allowedTools', 'WebSearch', '--allowedTools', 'WebFetch'];
+  }
+
   private async completeStreaming(
-    args: { system: string; messages: ModelMessage[]; tools: ToolSchema[] },
+    args: {
+      system: string;
+      messages: ModelMessage[];
+      tools: ToolSchema[];
+      capabilities?: { webSearch?: boolean };
+    },
     onText: (delta: string) => void,
   ): Promise<ModelTurn> {
     const bin = this.opts.bin ?? 'claude';
@@ -214,6 +229,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
       '--include-partial-messages',
       '--max-turns',
       '8',
+      ...this.webSearchArgs(args.capabilities),
     ];
     if (this.opts.model) cliArgs.push('--model', this.opts.model);
     if (args.system) cliArgs.push('--append-system-prompt', args.system);
@@ -232,13 +248,15 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     system: string;
     messages: ModelMessage[];
     tools: ToolSchema[];
+    capabilities?: { webSearch?: boolean };
   }): Promise<ModelTurn> {
     const bin = this.opts.bin ?? 'claude';
     const prompt = flatten(args.system, args.messages);
     // Allow several turns so the agent can use the CLI's built-in tools (e.g.
     // server-side web search, which routes via the same relay) and still reach a
     // final answer — with --max-turns 1 any tool_use ends in error_max_turns.
-    const cliArgs = ['-p', prompt, '--output-format', 'json', '--max-turns', '8'];
+    const cliArgs = ['-p', prompt, '--output-format', 'json', '--max-turns', '8',
+      ...this.webSearchArgs(args.capabilities)];
     if (this.opts.model) cliArgs.push('--model', this.opts.model);
     if (args.system) cliArgs.push('--append-system-prompt', args.system);
 

@@ -22,13 +22,23 @@ const DEFAULTS: Required<ChatPromptOptions> = {
   maxTotalChars: 4000,
 };
 
+// The chat framing is always applied — even with no history — so that
+// task-oriented agents (e.g. the orchestrator) behave as a direct conversational
+// partner in the personal chat and don't fall back to a "task received → Принято."
+// coordinator reply. The directive insists on answering the message literally.
+const CHAT_GUIDE = [
+  'Ты сейчас в режиме ЖИВОГО личного чата с пользователем — отвечай как собеседник,',
+  'напрямую и по существу на его сообщение. НЕ подтверждай получение, НЕ говори «Принято»,',
+  'НЕ превращай сообщение в задачу для делегирования — сразу давай содержательный ответ.',
+  'Если просят ответить кратко/одним словом/в заданном формате — выполни это буквально.',
+].join('\n');
+
 export function assembleChatPrompt(
   history: ChatMessageRecord[],
   newText: string,
   opts: ChatPromptOptions = {},
 ): string {
   const cfg = { ...DEFAULTS, ...opts };
-  if (history.length === 0) return newText;
 
   // Newest messages win the budget; render oldest-first afterwards.
   const recent = history.slice(-cfg.maxMessages);
@@ -45,17 +55,23 @@ export function assembleChatPrompt(
     total += line.length;
     lines.unshift(line);
   }
-  if (lines.length === 0) return newText;
+
+  if (lines.length === 0) {
+    // No prior context — still frame it as a live chat so the answer is direct.
+    return [CHAT_GUIDE, '', 'Сообщение пользователя:', newText].join('\n');
+  }
 
   return [
-    'Это продолжение диалога с пользователем. Последние сообщения переписки (старые выше, новые ниже):',
+    CHAT_GUIDE,
+    '',
+    'Контекст переписки (старые выше, новые ниже):',
     '',
     lines.join('\n'),
     '',
     'Новое сообщение пользователя:',
     newText,
     '',
-    'Ответь только на новое сообщение, учитывая контекст переписки. Не пересказывай историю.',
+    'Ответь только на новое сообщение, учитывая контекст. Не пересказывай историю.',
   ].join('\n');
 }
 
