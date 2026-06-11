@@ -83,6 +83,9 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .msg.me { align-self:flex-end; background:var(--accent); color:#fff; }
   .msg.them { align-self:flex-start; background:#0d1117; border:1px solid var(--border); }
   .msg .who { font-size:11px; color:var(--muted); margin-bottom:3px; }
+  .msg .mh { font-weight:700; font-size:14.5px; }
+  .msg a { color:#58a6ff; text-decoration:underline; word-break:break-all; }
+  .msg.me a { color:#e8f0ff; }
   .msg .quote { font-size:11.5px; opacity:.82; border-left:2px solid rgba(255,255,255,.5); padding:1px 0 1px 7px; margin-bottom:5px; white-space:pre-wrap; }
   .msg.them .quote { border-left-color:#4a5560; color:var(--muted); }
   .msg .rbtn { display:none; position:absolute; top:-9px; background:#1b232c; color:var(--muted); border:1px solid var(--border); border-radius:6px; font-size:11px; padding:1px 7px; cursor:pointer; }
@@ -139,7 +142,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v28 · поиск+стрим</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v29 · markdown</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -451,6 +454,16 @@ try { chatThreads = JSON.parse(localStorage.getItem('agentos_chat')||'{}'); } ca
 try { chatPending = JSON.parse(localStorage.getItem('agentos_chat_pending')||'{}'); } catch(e){ chatPending={}; }
 function saveChat(){ try { localStorage.setItem('agentos_chat', JSON.stringify(chatThreads)); localStorage.setItem('agentos_chat_pending', JSON.stringify(chatPending)); } catch(e){} }
 function escapeHtml(s){ return String(s).replace(/[&<>]/g,function(c){ return c==='&'?'&amp;':c==='<'?'&lt;':'&gt;'; }); }
+// Lightweight, XSS-safe markdown for chat bubbles: escape FIRST, then re-introduce
+// a small, fixed set of inline HTML. Handles **bold**, #-headers, "- " bullets and
+// [label](http…) links (URL allows one nesting level of () so wiki links survive).
+// .msg keeps white-space:pre-wrap, so newlines are preserved without <br>.
+function mdLite(t){ var s=escapeHtml(String(t==null?'':t));
+  s=s.replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/(?:[^\\s()]|\\([^\\s()]*\\))*)\\)/g, function(m,lab,url){ return '<a href="'+url+'" target="_blank" rel="noopener noreferrer">'+lab+'</a>'; });
+  s=s.replace(/\\*\\*([^*]+)\\*\\*/g, '<strong>$1</strong>');
+  s=s.replace(/^#{1,6}\\s+(.+)$/gm, '<span class="mh">$1</span>');
+  s=s.replace(/^[-*]\\s+/gm, '• ');
+  return s; }
 function replyText(out){ if(out==null) return '(пустой ответ)'; if(typeof out==='string') return out; if(out.report) return out.report; if(out.text) return out.text; if(out.summary) return (typeof out.summary==='string'?out.summary:JSON.stringify(out.summary)); return JSON.stringify(out,null,2); }
 async function loadStaff(){
   try { staffAgents = await api('/orgs/'+ORG+'/agents'); } catch(e){ staffAgents=[]; }
@@ -553,7 +566,7 @@ function renderChat(){
     var parts=splitQuote(m.text);
     var inner=(m.role==='me'?'':'<div class="who">'+escapeHtml(shortName(currentAgent.name))+'</div>');
     if(parts.quote) inner+='<div class="quote">'+escapeHtml(parts.quote)+'</div>';
-    inner+=escapeHtml(parts.body);
+    inner+=mdLite(parts.body);
     el.innerHTML=inner;
     if(!m.pending){ var rb=document.createElement('button'); rb.className='rbtn reply'; rb.textContent='↩ ответить';
       rb.addEventListener('click', (function(msg){ return function(){ setReplyTarget(msg); }; })(m)); el.appendChild(rb); }
