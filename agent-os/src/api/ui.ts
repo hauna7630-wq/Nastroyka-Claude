@@ -302,7 +302,8 @@ function renderTeam(t){
     t.discussion.forEach(function(d){
       var el=document.createElement('div'); el.className='dmsg '+d.kind;
       var label=d.kind==='review'?' · ревью':d.kind==='revision'?' · доработка':'';
-      el.innerHTML='<span class="dwho" style="color:'+roleColor(d.agentType)+'">'+escapeHtml(shortName(d.author))+label+'</span>'+escapeHtml(d.text.slice(0,600));
+      var ic=d.kind==='review'?'🔍':d.kind==='revision'?'♻️':roleIcon(d.agentType);
+      el.innerHTML='<span class="dwho" style="color:'+roleColor(d.agentType)+'">'+ic+' '+escapeHtml(shortName(d.author))+label+'</span>'+escapeHtml(d.text.slice(0,600));
       feed.appendChild(el); });
     feed.scrollTop=feed.scrollHeight;
   }
@@ -334,7 +335,8 @@ $('f').addEventListener('submit', async (e) => {
   es = new EventSource('/runs/'+runId+'/events');
   es.addEventListener('orchestration.planned',(ev)=>{ const d=JSON.parse(ev.data).data; $('graphWrap').style.display='block';
     const g=$('graph'); g.innerHTML=''; d.subtasks.forEach((s,i)=>{ if(i>0){const a=document.createElement('div');a.className='arrow';a.textContent='→';g.appendChild(a);} g.appendChild(node(s)); });
-    $('cstatus').textContent='Команда собрана: '+d.subtasks.map(s=>s.agentType).join(' → '); });
+    $('cstatus').textContent='Команда собрана: '+d.subtasks.map(s=>s.agentType).join(' → ');
+    pushOfficeCard('🧩','План готов',d.subtasks.length+' подзадач · '+d.subtasks.map(s=>roleIcon(s.agentType)).join(''),'#d29922'); });
   es.addEventListener('orchestration.subtask',(ev)=>{ const d=JSON.parse(ev.data).data; setStatus(d.subtaskId,d.status,d.agentName); officeSet(d.agentName,d.agentType,d.status); });
   es.addEventListener('run.succeeded', async (ev)=>{ const e2=JSON.parse(ev.data); if(e2.runId!==runId)return;
     const r=await api('/runs/'+runId); $('resultWrap').style.display='block'; $('result').textContent=render(r.run&&r.run.output);
@@ -695,10 +697,23 @@ var PX=3;
 var SPR=["..HHHH..",".HHHHHH.",".HSSSSH.",".SSSSSS.",".SeSSeS.",".SSSSSS.",".CCCCCC.","CCCCCCCC","CCCCCCCC","CC.CC.CC",".PP..PP."];
 var TYPE_COLOR={orchestrator:'#d29922',analyst:'#2ea043',researcher:'#2f81f7',writer:'#a371f7',coder:'#f0883e',reviewer:'#db61a2'};
 var DEPT={orchestrator:'Управление',analyst:'Аналитика',researcher:'Исследования',writer:'Контент',coder:'Инженерия',reviewer:'QA'};
+// Per-role glyphs — used as feed icons and on office event-cards (P2 visual).
+var ROLE_ICON={orchestrator:'🧭',analyst:'📊',researcher:'🔎',writer:'✍️',coder:'💻',reviewer:'✅'};
+function roleIcon(t){ return ROLE_ICON[t]||'👤'; }
+// Status → glyph for the activity timeline / office event-cards.
+var STATUS_ICON={queued:'🕓',running:'⚙️',succeeded:'✅',failed:'⚠️',planned:'🧩',review:'🔍',revision:'♻️'};
+function statusIcon(s){ return STATUS_ICON[s]||'•'; }
 var SAY_WORK={researcher:['Ищу источники…','Собираю данные…'],analyst:['Анализирую…','Считаю варианты…'],writer:['Пишу черновик…','Редактирую текст…'],coder:['Пишу код…','Гоняю тесты…'],reviewer:['Проверяю…','Ищу баги…'],orchestrator:['Распределяю задачи','Собираю команду'],_def:['Работаю…']};
 var SMALLTALK=['Кофе? ☕','Как дела?','Глянь мою задачу','Почти готово','Нужна помощь?','Класс! 👍','Я на созвоне','Передаю дальше','Согласен','Сделаю'];
 var officeAgents=[]; var officeState={}; var officePos={}; var officeHome={}; var officeTgt={}; var officeDwell={}; var officeBubble={}; var officeMeetUntil={};
 var officeFrame=0; var officeRAF=null; var offW=760, offH=440; var officeSim=null;
+// Office event-cards (P2 visual): a live stack in the top-right HUD showing the
+// last few things that happened — icon + who + what — fading out over time.
+var officeCards=[];
+function pushOfficeCard(icon,title,sub,color){
+  officeCards.push({icon:icon, title:String(title||''), sub:String(sub||''), color:color||'#8b949e', born:officeFrame, until:officeFrame+420});
+  if(officeCards.length>4) officeCards.shift();
+}
 function roleColor(t){ return TYPE_COLOR[t]||'#8b949e'; }
 function shortName(n){ return n.split(' — ')[0]; }
 function roleOf(a){ return a.name.indexOf(' — ')>=0 ? a.name.split(' — ')[1] : a.type; }
@@ -1001,6 +1016,10 @@ function drawOffice(){
   for(var dy=-1;dy<=1;dy++){ for(var dx=-1;dx<=1;dx++){ var rgx=MEET_TILE[0]+dx, rgy=MEET_TILE[1]+dy; if(rgx<0||rgy<0||rgx>=GRIDW||rgy>=GRIDH)continue;
     isoTileDiamond(ctx,rgx,rgy); ctx.globalAlpha=0.5; ctx.fillStyle='#2f4d80'; ctx.fill(); ctx.globalAlpha=1; } }
   var mg=groundAt(MEET_TILE[0],MEET_TILE[1]); isoBox(ctx,mg.x,mg.y-2,50,25,11,'#7a5a32','#5d4427','#49351f');
+  // room nameplate over the meeting rug
+  ctx.save(); ctx.font='bold 10px system-ui,Segoe UI,sans-serif'; ctx.textAlign='center';
+  var rl='ПЕРЕГОВОРНАЯ'; var rw=ctx.measureText(rl).width+14; ctx.fillStyle='rgba(13,17,23,.62)';
+  roundRect(ctx,mg.x-rw/2,mg.y-44,rw,15,5); ctx.fill(); ctx.fillStyle='#cfe0ff'; ctx.fillText(rl,mg.x,mg.y-33); ctx.restore();
   // static decor at back edges (low depth, drawn before people)
   isoPlant(ctx,1,0); isoPlant(ctx,0,1); isoCooler(ctx,2,0); isoPrinter(ctx,0,2); isoCoffee(ctx,3,0);
   // people + desks, depth-sorted (back to front)
@@ -1015,6 +1034,25 @@ function drawOffice(){
   ctx.fillStyle='rgba(139,148,158,.85)'; ctx.font='10px system-ui,Segoe UI,sans-serif'; ctx.textAlign='right';
   ctx.fillText(camZ===1&&camX===0&&camY===0 ? 'колесо — зум · мышь — двигать' : 'двойной клик — сброс камеры (' + Math.round(camZ*100) + '%)', W-10, H-8);
   ctx.textAlign='left';
+  drawOfficeCards(ctx,W);
+}
+// Live event-cards in the top-right HUD (fixed, above the camera transform).
+function drawOfficeCards(ctx,W){
+  var live=[]; for(var i=0;i<officeCards.length;i++){ if(officeFrame<officeCards[i].until) live.push(officeCards[i]); }
+  officeCards=live;
+  var cw=196, ch=38, gap=7, x=W-cw-12, y=36;
+  for(var j=0;j<live.length;j++){
+    var c=live[j]; var age=officeFrame-c.born; var fade=Math.min(1,age/12); var left=c.until-officeFrame;
+    var a=fade*(left<40?Math.max(0,left/40):1);
+    ctx.save(); ctx.globalAlpha=a;
+    ctx.fillStyle='rgba(18,24,31,.94)'; roundRect(ctx,x,y,cw,ch,8); ctx.fill();
+    ctx.fillStyle=c.color; roundRect(ctx,x,y,3.5,ch,3); ctx.fill();
+    ctx.font='15px system-ui,Segoe UI,sans-serif'; ctx.textAlign='left'; ctx.fillStyle='#fff'; ctx.fillText(c.icon,x+11,y+24);
+    ctx.font='bold 11.5px system-ui,Segoe UI,sans-serif'; ctx.fillStyle='#eef2f6'; ctx.fillText(c.title.slice(0,22),x+34,y+15);
+    ctx.font='10.5px system-ui,Segoe UI,sans-serif'; ctx.fillStyle='#9aa4ad'; ctx.fillText(c.sub.slice(0,26),x+34,y+29);
+    ctx.restore();
+    y+=ch+gap;
+  }
 }
 function agentGround(a){ var p=officePos[a.name]||officeHome[a.name]; if(!p) return null; var g=groundAt(p.gx,p.gy); return {x:g.x, y:g.y-42}; }
 function drawAgentLinks(ctx){
@@ -1102,11 +1140,11 @@ function officeSet(name,type,status){
   var a=matchAgent(name,type); if(!a) return;
   var st = status==='running'?'working' : status==='succeeded'?'done' : status==='failed'?'failed' : 'idle';
   officeState[a.name]=st;
-  if(st==='working'){ setBubble(a.name, pick(SAY_WORK[a.type]||SAY_WORK._def), 240); pushActivity('<b>'+shortName(a.name)+'</b> ('+roleOf(a)+') взял задачу в работу'); }
-  else if(st==='done'){ setBubble(a.name,'Готово ✓',180); pushActivity('<b>'+shortName(a.name)+'</b> завершил подзадачу ✓'); }
-  else if(st==='failed'){ setBubble(a.name,'Ошибка!',180); pushActivity('<b>'+shortName(a.name)+'</b> — ошибка в задаче'); }
+  if(st==='working'){ setBubble(a.name, pick(SAY_WORK[a.type]||SAY_WORK._def), 240); pushActivity(roleIcon(a.type)+' <b>'+shortName(a.name)+'</b> ('+roleOf(a)+') взял задачу в работу'); pushOfficeCard(roleIcon(a.type),shortName(a.name),'в работе · '+roleOf(a),roleColor(a.type)); }
+  else if(st==='done'){ setBubble(a.name,'Готово ✓',180); pushActivity('✅ <b>'+shortName(a.name)+'</b> завершил подзадачу'); pushOfficeCard('✅',shortName(a.name),'готово · '+roleOf(a),'#2ea043'); }
+  else if(st==='failed'){ setBubble(a.name,'Ошибка!',180); pushActivity('⚠️ <b>'+shortName(a.name)+'</b> — ошибка в задаче'); pushOfficeCard('⚠️',shortName(a.name),'ошибка · '+roleOf(a),'#f85149'); }
 }
-function officeResetIdle(){ officeAgents.forEach(function(a){ officeState[a.name]='idle'; }); pushActivity('— Координатор получил новую задачу —'); }
+function officeResetIdle(){ officeAgents.forEach(function(a){ officeState[a.name]='idle'; }); officeCards=[]; pushActivity('🧭 — Координатор получил новую задачу —'); pushOfficeCard('🧭','Координатор','новая задача принята','#d29922'); }
 function startMeeting(){
   var idle=officeAgents.filter(function(a){ return (officeState[a.name]||'idle')==='idle'; });
   if(idle.length<2) return; idle.sort(function(){return Math.random()-0.5;}); var crew=idle.slice(0,Math.min(3,idle.length));
