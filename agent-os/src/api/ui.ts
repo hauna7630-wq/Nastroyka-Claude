@@ -984,6 +984,11 @@ function drawStation(ctx,a){
   var b=officeBubble[nm];
   if(b && officeFrame<b.until){ ctx.font='12.5px system-ui,Segoe UI,sans-serif'; var w=ctx.measureText(b.text).width+18;
     var bx=Math.round(pg.x-w/2), by=Math.round(pg.y-96);
+    // collision avoidance: raise the bubble until it no longer overlaps one drawn
+    // earlier this frame (prevents bubbles stacking when agents cluster).
+    for(var bi=0; bi<bubbleRects.length; bi++){ var r=bubbleRects[bi];
+      if(bx < r.x+r.w && bx+w > r.x && by < r.y+r.h+4 && by+26 > r.y-4){ by=r.y-30; bi=-1; } }
+    bubbleRects.push({x:bx,y:by,w:w,h:26});
     ctx.fillStyle='#f7fafc'; roundRect(ctx,bx,by,w,22,8); ctx.fill();
     ctx.fillStyle='#0d1117'; ctx.textAlign='center'; ctx.fillText(b.text,pg.x,by+15);
     ctx.fillStyle='#f7fafc'; ctx.beginPath(); ctx.moveTo(pg.x-4,by+22); ctx.lineTo(pg.x+5,by+22); ctx.lineTo(pg.x,by+27); ctx.fill(); }
@@ -1017,8 +1022,10 @@ function isoPlant(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,9,5,9,
 function isoCooler(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,7,4,16,'#e2eaf0','#c4d2dc','#aebecb'); ctx.fillStyle='#bfe3f5'; ctx.fillRect(g.x-6,g.y-31,12,11); ctx.fillStyle='#5fbfe0'; ctx.fillRect(g.x-5,g.y-30,10,8); }
 function isoPrinter(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,11,6,11,'#cdd3da','#aab2bb','#9098a1'); ctx.fillStyle='#2a323b'; ctx.fillRect(g.x-7,g.y-15,14,3); ctx.fillStyle='#eef2f5'; ctx.fillRect(g.x-5,g.y-13,10,4); }
 function isoCoffee(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,8,5,16,'#2a323b','#1e242b','#171c22'); ctx.fillStyle='#d29922'; ctx.fillRect(g.x-4,g.y-22,8,3); ctx.fillStyle='#7a4a2a'; ctx.fillRect(g.x-3,g.y-12,6,4); }
+var bubbleRects=[];
 function drawOffice(){
   var cv=document.getElementById('office'); if(!cv)return; var ctx=cv.getContext('2d'); var W=cv.width,H=cv.height; offW=W; offH=H;
+  bubbleRects=[]; // per-frame bubble collision tracking (raise overlapping bubbles)
   ctx.fillStyle='#0b0f14'; ctx.fillRect(0,0,W,H);
   ISO_OX=Math.round(W/2 - (GRIDW-GRIDH)*ISO_TW2/2); ISO_OY=ISO_OY_BASE;
   var n=officeAgents.length;
@@ -1175,7 +1182,8 @@ function startMeeting(){
   var dur=420; var slots=[[MEET_TILE[0]-1,MEET_TILE[1]],[MEET_TILE[0]+1,MEET_TILE[1]],[MEET_TILE[0],MEET_TILE[1]+1]];
   crew.forEach(function(a,i){ var s=slots[i%slots.length]; officeTgt[a.name]={gx:s[0],gy:s[1]}; officeDwell[a.name]=dur; officeMeetUntil[a.name]=officeFrame+dur; });
   pushActivity('☕ <b>'+crew.map(function(a){return shortName(a.name);}).join(', ')+'</b> собрались обсудить задачи');
-  var ticks=0; var iv=setInterval(function(){ ticks++; crew.forEach(function(a){ setBubble(a.name, pick(SMALLTALK), 90); }); if(ticks>=5){ clearInterval(iv); } }, 1400);
+  // One speaker at a time (turn-taking) — avoids 3 bubbles stacking over the table.
+  var ticks=0; var iv=setInterval(function(){ ticks++; var sp=crew[ticks%crew.length]; if(sp) setBubble(sp.name, pick(SMALLTALK), 80); if(ticks>=6){ clearInterval(iv); } }, 1500);
 }
 function ambient(){
   if(!officeAgents.length) return;
