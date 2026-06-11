@@ -131,6 +131,34 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
   // Per-run PII token mapping (never sent to the provider).
   const piiMap = new Map<string, string>();
 
+  // Live token streaming (UX only) — wired for chat runs, where a human waits on
+  // the bubble. Deltas are throttled and forwarded as `run.token` events; the
+  // authoritative answer is still the final persisted output, so a dropped or
+  // partial stream never affects correctness. PII-masked output is un-masked
+  // before it leaves so the user never sees a masking token.
+  const isChat =
+    !!deps.events &&
+    !!run.input &&
+    typeof run.input === 'object' &&
+    (run.input as { chat?: unknown }).chat === true;
+  let tokenBuf = '';
+  let lastTokenFlush = 0;
+  const flushTokens = (force: boolean): void => {
+    if (!tokenBuf) return;
+    const now = Date.now();
+    if (!force && now - lastTokenFlush < 90) return;
+    const chunk = deps.pii ? deps.pii.unmask(tokenBuf, piiMap) : tokenBuf;
+    tokenBuf = '';
+    lastTokenFlush = now;
+    emit(deps.events, 'run.token', runId, run.orgId, { text: chunk });
+  };
+  const onText = isChat
+    ? (delta: string): void => {
+        tokenBuf += delta;
+        flushTokens(false);
+      }
+    : undefined;
+
   try {
     for (let iter = 0; iter < maxIterations; iter++) {
       const started = Date.now();
@@ -143,7 +171,9 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
         system: outSystem,
         messages: outMessages,
         tools: tools.schemas(),
+        onText,
       });
+      flushTokens(true);
       // Un-mask the model's text back into real values for storage/use.
       const text = deps.pii ? deps.pii.unmask(turn.text ?? '', piiMap) : turn.text ?? '';
       tokensIn += turn.tokensIn;

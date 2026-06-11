@@ -26,6 +26,12 @@ export interface ModelProvider {
     system: string;
     messages: ModelMessage[];
     tools: ToolSchema[];
+    // Optional live-token callback. Providers that support streaming call this
+    // with incremental text deltas as they arrive (best-effort, UX only). The
+    // authoritative final text is always the resolved ModelTurn.text — callers
+    // must never treat the streamed deltas as the source of truth. Providers
+    // that don't stream simply ignore this.
+    onText?: (delta: string) => void;
   }): Promise<ModelTurn>;
 }
 

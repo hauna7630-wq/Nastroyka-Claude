@@ -51,12 +51,184 @@ function runCli(bin: string, args: string[], timeoutMs: number): Promise<string>
   });
 }
 
+interface StreamResult {
+  text: string;
+  tokensIn: number;
+  tokensOut: number;
+}
+
+// Streaming variant: --output-format stream-json emits one JSON object per line
+// (JSONL). With --include-partial-messages it also surfaces the raw Anthropic
+// SSE events (content_block_delta → delta.text_delta) so we can forward live
+// text tokens. The final `result` event is authoritative for the answer + usage.
+// On ANY parsing/process failure the caller falls back to the buffered path, so
+// streaming can never break a run — it only makes a healthy run feel live.
+function runCliStreaming(
+  bin: string,
+  args: string[],
+  timeoutMs: number,
+  onText: (delta: string) => void,
+): Promise<StreamResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(bin, args, { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    let err = '';
+    let buf = '';
+    let resultText = '';
+    let assistantText = '';
+    let streamedText = '';
+    let tokensIn = 0;
+    let tokensOut = 0;
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error('claude CLI (stream) timed out'));
+    }, timeoutMs);
+
+    const handleEvent = (ev: any): void => {
+      if (!ev || typeof ev !== 'object') return;
+      // Anthropic SSE event (wrapped by the CLI under `event` when
+      // --include-partial-messages is on).
+      if (ev.type === 'content_block_delta' && ev.delta && ev.delta.type === 'text_delta') {
+        const t = String(ev.delta.text || '');
+        if (t) {
+          streamedText += t;
+          try {
+            onText(t);
+          } catch {
+            // a misbehaving sink must not abort the stream
+          }
+        }
+      } else if (ev.type === 'message_delta' && ev.usage) {
+        if (typeof ev.usage.output_tokens === 'number') tokensOut = ev.usage.output_tokens;
+      } else if (ev.type === 'message_start' && ev.message && ev.message.usage) {
+        if (typeof ev.message.usage.input_tokens === 'number') tokensIn = ev.message.usage.input_tokens;
+      }
+    };
+
+    const handleLine = (line: string): void => {
+      const s = line.trim();
+      if (!s) return;
+      let obj: any;
+      try {
+        obj = JSON.parse(s);
+      } catch {
+        return; // ignore partial/non-JSON noise
+      }
+      // CLI envelope types: system | assistant | user | result | stream_event.
+      if (obj.type === 'stream_event' && obj.event) {
+        handleEvent(obj.event);
+        return;
+      }
+      // Some CLI builds emit the raw SSE event object directly.
+      if (typeof obj.type === 'string' && obj.type.indexOf('content_block') === 0) {
+        handleEvent(obj);
+        return;
+      }
+      if (obj.type === 'assistant' && obj.message && Array.isArray(obj.message.content)) {
+        const parts = obj.message.content
+          .filter((b: any) => b && b.type === 'text' && typeof b.text === 'string')
+          .map((b: any) => b.text);
+        if (parts.length) assistantText = parts.join('');
+        const u = obj.message.usage;
+        if (u) {
+          if (typeof u.input_tokens === 'number') tokensIn = u.input_tokens;
+          if (typeof u.output_tokens === 'number') tokensOut = u.output_tokens;
+        }
+      } else if (obj.type === 'result') {
+        if (typeof obj.result === 'string') resultText = obj.result;
+        const u = obj.usage;
+        if (u) {
+          if (typeof u.input_tokens === 'number') tokensIn = u.input_tokens;
+          if (typeof u.output_tokens === 'number') tokensOut = u.output_tokens;
+        }
+      }
+    };
+
+    child.stdout.on('data', (d) => {
+      buf += d.toString();
+      let nl = buf.indexOf('\n');
+      while (nl >= 0) {
+        handleLine(buf.slice(0, nl));
+        buf = buf.slice(nl + 1);
+        nl = buf.indexOf('\n');
+      }
+    });
+    child.stderr.on('data', (d) => (err += d.toString()));
+    child.on('error', (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (buf.trim()) handleLine(buf);
+      if (code !== 0) {
+        reject(new Error('claude CLI (stream) exited ' + code + ': ' + (err || '').slice(0, 500)));
+        return;
+      }
+      // Authoritative final answer: result > full assistant message > streamed.
+      const text = (resultText || assistantText || streamedText).trim();
+      if (!text) {
+        reject(new Error('claude CLI (stream) produced no text'));
+        return;
+      }
+      resolve({ text, tokensIn, tokensOut });
+    });
+  });
+}
+
 export class ClaudeSubscriptionModelProvider implements ModelProvider {
   constructor(
     private readonly opts: { model?: string; bin?: string; timeoutMs?: number } = {},
   ) {}
 
   async complete(args: {
+    system: string;
+    messages: ModelMessage[];
+    tools: ToolSchema[];
+    onText?: (delta: string) => void;
+  }): Promise<ModelTurn> {
+    // Streaming is strictly best-effort: only attempted when a live-token sink
+    // is supplied, and ANY failure falls back to the proven buffered path so a
+    // healthy run can never be broken by the streaming experiment.
+    if (args.onText) {
+      try {
+        return await this.completeStreaming(args, args.onText);
+      } catch {
+        // fall through to buffered
+      }
+    }
+    return this.completeBuffered(args);
+  }
+
+  private async completeStreaming(
+    args: { system: string; messages: ModelMessage[]; tools: ToolSchema[] },
+    onText: (delta: string) => void,
+  ): Promise<ModelTurn> {
+    const bin = this.opts.bin ?? 'claude';
+    const prompt = flatten(args.system, args.messages);
+    const cliArgs = [
+      '-p',
+      prompt,
+      '--output-format',
+      'stream-json',
+      '--verbose',
+      '--include-partial-messages',
+      '--max-turns',
+      '8',
+    ];
+    if (this.opts.model) cliArgs.push('--model', this.opts.model);
+    if (args.system) cliArgs.push('--append-system-prompt', args.system);
+
+    const r = await runCliStreaming(bin, cliArgs, this.opts.timeoutMs ?? 180000, onText);
+    return {
+      text: r.text,
+      toolCalls: [],
+      tokensIn: r.tokensIn,
+      tokensOut: r.tokensOut,
+      model: this.opts.model,
+    };
+  }
+
+  private async completeBuffered(args: {
     system: string;
     messages: ModelMessage[];
     tools: ToolSchema[];

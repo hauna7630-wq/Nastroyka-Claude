@@ -136,7 +136,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v26 · +9 навыков</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v27 · стриминг</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -459,7 +459,7 @@ function loadChatHistory(aid){
       th.push({role:'them', text: p.errorHuman || 'в очереди…', pending:true, runId:p.runId});
       var idx=th.length-1;
       if(p.status==='failed'||p.status==='canceled'){ th[idx].pending=false; th[idx].failedRunId=p.runId; th[idx].text=p.errorHuman||'(не удалось выполнить задачу)'; }
-      else { chatPending[aid]={runId:p.runId, idx:idx}; pollRun(aid,p.runId,idx); }
+      else { chatPending[aid]={runId:p.runId, idx:idx}; streamChatTokens(aid,p.runId,idx); pollRun(aid,p.runId,idx); }
     });
     chatThreads[aid]=th; saveChat();
     if(currentAgent && currentAgent.id===aid) renderChat();
@@ -553,7 +553,7 @@ function retryChat(aid,idx,runId){
   chatThreads[aid][idx]={role:'them', text:'в очереди…', pending:true, runId:runId};
   chatPending[aid]={runId:runId, idx:idx}; saveChat();
   if(currentAgent&&currentAgent.id===aid) renderChat();
-  api('/runs/'+runId+'/retry',{method:'POST',body:'{}'}).then(function(){ pollRun(aid,runId,idx); })
+  api('/runs/'+runId+'/retry',{method:'POST',body:'{}'}).then(function(){ streamChatTokens(aid,runId,idx); pollRun(aid,runId,idx); })
     .catch(function(){ setReplyFailed(aid,idx,runId,'Сеть: не удалось повторить'); });
 }
 function pushMsg(agentId,role,text){ if(!chatThreads[agentId]) chatThreads[agentId]=[]; chatThreads[agentId].push({role:role,text:text}); saveChat(); if(currentAgent&&currentAgent.id===agentId) renderChat(); }
@@ -562,7 +562,12 @@ function setReply(aid,idx,text){
   if(!(chatThreads[aid]&&chatThreads[aid][idx])) return;
   if(chatPending[aid]&&chatPending[aid].idx===idx) delete chatPending[aid];
   var full=String(text); var key=aid+'#'+idx;
+  stopChatStream(aid,idx);
   if(chatTyping[key]) clearInterval(chatTyping[key]);
+  // If real tokens already streamed into this bubble, the typewriter would be a
+  // jarring restart — just snap to the authoritative final text.
+  var wasStreamed = chatThreads[aid][idx] && chatThreads[aid][idx].streamed;
+  if(wasStreamed){ chatThreads[aid][idx]={role:'them',text:full}; if(currentAgent&&currentAgent.id===aid) renderChat(); saveChat(); return; }
   var shown=0; var step=Math.max(2,Math.ceil(full.length/140));
   chatThreads[aid][idx]={role:'them',text:''};
   if(currentAgent&&currentAgent.id===aid) renderChat();
@@ -572,6 +577,30 @@ function setReply(aid,idx,text){
     if(currentAgent&&currentAgent.id===aid) renderChat();
     if(shown>=full.length){ clearInterval(chatTyping[key]); delete chatTyping[key]; saveChat(); }
   },18);
+}
+// Live token streaming for a chat reply (best-effort UX). Opens an SSE channel
+// for the run and appends run.token deltas into the pending bubble; pollRun
+// remains the authoritative source for the final text and for failures, so if
+// streaming is unavailable nothing is lost.
+var chatStreams={};
+function stopChatStream(aid,idx){ var k=aid+'#'+idx; if(chatStreams[k]){ try{chatStreams[k].close();}catch(e){} delete chatStreams[k]; } }
+function streamChatTokens(aid,runId,idx){
+  if(typeof EventSource==='undefined') return;
+  stopChatStream(aid,idx);
+  var k=aid+'#'+idx; var src;
+  try{ src=new EventSource('/runs/'+runId+'/events'); }catch(e){ return; }
+  chatStreams[k]=src;
+  src.addEventListener('run.token', function(ev){
+    var d; try{ d=JSON.parse(ev.data).data; }catch(e){ return; }
+    if(!d||typeof d.text!=='string') return;
+    var m=chatThreads[aid]&&chatThreads[aid][idx]; if(!m) return;
+    if(!m.streamed){ m.streamed=true; m.text=''; m.pending=false; }
+    m.text=(m.text||'')+d.text;
+    if(currentAgent&&currentAgent.id===aid) renderChat();
+  });
+  var done=function(){ stopChatStream(aid,idx); };
+  ['run.succeeded','run.failed','run.needs_human','run.dead_lettered'].forEach(function(t){ src.addEventListener(t,done); });
+  src.onerror=function(){ /* keep buffered poll as the safety net */ };
 }
 // Honest failure: show the real reason + a «Повторить» button (no silent giving up).
 function setReplyFailed(aid,idx,runId,reason){
@@ -657,6 +686,7 @@ $('chatForm').addEventListener('submit', async function(e){
   // give the just-sent user message its server id so it can be reacted to
   if(resp.message && resp.message.id && chatThreads[aid][idx-1]){ chatThreads[aid][idx-1].id=resp.message.id; saveChat(); }
   chatThreads[aid][idx].runId=resp.runId; chatPending[aid]={runId:resp.runId, idx:idx}; saveChat();
+  streamChatTokens(aid, resp.runId, idx);
   pollRun(aid, resp.runId, idx);
 });
 
