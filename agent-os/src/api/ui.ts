@@ -129,6 +129,9 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .dmsg .dwho { font-weight:600; margin-right:6px; }
   .dmsg.review { border-left:3px solid #db61a2; padding-left:8px; }
   .dmsg.revision { border-left:3px solid #d29922; padding-left:8px; }
+  .dmsg.live { border-left:3px solid #2ea043; padding-left:8px; opacity:.95; }
+  .tcursor { animation:blink 1s steps(1) infinite; color:#2ea043; }
+  @keyframes blink { 50% { opacity:0; } }
   .actfeed { max-height:150px; overflow:auto; border:1px solid var(--border); border-radius:8px; background:#0d1117; padding:6px 10px; font-size:13px; }
   .actfeed .act { padding:3px 0; border-bottom:1px solid #161d24; }
   .actfeed .act-t { color:var(--muted); font-size:11px; margin-right:6px; }
@@ -136,7 +139,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v27 · стриминг</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v28 · поиск+стрим</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -297,16 +300,31 @@ function renderTeam(t){
     bar.appendChild(el);
     if(i<PHASE_SEQ.length-1){ var a=document.createElement('span'); a.textContent='›'; a.style.color='#39424c'; bar.appendChild(a); }
   });
-  if(t.discussion&&t.discussion.length){
-    $('discussWrap').style.display='block'; var feed=$('discussFeed'); feed.innerHTML='';
-    t.discussion.forEach(function(d){
-      var el=document.createElement('div'); el.className='dmsg '+d.kind;
-      var label=d.kind==='review'?' · ревью':d.kind==='revision'?' · доработка':'';
-      var ic=d.kind==='review'?'🔍':d.kind==='revision'?'♻️':roleIcon(d.agentType);
-      el.innerHTML='<span class="dwho" style="color:'+roleColor(d.agentType)+'">'+ic+' '+escapeHtml(shortName(d.author))+label+'</span>'+escapeHtml(d.text.slice(0,600));
-      feed.appendChild(el); });
-    feed.scrollTop=feed.scrollHeight;
-  }
+  lastTeam=t; renderDiscuss();
+}
+// Live per-agent token streaming in «Обсуждение команды»: child runs bridge their
+// tokens onto the parent stream tagged with subtaskId. discussLive holds the
+// in-progress text per subtask; finalized contributions come from pollTeam's
+// authoritative t.discussion. A subtask's live entry is dropped once its
+// orchestration.subtask event reports 'succeeded' (the poll then shows the final).
+var discussLive={}; var lastTeam=null;
+function renderDiscuss(){
+  var auth=(lastTeam&&lastTeam.discussion)?lastTeam.discussion:[];
+  var liveIds=Object.keys(discussLive);
+  if(!auth.length && !liveIds.length) return;
+  $('discussWrap').style.display='block'; var feed=$('discussFeed'); feed.innerHTML='';
+  auth.forEach(function(d){
+    var el=document.createElement('div'); el.className='dmsg '+d.kind;
+    var label=d.kind==='review'?' · ревью':d.kind==='revision'?' · доработка':'';
+    var ic=d.kind==='review'?'🔍':d.kind==='revision'?'♻️':roleIcon(d.agentType);
+    el.innerHTML='<span class="dwho" style="color:'+roleColor(d.agentType)+'">'+ic+' '+escapeHtml(shortName(d.author))+label+'</span>'+escapeHtml(d.text.slice(0,600));
+    feed.appendChild(el); });
+  liveIds.forEach(function(sid){
+    var d=discussLive[sid]; if(!d||!d.text) return;
+    var el=document.createElement('div'); el.className='dmsg contribution live';
+    el.innerHTML='<span class="dwho" style="color:'+roleColor(d.agentType)+'">'+roleIcon(d.agentType)+' '+escapeHtml(shortName(d.agentName))+' · печатает…</span>'+escapeHtml(d.text.slice(-600))+'<span class="tcursor">▍</span>';
+    feed.appendChild(el); });
+  feed.scrollTop=feed.scrollHeight;
 }
 function pollTeam(runId){
   if(teamPollTimer) clearTimeout(teamPollTimer);
@@ -326,6 +344,7 @@ $('f').addEventListener('submit', async (e) => {
   e.preventDefault(); const task=$('task').value.trim(); if(!task)return;
   $('go').disabled=true; $('graph').innerHTML=''; $('graphWrap').style.display='none'; $('resultWrap').style.display='none';
   $('phaseWrap').style.display='none'; $('discussWrap').style.display='none'; $('discussFeed').innerHTML='';
+  discussLive={}; lastTeam=null;
   $('cstatus').textContent='Координатор анализирует задачу…'; if(es)es.close();
   officeResetIdle(); officeSet(null,'orchestrator','running');
   const { runId, error } = await api('/tasks',{method:'POST',body:JSON.stringify({orgId:ORG,task})});
@@ -337,7 +356,12 @@ $('f').addEventListener('submit', async (e) => {
     const g=$('graph'); g.innerHTML=''; d.subtasks.forEach((s,i)=>{ if(i>0){const a=document.createElement('div');a.className='arrow';a.textContent='→';g.appendChild(a);} g.appendChild(node(s)); });
     $('cstatus').textContent='Команда собрана: '+d.subtasks.map(s=>s.agentType).join(' → ');
     pushOfficeCard('🧩','План готов',d.subtasks.length+' подзадач · '+d.subtasks.map(s=>roleIcon(s.agentType)).join(''),'#d29922'); });
-  es.addEventListener('orchestration.subtask',(ev)=>{ const d=JSON.parse(ev.data).data; setStatus(d.subtaskId,d.status,d.agentName); officeSet(d.agentName,d.agentType,d.status); });
+  es.addEventListener('orchestration.subtask',(ev)=>{ const d=JSON.parse(ev.data).data; setStatus(d.subtaskId,d.status,d.agentName); officeSet(d.agentName,d.agentType,d.status);
+    if(d.status==='succeeded'||d.status==='failed'){ delete discussLive[d.subtaskId]; renderDiscuss(); } });
+  es.addEventListener('run.token',(ev)=>{ var d; try{ d=JSON.parse(ev.data).data; }catch(e){ return; }
+    if(!d||!d.subtaskId||typeof d.text!=='string') return;
+    var cur=discussLive[d.subtaskId]||{agentName:d.agentName,agentType:d.agentType,text:''};
+    cur.text=(cur.text||'')+d.text; discussLive[d.subtaskId]=cur; renderDiscuss(); });
   es.addEventListener('run.succeeded', async (ev)=>{ const e2=JSON.parse(ev.data); if(e2.runId!==runId)return;
     const r=await api('/runs/'+runId); $('resultWrap').style.display='block'; $('result').textContent=render(r.run&&r.run.output);
     $('cstatus').textContent='Готово ✓'; officeSet(null,'orchestrator','succeeded'); $('go').disabled=false; es.close(); });

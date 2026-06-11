@@ -136,6 +136,7 @@ export async function executeOrchestration(
           prompt: composePrompt(subtask, outputs),
           parentRunId,
           subtaskId: subtask.id,
+          stream: true,
         },
         attempts: 0,
         parentRunId,
@@ -152,7 +153,12 @@ export async function executeOrchestration(
       // Child agents are never orchestrators. Either run inline, or (production)
       // dispatch onto the queue and await completion via the event bus.
       try {
-        await runChild(deps, childRunId);
+        await runChild(deps, childRunId, {
+          parentRunId,
+          subtaskId: subtask.id,
+          agentType: subtask.agentType,
+          agentName: childAgent.name,
+        });
       } catch (err) {
         emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
           subtaskId: subtask.id,
@@ -286,7 +292,7 @@ async function runChildContribution(
     orgId,
     agentId: agent.id,
     status: 'queued',
-    input: { prompt: spec.prompt, parentRunId, subtaskId },
+    input: { prompt: spec.prompt, parentRunId, subtaskId, stream: true },
     attempts: 0,
     parentRunId,
   });
@@ -297,7 +303,12 @@ async function runChildContribution(
     status: 'running',
   });
   try {
-    await runChild(deps, childRunId);
+    await runChild(deps, childRunId, {
+      parentRunId,
+      subtaskId,
+      agentType: spec.agentType,
+      agentName: agent.name,
+    });
   } catch {
     return undefined; // non-fatal
   }
@@ -312,13 +323,51 @@ async function runChildContribution(
   return { subtaskId, agentType: spec.agentType, agentName: agent.name, output: run.output };
 }
 
+interface ChildMeta {
+  parentRunId: string;
+  subtaskId: string;
+  agentType: AgentType;
+  agentName: string;
+}
+
+// Bridge a child's live tokens onto the PARENT run stream so the team-discussion
+// panel can render each agent typing. The child emits `run.token` under its own
+// runId; we re-emit under the parent runId, tagged with subtask/agent metadata.
+// Best-effort: returns an unsubscribe fn (no-op when events/meta absent).
+function bridgeChildTokens(deps: OrchestratorDeps, childRunId: string, meta?: ChildMeta): () => void {
+  if (!deps.events || !meta) return () => {};
+  const bus = deps.events;
+  const off = bus.subscribe(childRunId, (e) => {
+    if (e.type !== 'run.token') return;
+    const text = (e.data as { text?: unknown })?.text;
+    if (typeof text !== 'string' || !text) return;
+    emit(bus, 'run.token', meta.parentRunId, e.orgId, {
+      text,
+      subtaskId: meta.subtaskId,
+      agentName: meta.agentName,
+      agentType: meta.agentType,
+    });
+  });
+  return off;
+}
+
 // Run a child subtask: inline (default) or via the queue + event bus (production).
-async function runChild(deps: OrchestratorDeps, childRunId: string): Promise<void> {
+async function runChild(
+  deps: OrchestratorDeps,
+  childRunId: string,
+  meta?: ChildMeta,
+): Promise<void> {
   if (!deps.asyncChildren || !deps.queue || !deps.events) {
-    await executeRun(childRunId, deps);
+    const off = bridgeChildTokens(deps, childRunId, meta);
+    try {
+      await executeRun(childRunId, deps);
+    } finally {
+      off();
+    }
     return;
   }
   const bus = deps.events;
+  const offTokens = bridgeChildTokens(deps, childRunId, meta);
   const done = new Promise<void>((resolve, reject) => {
     const off = bus.subscribe(childRunId, (e) => {
       if (e.type === 'run.succeeded') {
@@ -330,8 +379,12 @@ async function runChild(deps: OrchestratorDeps, childRunId: string): Promise<voi
       }
     });
   });
-  await deps.queue.enqueue({ runId: childRunId });
-  await done;
+  try {
+    await deps.queue.enqueue({ runId: childRunId });
+    await done;
+  } finally {
+    offTokens();
+  }
 }
 
 function composePrompt(

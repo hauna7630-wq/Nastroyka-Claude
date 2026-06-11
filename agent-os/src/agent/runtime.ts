@@ -136,11 +136,14 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
   // authoritative answer is still the final persisted output, so a dropped or
   // partial stream never affects correctness. PII-masked output is un-masked
   // before it leaves so the user never sees a masking token.
-  const isChat =
-    !!deps.events &&
-    !!run.input &&
-    typeof run.input === 'object' &&
-    (run.input as { chat?: unknown }).chat === true;
+  const inputObj =
+    run.input && typeof run.input === 'object'
+      ? (run.input as { chat?: unknown; stream?: unknown })
+      : undefined;
+  // Stream live tokens for personal chat (chat:true) AND for orchestration child
+  // runs (stream:true) — the latter are bridged onto the parent stream so the
+  // "Обсуждение команды" panel can show each agent typing.
+  const isChat = !!deps.events && !!inputObj && (inputObj.chat === true || inputObj.stream === true);
   let tokenBuf = '';
   let lastTokenFlush = 0;
   const flushTokens = (force: boolean): void => {
