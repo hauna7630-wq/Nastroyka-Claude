@@ -57,7 +57,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-          source: "deploy/docker-compose.prod.yml,deploy/Caddyfile,deploy/postgres-init/01-init.sql"
+          source: "deploy/docker-compose.prod.yml,deploy/Caddyfile,deploy/postgres-init/01-init.sql,deploy/pg-backup.sh"
           target: "app"
           strip_components: 1
       - name: Pull images + bring the stack up
@@ -117,6 +117,9 @@ jobs:
             echo "history after 'reopen':"; curl -s $RES "$BASE/orgs/demo/agents/$AID/chat" | grep -o '"role":"[^"]*"' | tr '\n' ' '; echo
             echo "===== INSTALLED SKILLS ====="
             docker compose -f docker-compose.prod.yml exec -T agentos sh -lc 'echo count=$(ls -1 /root/.claude/skills 2>/dev/null | wc -l); echo "custom in-house:"; for s in content-zavod video-director seedance-prompt-engineer image-prompt-engineer language-tutor stylist content-navigator personal-brandbook humanizer-ru; do [ -f /root/.claude/skills/$s/SKILL.md ] && echo "  ok $s" || echo "  MISSING $s"; done; ls -1 /root/.claude/skills 2>/dev/null | head -40'
+            echo "===== PG BACKUP (nightly dumps + rotation) ====="
+            sleep 6
+            docker compose -f docker-compose.prod.yml exec -T pgbackup sh -lc 'ls -1 /backups/*.sql.gz 2>/dev/null | tail -6; echo "files=$(ls -1 /backups/*.sql.gz 2>/dev/null | wc -l)"' || echo "pgbackup not ready yet"
             echo "===== agentos logs (tail) ====="
             docker compose -f docker-compose.prod.yml logs --tail=20 agentos
             echo "===== E2E DONE ====="

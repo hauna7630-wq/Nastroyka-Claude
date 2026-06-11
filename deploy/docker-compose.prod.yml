@@ -64,6 +64,25 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # Nightly Postgres backup with rotation (agent_os + teamly). Local rotating
+  # dumps by default; set BACKUP_RSYNC_TARGET in .env for an offsite copy.
+  pgbackup:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      BACKUP_RETAIN_DAYS: ${BACKUP_RETAIN_DAYS:-14}
+      BACKUP_HOUR: ${BACKUP_HOUR:-3}
+      BACKUP_RSYNC_TARGET: ${BACKUP_RSYNC_TARGET:-}
+    entrypoint: ["sh", "/pg-backup.sh"]
+    volumes:
+      - ./pg-backup.sh:/pg-backup.sh:ro
+      - pgbackups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
   caddy:
     image: caddy:2
     ports:
@@ -87,3 +106,4 @@ volumes:
   redisdata:
   caddydata:
   caddyconfig:
+  pgbackups:
