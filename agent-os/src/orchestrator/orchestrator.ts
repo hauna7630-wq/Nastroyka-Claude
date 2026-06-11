@@ -184,100 +184,42 @@ export async function executeOrchestration(
       });
     }
 
-    // Collective-thinking pass (Doc-2): after the team produces a synthesis, the
-    // reviewer (Revisa) critiques the combined work and gives a ship/revise
-    // verdict. Only for genuinely orchestrated work (>1 subtask), only if the
-    // plan didn't already end on a reviewer, and only if a reviewer agent exists.
+    // Collective-thinking debate (Doc-2): the reviewer (Revisa) critiques the
+    // team's synthesis and gives a ship/revise verdict; on "rework" the synthesis
+    // agent revises and the reviewer re-reviews — up to DEBATE_ROUNDS times or
+    // until "Готово к выпуску". All rounds are attributed; deterministic ids
+    // (::review / ::review2… and ::rev1 / ::rev2…); every round is non-fatal.
     const lastId = order[order.length - 1].id;
+    let summary = outputs[lastId];
     let review: TeamContribution | undefined;
     const planHasReviewer = plan.subtasks.some((s) => s.agentType === 'reviewer');
-    if (orchestrated && contributions.length > 1 && !planHasReviewer) {
+    const debate = orchestrated && contributions.length > 1 && !planHasReviewer;
+    if (debate) {
       const reviewer = await repo.findAgentByType(parent.orgId, 'reviewer');
-      if (reviewer) {
-        const reviewRunId = `${parentRunId}::review`;
-        await repo.createRun({
-          id: reviewRunId,
-          orgId: parent.orgId,
-          agentId: reviewer.id,
-          status: 'queued',
-          input: { prompt: reviewPrompt(task, contributions), parentRunId, subtaskId: 'review' },
-          attempts: 0,
-          parentRunId,
-        });
-        emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
-          subtaskId: 'review',
-          agentType: 'reviewer',
-          agentName: reviewer.name,
-          status: 'running',
-        });
-        await runChild(deps, reviewRunId);
-        const reviewRun = await repo.getRun(reviewRunId);
-        if (reviewRun?.status === 'succeeded') {
-          review = {
-            subtaskId: 'review',
-            agentType: 'reviewer',
-            agentName: reviewer.name,
-            output: reviewRun.output,
-          };
-          emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
-            subtaskId: 'review',
-            agentType: 'reviewer',
-            agentName: reviewer.name,
-            status: 'succeeded',
-          });
-        }
-        // A failed review is non-fatal: the team's answer still stands.
-      }
-    }
-
-    // Revision round (Doc-2, closes the loop): when the reviewer's verdict asks
-    // for rework, the synthesis agent revises its output against the critique —
-    // one round only, deterministic id, non-fatal on failure.
-    let summary = outputs[lastId];
-    if (review && verdictNeedsRework(review.output)) {
       const synthSubtask = order[order.length - 1];
       const synthAgent = await repo.findAgentByType(parent.orgId, synthSubtask.agentType);
-      if (synthAgent) {
-        const revRunId = `${parentRunId}::rev1`;
-        await repo.createRun({
-          id: revRunId,
-          orgId: parent.orgId,
-          agentId: synthAgent.id,
-          status: 'queued',
-          input: {
-            prompt: revisionPrompt(task, summary, review.output),
-            parentRunId,
-            subtaskId: 'rev1',
-          },
-          attempts: 0,
-          parentRunId,
-        });
-        emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
-          subtaskId: 'rev1',
-          agentType: synthSubtask.agentType,
-          agentName: synthAgent.name,
-          status: 'running',
-        });
-        try {
-          await runChild(deps, revRunId);
-          const revRun = await repo.getRun(revRunId);
-          if (revRun?.status === 'succeeded') {
-            summary = revRun.output;
-            contributions.push({
-              subtaskId: 'rev1',
-              agentType: synthSubtask.agentType,
-              agentName: synthAgent.name,
-              output: revRun.output,
-            });
-            emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
-              subtaskId: 'rev1',
-              agentType: synthSubtask.agentType,
-              agentName: synthAgent.name,
-              status: 'succeeded',
-            });
-          }
-        } catch {
-          // Non-fatal: ship the pre-revision answer with the critique attached.
+      if (reviewer) {
+        for (let round = 1; round <= DEBATE_ROUNDS; round++) {
+          const reviewId = round === 1 ? 'review' : `review${round}`;
+          // The reviewer critique is tracked separately (the report renders the
+          // latest review in its own section); the full debate — every review and
+          // revision round — is visible via child runs in the team view.
+          const r = await runChildContribution(deps, parent.orgId, parentRunId, reviewId, reviewer, {
+            prompt: reviewPrompt(task, contributions),
+            agentType: 'reviewer',
+          });
+          if (!r) break; // failed review is non-fatal; keep what we have
+          review = r;
+          if (!verdictNeedsRework(r.output) || !synthAgent) break; // shipped, or no one to revise
+
+          const revId = `rev${round}`;
+          const rev = await runChildContribution(deps, parent.orgId, parentRunId, revId, synthAgent, {
+            prompt: revisionPrompt(task, summary, r.output),
+            agentType: synthSubtask.agentType,
+          });
+          if (!rev) break;
+          summary = rev.output;
+          contributions.push(rev); // revision replaces the synthesis in the report
         }
       }
     }
@@ -321,6 +263,53 @@ export async function executeOrchestration(
     });
     throw err;
   }
+}
+
+// Max review↔revise iterations in the collective-thinking debate (Doc-2).
+// Tunable via env; bounded so a stubborn reviewer can't loop forever.
+const DEBATE_ROUNDS = Math.max(1, Math.min(5, Number(process.env.DEBATE_ROUNDS ?? 2)));
+
+// Create + run one attributed debate child (review or revision), emitting the
+// running/succeeded lifecycle events. Returns the contribution, or undefined if
+// the child didn't succeed (non-fatal — the caller keeps the prior answer).
+async function runChildContribution(
+  deps: OrchestratorDeps,
+  orgId: string,
+  parentRunId: string,
+  subtaskId: string,
+  agent: { id: string; name: string },
+  spec: { prompt: string; agentType: AgentType },
+): Promise<TeamContribution | undefined> {
+  const childRunId = `${parentRunId}::${subtaskId}`;
+  await deps.repo.createRun({
+    id: childRunId,
+    orgId,
+    agentId: agent.id,
+    status: 'queued',
+    input: { prompt: spec.prompt, parentRunId, subtaskId },
+    attempts: 0,
+    parentRunId,
+  });
+  emit(deps.events, 'orchestration.subtask', parentRunId, orgId, {
+    subtaskId,
+    agentType: spec.agentType,
+    agentName: agent.name,
+    status: 'running',
+  });
+  try {
+    await runChild(deps, childRunId);
+  } catch {
+    return undefined; // non-fatal
+  }
+  const run = await deps.repo.getRun(childRunId);
+  if (run?.status !== 'succeeded') return undefined;
+  emit(deps.events, 'orchestration.subtask', parentRunId, orgId, {
+    subtaskId,
+    agentType: spec.agentType,
+    agentName: agent.name,
+    status: 'succeeded',
+  });
+  return { subtaskId, agentType: spec.agentType, agentName: agent.name, output: run.output };
 }
 
 // Run a child subtask: inline (default) or via the queue + event bus (production).

@@ -26,7 +26,11 @@ describe('deriveTeamPhase', () => {
     expect(deriveTeamPhase(parentRunning, [])).toBe('analyzing');
     expect(deriveTeamPhase(parentRunning, [run('p::r', 'running', { subtaskId: 'r' }, 'p')])).toBe('working');
     expect(deriveTeamPhase(parentRunning, [run('p::review', 'running', { subtaskId: 'review' }, 'p')])).toBe('reviewing');
+    expect(deriveTeamPhase(parentRunning, [run('p::review2', 'running', { subtaskId: 'review2' }, 'p')])).toBe('reviewing');
     expect(deriveTeamPhase(parentRunning, [run('p::rev1', 'queued', { subtaskId: 'rev1' }, 'p')])).toBe('revising');
+    expect(deriveTeamPhase(parentRunning, [run('p::rev2', 'running', { subtaskId: 'rev2' }, 'p')])).toBe('revising');
+    // An ordinary subtask that merely starts with "rev" is NOT a debate round.
+    expect(deriveTeamPhase(parentRunning, [run('p::revenue', 'running', { subtaskId: 'revenue' }, 'p')])).toBe('working');
     expect(deriveTeamPhase(run('p', 'succeeded'), [])).toBe('completed');
     expect(deriveTeamPhase(run('p', 'failed'), [])).toBe('failed');
     expect(deriveTeamPhase(run('p', 'paused'), [])).toBe('needs_human');

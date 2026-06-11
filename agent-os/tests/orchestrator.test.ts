@@ -24,6 +24,13 @@ import {
 
 const ORG: Org = { id: 'org_1', name: 'Acme' };
 
+function parentOut(run: { output?: unknown } | null): {
+  summary: unknown;
+  contributions: { subtaskId: string }[];
+  report: string;
+} {
+  return run?.output as { summary: unknown; contributions: { subtaskId: string }[]; report: string };
+}
 function agent(id: string, type: AgentType): Agent {
   return { id, orgId: 'org_1', name: id, type, systemPrompt: `${type} prompt` };
 }
@@ -328,46 +335,82 @@ describe('orchestrator (end-to-end)', () => {
     expect(out.review).toBeDefined();
   });
 
-  it('runs one revision round when the reviewer demands rework', async () => {
-    // Review prompts ask for a verdict — answer with a rework demand; revision
-    // prompts ask to rework — produce the final version; everything else echoes.
-    class ReworkingModel implements ModelProvider {
-      async complete(args: { messages: { role: string; content: string }[] }): Promise<ModelTurn> {
-        const lastUser = [...args.messages].reverse().find((m) => m.role === 'user');
-        const p = lastUser?.content ?? '';
-        if (p.includes('вердикт')) return { ...finalTurn('Нужны доработки: добавь источники') };
-        if (p.includes('Доработай')) return { ...finalTurn('финальная версия с источниками') };
-        return { ...finalTurn(`echo:${p}`) };
-      }
+  // Always demands rework — the debate runs the full DEBATE_ROUNDS (default 2).
+  class ReworkingModel implements ModelProvider {
+    async complete(args: { messages: { role: string; content: string }[] }): Promise<ModelTurn> {
+      const lastUser = [...args.messages].reverse().find((m) => m.role === 'user');
+      const p = lastUser?.content ?? '';
+      if (p.includes('вердикт')) return { ...finalTurn('Нужны доработки: добавь источники') };
+      if (p.includes('Доработай')) return { ...finalTurn('финальная версия с источниками') };
+      return { ...finalTurn(`echo:${p}`) };
     }
-    const plan = {
+  }
+  function debatePlan() {
+    return {
       subtasks: [
         { id: 'r', agentType: 'researcher' as AgentType, prompt: 'research', dependsOn: [] },
         { id: 'w', agentType: 'writer' as AgentType, prompt: 'write', dependsOn: ['r'] },
       ],
     };
+  }
+  function debateAgents() {
+    return [
+      agent('orch_1', 'orchestrator'),
+      agent('res_1', 'researcher'),
+      agent('wri_1', 'writer'),
+      agent('rev_1', 'reviewer'),
+    ];
+  }
+
+  it('debates up to DEBATE_ROUNDS while the reviewer keeps demanding rework', async () => {
     const { repo, queue } = await setup({
       model: new ReworkingModel(),
-      planner: new StaticPlanner(plan),
-      agents: [
-        agent('orch_1', 'orchestrator'),
-        agent('res_1', 'researcher'),
-        agent('wri_1', 'writer'),
-        agent('rev_1', 'reviewer'),
-      ],
+      planner: new StaticPlanner(debatePlan()),
+      agents: debateAgents(),
       task: 'Research the market and then write a report about it in detail.',
     });
     await queue.enqueue({ runId: 'parent_1' });
 
-    const parent = await repo.getRun('parent_1');
-    expect(parent?.status).toBe('succeeded');
-    // The revision child ran via the synthesis (writer) agent.
+    expect((await repo.getRun('parent_1'))?.status).toBe('succeeded');
+    // Two rounds: review→rev1→review2→rev2 (deterministic ids), all persisted.
     expect((await repo.getRun('parent_1::rev1'))?.agentId).toBe('wri_1');
-    const out = parent?.output as { summary: unknown; contributions: { subtaskId: string }[]; report: string };
-    // The final summary is the REVISED output, and the revision is attributed.
+    expect((await repo.getRun('parent_1::review2'))?.status).toBe('succeeded');
+    expect((await repo.getRun('parent_1::rev2'))?.status).toBe('succeeded');
+    const out = parentOut(await repo.getRun('parent_1'));
     expect(out.summary).toBe('финальная версия с источниками');
+    expect(out.contributions.map((c) => c.subtaskId)).toEqual(['r', 'w', 'rev1', 'rev2']);
+  });
+
+  it('stops the debate early when the reviewer approves after a revision', async () => {
+    // Approves on the SECOND review (after the first revision is produced).
+    class ApproveAfterFirstFix implements ModelProvider {
+      private reviews = 0;
+      async complete(args: { messages: { role: string; content: string }[] }): Promise<ModelTurn> {
+        const p = [...args.messages].reverse().find((m) => m.role === 'user')?.content ?? '';
+        if (p.includes('вердикт')) {
+          this.reviews += 1;
+          return { ...finalTurn(this.reviews >= 2 ? 'Готово к выпуску' : 'Нужны доработки: уточни') };
+        }
+        if (p.includes('Доработай')) return { ...finalTurn('исправленная версия') };
+        return { ...finalTurn(`echo:${p}`) };
+      }
+    }
+    const { repo, queue } = await setup({
+      model: new ApproveAfterFirstFix(),
+      planner: new StaticPlanner(debatePlan()),
+      agents: debateAgents(),
+      task: 'Research the market and then write a report about it in detail.',
+    });
+    await queue.enqueue({ runId: 'parent_1' });
+
+    expect((await repo.getRun('parent_1'))?.status).toBe('succeeded');
+    // review → rev1 → review2(approve) → STOP (no rev2).
+    expect((await repo.getRun('parent_1::rev1'))?.status).toBe('succeeded');
+    expect((await repo.getRun('parent_1::review2'))?.status).toBe('succeeded');
+    expect(await repo.getRun('parent_1::rev2')).toBeNull();
+    const out = parentOut(await repo.getRun('parent_1'));
+    expect(out.summary).toBe('исправленная версия');
     expect(out.contributions.map((c) => c.subtaskId)).toEqual(['r', 'w', 'rev1']);
-    expect(out.report).toContain('финальная версия с источниками');
   });
 
   it('retries the orchestration without re-billing already-succeeded subtasks', async () => {

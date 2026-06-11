@@ -11,7 +11,7 @@ import { EventBus } from '../events/bus';
 import { DocumentParser } from '../ports/documents';
 import { humanizeRunError } from '../domain/errors';
 import { assembleChatPrompt, outputToReplyText } from '../agent/chatPrompt';
-import { deriveTeamPhase, PHASE_LABEL, subtaskIdOf, TeamPhase } from '../orchestrator/phase';
+import { deriveTeamPhase, isReviewId, isRevisionId, PHASE_LABEL, subtaskIdOf, TeamPhase } from '../orchestrator/phase';
 import { verdictNeedsRework } from '../orchestrator/orchestrator';
 import { findTemplate, TEAM_TEMPLATES } from '../teams/templates';
 import {
@@ -245,7 +245,7 @@ export class ControlPlane {
         outputPreview: text ? text.slice(0, 280) : undefined,
       });
       if (!text) continue;
-      const kind = sid === 'review' ? 'review' : sid === 'rev1' ? 'revision' : 'contribution';
+      const kind = isReviewId(sid) ? 'review' : isRevisionId(sid) ? 'revision' : 'contribution';
       discussion.push({ author: who.name, agentType: who.type, kind, text });
       if (kind === 'review') {
         review = {

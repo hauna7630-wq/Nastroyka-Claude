@@ -36,6 +36,15 @@ export const WORKING_LABEL: Record<AgentType, string> = {
   orchestrator: 'координирует',
 };
 
+// Debate-round id shapes: review / review2 / review3… and rev1 / rev2…
+// (precise so an ordinary subtask like "revenue" isn't mistaken for a round).
+export function isReviewId(sid: string): boolean {
+  return /^review\d*$/.test(sid);
+}
+export function isRevisionId(sid: string): boolean {
+  return /^rev\d+$/.test(sid);
+}
+
 export function subtaskIdOf(child: Run): string {
   const input = child.input as { subtaskId?: unknown } | null;
   if (input && typeof input === 'object' && typeof input.subtaskId === 'string') {
@@ -57,8 +66,8 @@ export function deriveTeamPhase(parent: Run, children: Run[]): TeamPhase {
   if (children.length === 0) return 'analyzing';
   for (const c of active) {
     const sid = subtaskIdOf(c);
-    if (sid === 'review') return 'reviewing';
-    if (sid === 'rev1') return 'revising';
+    if (isReviewId(sid)) return 'reviewing';
+    if (isRevisionId(sid)) return 'revising';
   }
   if (active.length > 0) return 'working';
   // Children exist but none active (between subtasks / aggregating).
