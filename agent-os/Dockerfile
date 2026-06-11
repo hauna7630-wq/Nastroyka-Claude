@@ -30,6 +30,9 @@ RUN set -e; mkdir -p /root/.claude/skills; \
       else echo "skills repo not available: $repo"; fi; \
     done; \
     echo "installed skills:"; ls -1 /root/.claude/skills 2>/dev/null || true
+# In-house skills bundled with the repo (content/creative/brand/style/teaching),
+# available to every agent under ~/.claude/skills alongside the cloned sets.
+COPY skills/ /root/.claude/skills/
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
