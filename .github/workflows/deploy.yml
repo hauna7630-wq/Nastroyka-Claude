@@ -81,6 +81,7 @@ jobs:
             HTTP_PROXY=${{ secrets.HTTPS_PROXY }}
             OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             TAVILY_API_KEY=${{ secrets.TAVILY_API_KEY }}
+            CLAUDE_CLI_WEB_SEARCH=1
             ALLOWLIST_DOMAINS=${{ secrets.ALLOWLIST_DOMAINS }}
             TEAMLY_DOMAIN=${{ secrets.TEAMLY_DOMAIN }}
             AGENT_DOMAIN=${{ secrets.AGENT_DOMAIN }}
