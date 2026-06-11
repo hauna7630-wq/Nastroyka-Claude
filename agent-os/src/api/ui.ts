@@ -115,6 +115,11 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .hcard .hired { color:var(--ok); font-size:12px; font-weight:600; }
   .recbadge { font-size:10px; color:var(--ok); background:rgba(46,160,67,.16); border-radius:999px; padding:2px 8px; margin-left:8px; vertical-align:middle; }
   .phasebar { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  /* Office tab: canvas in its own full-height column, text panels in a side column */
+  .coord-body { display:flex; gap:14px; flex:1; min-height:0; }
+  .office-col { flex:1; min-width:0; display:flex; flex-direction:column; min-height:0; }
+  .coord-side { width:360px; min-width:300px; max-width:380px; overflow:auto; display:flex; flex-direction:column; gap:4px; }
+  @media (max-width:1000px){ .coord-body { flex-direction:column; } .coord-side { width:auto; max-width:none; min-width:0; max-height:38vh; } }
   .phase { font-size:11px; padding:3px 10px; border-radius:999px; background:#30363d; color:var(--muted); letter-spacing:.04em; }
   .phase.on { background:rgba(210,153,34,.2); color:var(--run); }
   .phase.done { background:rgba(46,160,67,.18); color:var(--ok); }
@@ -131,7 +136,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v24 · дебаты</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v25 · офис по экрану</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -156,13 +161,19 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
       <textarea id="task" placeholder="Поставьте задачу команде агентов, например: Подготовь обзор рынка CRM и рекомендации"></textarea>
       <button id="go" class="primary" type="submit">Запустить</button>
     </form>
-    <div class="status" id="cstatus"></div>
-    <div id="phaseWrap" style="display:none"><div class="section-title">Жизненный цикл задачи</div><div id="phaseBar" class="phasebar"></div></div>
-    <div id="discussWrap" style="display:none"><div class="section-title">Обсуждение команды</div><div id="discussFeed" class="dfeed"></div></div>
-    <div id="officeWrap"><canvas id="office" width="900" height="520"></canvas><div class="office-legend" id="olegend"></div>
-      <div class="section-title">Лента активности</div><div id="activityFeed" class="actfeed"></div></div>
-    <div id="graphWrap" style="display:none"><div class="section-title">Граф сборки</div><div class="graph" id="graph"></div></div>
-    <div id="resultWrap" style="display:none"><div class="section-title">Результат</div><div class="result" id="result"></div></div>
+    <div class="coord-body">
+      <div class="office-col">
+        <div id="officeWrap"><canvas id="office" width="900" height="520"></canvas><div class="office-legend" id="olegend"></div></div>
+      </div>
+      <div class="coord-side">
+        <div class="status" id="cstatus"></div>
+        <div id="phaseWrap" style="display:none"><div class="section-title">Жизненный цикл задачи</div><div id="phaseBar" class="phasebar"></div></div>
+        <div id="discussWrap" style="display:none"><div class="section-title">Обсуждение команды</div><div id="discussFeed" class="dfeed" style="max-height:none"></div></div>
+        <div id="graphWrap" style="display:none"><div class="section-title">Граф сборки</div><div class="graph" id="graph"></div></div>
+        <div id="resultWrap" style="display:none"><div class="section-title">Результат</div><div class="result" id="result"></div></div>
+        <div class="section-title">Лента активности</div><div id="activityFeed" class="actfeed"></div>
+      </div>
+    </div>
   </section>
 
   <!-- Сотрудники: личный чат с каждым -->
@@ -801,7 +812,7 @@ function groundAt(gx,gy){ return { x: ISO_OX+(gx-gy)*ISO_TW2, y: ISO_OY+(gx+gy)*
 function layoutOffice(){
   var cv=document.getElementById('office'); if(cv){ offW=cv.width; offH=cv.height; }
   var n=officeAgents.length; if(!n) return;
-  ISO_OX=Math.round(offW/2); ISO_OY=84;
+  ISO_OX=Math.round(offW/2 - (GRIDW-GRIDH)*ISO_TW2/2); ISO_OY=ISO_OY_BASE;
   var ord=officeAgents.slice().sort(function(a,b){ return (b.type==='orchestrator'?1:0)-(a.type==='orchestrator'?1:0); });
   for(var i=0;i<ord.length;i++){ var a=ord[i]; var t=DESK_TILES[i%DESK_TILES.length];
     officeHome[a.name]={gx:t[0],gy:t[1]};
@@ -940,7 +951,7 @@ function isoCoffee(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,8,5,1
 function drawOffice(){
   var cv=document.getElementById('office'); if(!cv)return; var ctx=cv.getContext('2d'); var W=cv.width,H=cv.height; offW=W; offH=H;
   ctx.fillStyle='#0b0f14'; ctx.fillRect(0,0,W,H);
-  ISO_OX=Math.round(W/2); ISO_OY=84;
+  ISO_OX=Math.round(W/2 - (GRIDW-GRIDH)*ISO_TW2/2); ISO_OY=ISO_OY_BASE;
   var n=officeAgents.length;
   if(!n){ ctx.fillStyle='#cdd6df'; ctx.font='13px system-ui,sans-serif'; ctx.textAlign='center'; ctx.fillText('Команда не нанята — запустите сид команды',W/2,H/2); return; }
   // camera: scene drawn under pan/zoom; HUD (chip/hint) stays fixed
@@ -1003,13 +1014,30 @@ function officeLoop(){ officeFrame++; drawOffice(); officeRAF=requestAnimationFr
 // pixels (crisp pixel-art), recomputed on every window resize.
 function fitOffice(){
   var cv=document.getElementById('office'); if(!cv) return;
-  var host=cv.parentElement; if(!host) return;
-  var w=Math.max(640, Math.floor(host.clientWidth));
-  var rect=cv.getBoundingClientRect();
-  var avail=window.innerHeight - rect.top - 210; // room for legend + activity feed
-  var h=Math.max(360, Math.min(avail, Math.round(w/1.7)));
+  var host=cv.parentElement; if(!host) return;            // officeWrap (flex:1)
+  var w=Math.max(420, Math.floor(host.clientWidth));
+  // Fill the office column's height; leave a little for the legend row below.
+  var h=Math.floor(host.clientHeight) - 28;
+  if(!h || h<300){ var rect=cv.getBoundingClientRect(); h=Math.max(300, window.innerHeight-rect.top-44); }
+  h=Math.max(300, h);
   cv.width=w; cv.height=h; cv.style.width=w+'px'; cv.style.height=h+'px';
   offW=w; offH=h;
+  fitIso();
+}
+// Auto-fit the whole isometric grid into the canvas so EVERY agent is visible
+// without scrolling — scale tile size to satisfy both width and height, and
+// drop the floor far enough below the back walls.
+var ISO_OY_BASE=84, ISO_WALL=96;
+function fitIso(){
+  var span=GRIDW+GRIDH;                       // 21 diamonds across / deep
+  var marginX=58, charHead=70, bottomPad=46;
+  var twW=(offW - marginX*2)/span;            // width constraint
+  // vertical: wall room on top + grid depth + character heads + labels
+  var twH=2*(offH - ISO_WALL - charHead - bottomPad)/span;
+  var tw=Math.floor(Math.min(twW, twH));
+  tw=Math.max(16, Math.min(48, tw));
+  ISO_TW2=tw; ISO_TH2=Math.max(8, Math.round(tw/2));
+  ISO_OY_BASE=ISO_WALL + 6;                   // push floor below the back walls
 }
 var fitTimer=null;
 function scheduleFit(){ if(fitTimer) return; fitTimer=setTimeout(function(){ fitTimer=null; fitOffice(); }, 120); }
