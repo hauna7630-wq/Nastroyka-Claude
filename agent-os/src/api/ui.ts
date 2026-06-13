@@ -142,7 +142,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v33 · реализм</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v34 · cinematic</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -748,6 +748,7 @@ var officeFrame=0; var officeRAF=null; var offW=760, offH=440; var officeSim=nul
 // last few things that happened — icon + who + what — fading out over time.
 var officeCards=[];
 var officeVig=null; // cached screen-space vignette gradient (recomputed only on resize)
+var officeGrade=null; // cached cinematic grade (depth haze) gradient
 function pushOfficeCard(icon,title,sub,color){
   officeCards.push({icon:icon, title:String(title||''), sub:String(sub||''), color:color||'#8b949e', born:officeFrame, until:officeFrame+420});
   if(officeCards.length>4) officeCards.shift();
@@ -871,6 +872,8 @@ function drawAccessory(ctx,fx,fy,acc){
 }
 // dark palette for the silhouette pass (every sprite key → near-black)
 var DARK_PAL={H:'#0c0f13',S:'#0c0f13',e:'#0c0f13',J:'#0c0f13',j:'#0c0f13',T:'#0c0f13',t:'#0c0f13',P:'#0c0f13',B:'#0c0f13'};
+// warm rim-light palette (every key → warm light) for the directional edge pass
+var LIGHT_PAL={H:'#fff1d6',S:'#fff1d6',e:'#fff1d6',J:'#fff1d6',j:'#fff1d6',T:'#fff1d6',t:'#fff1d6',P:'#fff1d6',B:'#fff1d6'};
 function drawCharacter(ctx,fx,fy,look,walk,working){
   fx=Math.round(fx); fy=Math.round(fy);
   // Smooth, natural vertical motion — NO integer hops (which read as "fleas").
@@ -890,6 +893,8 @@ function drawCharacter(ctx,fx,fy,look,walk,working){
   var x0=fx-CH_W*c/2, y0=fy-CH_H*c+ty;
   // silhouette pass: same sprite in near-black, nudged down-right → depth + clean edge
   ctx.save(); ctx.globalAlpha=0.45; drawGrid(ctx,x0+1.3,y0+1.3,rows,DARK_PAL,c); ctx.restore();
+  // warm rim-light pass: same sprite in light, nudged up-left → directional lighting
+  ctx.save(); ctx.globalAlpha=0.20; drawGrid(ctx,x0-1.1,y0-1.1,rows,LIGHT_PAL,c); ctx.restore();
   // body
   var pal={H:look.hair,S:look.skin,e:'#141a21',J:look.suit,j:shade(look.suit,-28),T:'#eef2f6',t:look.shirt,P:look.pants,B:'#14181d'};
   drawGrid(ctx,x0,y0,rows,pal,c);
@@ -1156,6 +1161,13 @@ function drawOffice(){
   // agent-interaction layer: orchestrator → each working agent (animated link + data packet)
   drawAgentLinks(ctx);
   ctx.restore();
+  // cinematic grade: warm wash over everything + atmospheric depth haze toward the
+  // back (top of screen = far in iso) → foreground reads sharp, background recedes
+  // (a cheap depth-of-field feel). Haze gradient cached; warm wash is a flat fill.
+  ctx.fillStyle='rgba(255,168,86,0.045)'; ctx.fillRect(0,0,W,H);
+  if(!officeGrade||officeGrade.w!==W||officeGrade.h!==H){ var hz=ctx.createLinearGradient(0,0,0,H*0.52);
+    hz.addColorStop(0,'rgba(126,146,178,0.16)'); hz.addColorStop(1,'rgba(126,146,178,0)'); officeGrade={w:W,h:H,haze:hz}; }
+  ctx.fillStyle=officeGrade.haze; ctx.fillRect(0,0,W,Math.round(H*0.52));
   // ambient vignette — darkens the edges for depth/mood (screen-space, gradient cached)
   if(!officeVig||officeVig.w!==W||officeVig.h!==H){ var vg=ctx.createRadialGradient(W/2,H*0.40,Math.min(W,H)*0.18,W/2,H*0.52,Math.max(W,H)*0.74);
     vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(0.7,'rgba(6,9,14,0.16)'); vg.addColorStop(1,'rgba(4,7,12,0.55)'); officeVig={w:W,h:H,g:vg}; }
