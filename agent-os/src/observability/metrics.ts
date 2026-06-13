@@ -21,6 +21,18 @@ export interface RunTraceStep {
   latencyMs?: number;
   tokensIn?: number;
   tokensOut?: number;
+  // Debug mode: truncated previews of what the step actually saw/produced.
+  // Step 0 (assistant) carries the composed prompt preview written by the runtime.
+  inputPreview?: string;
+  outputPreview?: string;
+}
+
+const PREVIEW_CHARS = 2000;
+
+function preview(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  return text.length > PREVIEW_CHARS ? text.slice(0, PREVIEW_CHARS) + '…' : text;
 }
 
 export class Observability {
@@ -36,6 +48,8 @@ export class Observability {
       latencyMs: s.latencyMs,
       tokensIn: s.tokensIn,
       tokensOut: s.tokensOut,
+      inputPreview: preview(s.input),
+      outputPreview: preview(s.output),
     }));
   }
 

@@ -11,6 +11,7 @@ import { createControlPlaneServer } from '../src/api/server';
 import { finalTurn } from '../src/adapters/model.mock';
 import { ModelProvider } from '../src/ports/model';
 import { ModelTurn, Agent, Org } from '../src/domain/types';
+import { RichDocumentParser } from '../src/adapters/documents.rich';
 
 const ORG: Org = { id: 'org_1', name: 'Acme' };
 const AGENT: Agent = {
@@ -57,7 +58,13 @@ function build(opts: { model: ModelProvider; maxAttempts?: number }) {
     complexityThreshold: 999, // simple tasks -> single-agent fast path
     defaultAgentType: 'researcher',
   });
-  const cp = new ControlPlane({ repo, queue, observability, events });
+  const cp = new ControlPlane({
+    repo,
+    queue,
+    observability,
+    events,
+    documents: new RichDocumentParser(),
+  });
   return { repo, events, queue, cp };
 }
 
@@ -166,6 +173,30 @@ describe('Control Plane — DLQ requeue', () => {
   });
 });
 
+describe('Control Plane — document extraction (Doc-1)', () => {
+  it('extracts text from an uploaded file for the chat', async () => {
+    const { cp } = build({ model: new FinalModel() });
+    const { text } = await cp.extractDocument({
+      mime: 'text/csv',
+      filename: 'sales.csv',
+      content: Buffer.from('month,rev\njan,100').toString('base64'),
+    });
+    expect(text).toBe('month | rev\njan | 100');
+  });
+
+  it('maps unreadable files to a 400-class error carrying the honest fix', async () => {
+    const { cp } = build({ model: new FinalModel() });
+    await expect(
+      cp.extractDocument({
+        mime: 'application/msword',
+        filename: 'old.doc',
+        content: Buffer.from('binary').toString('base64'),
+      }),
+    ).rejects.toThrow(/пересохраните файл как \.docx/);
+    await expect(cp.extractDocument({ filename: 'x.txt' })).rejects.toThrow(/content is required/);
+  });
+});
+
 describe('HTTP server adapter (smoke)', () => {
   it('routes requests and maps errors to status codes', async () => {
     const { cp } = build({ model: new FinalModel() });
@@ -181,6 +212,28 @@ describe('HTTP server adapter (smoke)', () => {
       const dlq = await fetch(`${base}/dlq`);
       expect(dlq.status).toBe(200);
       expect(await dlq.json()).toEqual([]);
+
+      // Chat thread routes (must beat the /orgs/:id/agents list route).
+      const chatGet = await fetch(`${base}/orgs/org_1/agents/agent_1/chat`);
+      expect(chatGet.status).toBe(200);
+      expect(await chatGet.json()).toMatchObject({ messages: [], pending: [] });
+
+      const chatPost = await fetch(`${base}/orgs/org_1/agents/agent_1/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'привет' }),
+      });
+      expect(chatPost.status).toBe(201);
+      const chatBody = (await chatPost.json()) as { runId?: string };
+      expect(chatBody.runId).toBeTruthy();
+
+      // Unknown agent in the chat route → 404 (proves the route ordering fix).
+      const chatMissing = await fetch(`${base}/orgs/org_1/agents/nope/chat`);
+      expect(chatMissing.status).toBe(404);
+
+      // Retry on a non-failed run → 400 (validation).
+      const retry = await fetch(`${base}/runs/whatever/retry`, { method: 'POST', body: '{}' });
+      expect([400, 404]).toContain(retry.status);
     } finally {
       await new Promise<void>((r) => server.close(() => r()));
     }

@@ -45,8 +45,20 @@ services:
       REDIS_URL: redis://redis:6379
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-sonnet-4-6}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-}
+      # Max-subscription auth (from `claude setup-token`) — agents run on the
+      # subscription via the Claude CLI when this is set.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      # Network egress out of a blocked region (e.g. RU) for reaching Anthropic.
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-postgres,redis,localhost,127.0.0.1}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      PERPLEXITY_API_KEY: ${PERPLEXITY_API_KEY:-}
+      # Allow the Claude CLI's built-in WebSearch/WebFetch for search-capable
+      # agents on the subscription path. Set to 0 to disable fleet-wide.
+      CLAUDE_CLI_WEB_SEARCH: ${CLAUDE_CLI_WEB_SEARCH:-1}
       ALLOWLIST_DOMAINS: ${ALLOWLIST_DOMAINS:-}
       PORT: "3000"
     depends_on:
@@ -54,6 +66,25 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    restart: unless-stopped
+
+  # Nightly Postgres backup with rotation (agent_os + teamly). Local rotating
+  # dumps by default; set BACKUP_RSYNC_TARGET in .env for an offsite copy.
+  pgbackup:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      BACKUP_RETAIN_DAYS: ${BACKUP_RETAIN_DAYS:-14}
+      BACKUP_HOUR: ${BACKUP_HOUR:-3}
+      BACKUP_RSYNC_TARGET: ${BACKUP_RSYNC_TARGET:-}
+    entrypoint: ["sh", "/pg-backup.sh"]
+    volumes:
+      - ./pg-backup.sh:/pg-backup.sh:ro
+      - pgbackups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   caddy:
@@ -79,3 +110,4 @@ volumes:
   redisdata:
   caddydata:
   caddyconfig:
+  pgbackups:

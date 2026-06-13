@@ -6,10 +6,19 @@ export interface Config {
   redisUrl: string;
   anthropicApiKey: string;
   anthropicModel: string;
+  // Optional base URL override — point at a proxy/relay to reach Anthropic from a
+  // network where the official endpoint is blocked (e.g. RU). Empty = official API.
+  anthropicBaseUrl: string;
+  // Max-subscription OAuth token (from `claude setup-token`). When set, agents run
+  // on the subscription via the Claude CLI instead of a per-token API key.
+  claudeOauthToken: string;
   allowlistDomains: string[];
   toolCpuMs: number;
   toolMemMb: number;
   tavilyApiKey: string;
+  // Optional Perplexity key — preferred web-search provider for the agent-os
+  // web_search tool (API/tool path) when set; falls back to Tavily.
+  perplexityApiKey: string;
   // HTTP server.
   port: number;
 }
@@ -28,10 +37,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     anthropicApiKey: env.ANTHROPIC_API_KEY ?? '',
     // Default to a capable, cost-reasonable current Claude model.
     anthropicModel: env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6',
+    anthropicBaseUrl: env.ANTHROPIC_BASE_URL ?? '',
+    claudeOauthToken: env.CLAUDE_CODE_OAUTH_TOKEN ?? '',
     allowlistDomains: csv(env.ALLOWLIST_DOMAINS),
     toolCpuMs: Number(env.TOOL_CPU_MS ?? 5000),
     toolMemMb: Number(env.TOOL_MEM_MB ?? 256),
     tavilyApiKey: env.TAVILY_API_KEY ?? '',
+    perplexityApiKey: env.PERPLEXITY_API_KEY ?? '',
     port: Number(env.PORT ?? 3000),
   };
 }

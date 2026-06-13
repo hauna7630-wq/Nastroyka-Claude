@@ -71,14 +71,32 @@ export async function executeOrchestration(
   const task = toPrompt(parent.input);
 
   try {
-    const orchestrated = shouldOrchestrate(task, threshold);
-    const plan: OrchestrationPlan = orchestrated
-      ? await planner.plan({ task })
-      : {
-          subtasks: [
-            { id: 'single', agentType: defaultAgentType, prompt: task, dependsOn: [] },
-          ],
-        };
+    let orchestrated = shouldOrchestrate(task, threshold);
+    const singlePlan: OrchestrationPlan = {
+      subtasks: [
+        { id: 'single', agentType: defaultAgentType, prompt: task, dependsOn: [] },
+      ],
+    };
+    let plan: OrchestrationPlan = singlePlan;
+    if (orchestrated) {
+      // Planner robustness: the model sometimes answers conversationally
+      // instead of emitting a JSON plan (e.g. a chatty/ambiguous task). That
+      // must NOT fail the run — fall back to the single-agent path so an agent
+      // still picks the task up.
+      try {
+        plan = await planner.plan({ task });
+      } catch (err) {
+        orchestrated = false;
+        plan = singlePlan;
+        await repo.audit({
+          orgId: parent.orgId,
+          runId: parentRunId,
+          actor: 'orchestrator',
+          action: 'orchestration.plan_fallback',
+          meta: { error: err instanceof Error ? err.message : String(err) },
+        });
+      }
+    }
 
     await repo.audit({
       orgId: parent.orgId,
@@ -96,6 +114,9 @@ export async function executeOrchestration(
 
     const order = topoSort(plan.subtasks);
     const outputs: Record<string, unknown> = {};
+    // Track each contributor so the aggregate is a readable, attributed team
+    // report (Doc-2 "structured team responses") rather than raw nested JSON.
+    const contributions: TeamContribution[] = [];
 
     for (const subtask of order) {
       const childAgent = await repo.findAgentByType(parent.orgId, subtask.agentType);
@@ -115,6 +136,7 @@ export async function executeOrchestration(
           prompt: composePrompt(subtask, outputs),
           parentRunId,
           subtaskId: subtask.id,
+          stream: true,
         },
         attempts: 0,
         parentRunId,
@@ -131,7 +153,12 @@ export async function executeOrchestration(
       // Child agents are never orchestrators. Either run inline, or (production)
       // dispatch onto the queue and await completion via the event bus.
       try {
-        await runChild(deps, childRunId);
+        await runChild(deps, childRunId, {
+          parentRunId,
+          subtaskId: subtask.id,
+          agentType: subtask.agentType,
+          agentName: childAgent.name,
+        });
       } catch (err) {
         emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
           subtaskId: subtask.id,
@@ -149,6 +176,12 @@ export async function executeOrchestration(
         );
       }
       outputs[subtask.id] = child.output;
+      contributions.push({
+        subtaskId: subtask.id,
+        agentType: subtask.agentType,
+        agentName: childAgent.name,
+        output: child.output,
+      });
       emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
         subtaskId: subtask.id,
         agentType: subtask.agentType,
@@ -157,10 +190,57 @@ export async function executeOrchestration(
       });
     }
 
-    // Aggregate: the last subtask in topological order is treated as the
-    // synthesis/summary; all subtask outputs are retained.
+    // Collective-thinking debate (Doc-2): the reviewer (Revisa) critiques the
+    // team's synthesis and gives a ship/revise verdict; on "rework" the synthesis
+    // agent revises and the reviewer re-reviews — up to DEBATE_ROUNDS times or
+    // until "Готово к выпуску". All rounds are attributed; deterministic ids
+    // (::review / ::review2… and ::rev1 / ::rev2…); every round is non-fatal.
     const lastId = order[order.length - 1].id;
-    const aggregated = { summary: outputs[lastId], subtasks: outputs };
+    let summary = outputs[lastId];
+    let review: TeamContribution | undefined;
+    const planHasReviewer = plan.subtasks.some((s) => s.agentType === 'reviewer');
+    const debate = orchestrated && contributions.length > 1 && !planHasReviewer;
+    if (debate) {
+      const reviewer = await repo.findAgentByType(parent.orgId, 'reviewer');
+      const synthSubtask = order[order.length - 1];
+      const synthAgent = await repo.findAgentByType(parent.orgId, synthSubtask.agentType);
+      if (reviewer) {
+        for (let round = 1; round <= DEBATE_ROUNDS; round++) {
+          const reviewId = round === 1 ? 'review' : `review${round}`;
+          // The reviewer critique is tracked separately (the report renders the
+          // latest review in its own section); the full debate — every review and
+          // revision round — is visible via child runs in the team view.
+          const r = await runChildContribution(deps, parent.orgId, parentRunId, reviewId, reviewer, {
+            prompt: reviewPrompt(task, contributions),
+            agentType: 'reviewer',
+          });
+          if (!r) break; // failed review is non-fatal; keep what we have
+          review = r;
+          if (!verdictNeedsRework(r.output) || !synthAgent) break; // shipped, or no one to revise
+
+          const revId = `rev${round}`;
+          const rev = await runChildContribution(deps, parent.orgId, parentRunId, revId, synthAgent, {
+            prompt: revisionPrompt(task, summary, r.output),
+            agentType: synthSubtask.agentType,
+          });
+          if (!rev) break;
+          summary = rev.output;
+          contributions.push(rev); // revision replaces the synthesis in the report
+        }
+      }
+    }
+
+    // Aggregate: the last subtask in topological order is treated as the
+    // synthesis/summary (replaced by the revision when one ran); all subtask
+    // outputs are retained. The `report` field is a human-facing, attributed
+    // team write-up of who did what (Doc-2), with the reviewer's critique.
+    const aggregated = {
+      summary,
+      report: buildTeamReport(task, contributions, review),
+      contributions,
+      review: review?.output,
+      subtasks: outputs,
+    };
 
     await repo.updateRunStatus(parentRunId, transition('running', 'succeeded'), {
       output: aggregated,
@@ -191,13 +271,103 @@ export async function executeOrchestration(
   }
 }
 
+// Max review↔revise iterations in the collective-thinking debate (Doc-2).
+// Tunable via env; bounded so a stubborn reviewer can't loop forever.
+const DEBATE_ROUNDS = Math.max(1, Math.min(5, Number(process.env.DEBATE_ROUNDS ?? 2)));
+
+// Create + run one attributed debate child (review or revision), emitting the
+// running/succeeded lifecycle events. Returns the contribution, or undefined if
+// the child didn't succeed (non-fatal — the caller keeps the prior answer).
+async function runChildContribution(
+  deps: OrchestratorDeps,
+  orgId: string,
+  parentRunId: string,
+  subtaskId: string,
+  agent: { id: string; name: string },
+  spec: { prompt: string; agentType: AgentType },
+): Promise<TeamContribution | undefined> {
+  const childRunId = `${parentRunId}::${subtaskId}`;
+  await deps.repo.createRun({
+    id: childRunId,
+    orgId,
+    agentId: agent.id,
+    status: 'queued',
+    input: { prompt: spec.prompt, parentRunId, subtaskId, stream: true },
+    attempts: 0,
+    parentRunId,
+  });
+  emit(deps.events, 'orchestration.subtask', parentRunId, orgId, {
+    subtaskId,
+    agentType: spec.agentType,
+    agentName: agent.name,
+    status: 'running',
+  });
+  try {
+    await runChild(deps, childRunId, {
+      parentRunId,
+      subtaskId,
+      agentType: spec.agentType,
+      agentName: agent.name,
+    });
+  } catch {
+    return undefined; // non-fatal
+  }
+  const run = await deps.repo.getRun(childRunId);
+  if (run?.status !== 'succeeded') return undefined;
+  emit(deps.events, 'orchestration.subtask', parentRunId, orgId, {
+    subtaskId,
+    agentType: spec.agentType,
+    agentName: agent.name,
+    status: 'succeeded',
+  });
+  return { subtaskId, agentType: spec.agentType, agentName: agent.name, output: run.output };
+}
+
+interface ChildMeta {
+  parentRunId: string;
+  subtaskId: string;
+  agentType: AgentType;
+  agentName: string;
+}
+
+// Bridge a child's live tokens onto the PARENT run stream so the team-discussion
+// panel can render each agent typing. The child emits `run.token` under its own
+// runId; we re-emit under the parent runId, tagged with subtask/agent metadata.
+// Best-effort: returns an unsubscribe fn (no-op when events/meta absent).
+function bridgeChildTokens(deps: OrchestratorDeps, childRunId: string, meta?: ChildMeta): () => void {
+  if (!deps.events || !meta) return () => {};
+  const bus = deps.events;
+  const off = bus.subscribe(childRunId, (e) => {
+    if (e.type !== 'run.token') return;
+    const text = (e.data as { text?: unknown })?.text;
+    if (typeof text !== 'string' || !text) return;
+    emit(bus, 'run.token', meta.parentRunId, e.orgId, {
+      text,
+      subtaskId: meta.subtaskId,
+      agentName: meta.agentName,
+      agentType: meta.agentType,
+    });
+  });
+  return off;
+}
+
 // Run a child subtask: inline (default) or via the queue + event bus (production).
-async function runChild(deps: OrchestratorDeps, childRunId: string): Promise<void> {
+async function runChild(
+  deps: OrchestratorDeps,
+  childRunId: string,
+  meta?: ChildMeta,
+): Promise<void> {
   if (!deps.asyncChildren || !deps.queue || !deps.events) {
-    await executeRun(childRunId, deps);
+    const off = bridgeChildTokens(deps, childRunId, meta);
+    try {
+      await executeRun(childRunId, deps);
+    } finally {
+      off();
+    }
     return;
   }
   const bus = deps.events;
+  const offTokens = bridgeChildTokens(deps, childRunId, meta);
   const done = new Promise<void>((resolve, reject) => {
     const off = bus.subscribe(childRunId, (e) => {
       if (e.type === 'run.succeeded') {
@@ -209,8 +379,12 @@ async function runChild(deps: OrchestratorDeps, childRunId: string): Promise<voi
       }
     });
   });
-  await deps.queue.enqueue({ runId: childRunId });
-  await done;
+  try {
+    await deps.queue.enqueue({ runId: childRunId });
+    await done;
+  } finally {
+    offTokens();
+  }
 }
 
 function composePrompt(
@@ -226,4 +400,105 @@ function composePrompt(
 
 function stringify(value: unknown): string {
   return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+export interface TeamContribution {
+  subtaskId: string;
+  agentType: AgentType;
+  agentName: string;
+  output: unknown;
+}
+
+// Role labels for the attributed team report (Russian UI).
+const ROLE_LABEL: Record<AgentType, string> = {
+  orchestrator: 'Координатор',
+  researcher: 'Исследователь',
+  analyst: 'Аналитик',
+  writer: 'Райтер',
+  coder: 'Инженер',
+  reviewer: 'Ревьюер',
+};
+
+// Render an attributed, readable team write-up: a synthesis up top, then each
+// agent's contribution under its own heading, and (when present) the reviewer's
+// critique. This is what the user reads as "the team's answer", instead of raw
+// nested JSON.
+export function buildTeamReport(
+  task: string,
+  contributions: TeamContribution[],
+  review?: TeamContribution,
+): string {
+  if (contributions.length === 0) return '';
+  const synthesis = contributions[contributions.length - 1];
+  const lines: string[] = [];
+  lines.push('## Ответ команды');
+  lines.push('');
+  lines.push(stringify(synthesis.output).trim());
+  if (contributions.length > 1) {
+    lines.push('');
+    lines.push('---');
+    lines.push('### Вклад участников');
+    for (const c of contributions) {
+      const label = ROLE_LABEL[c.agentType] ?? c.agentType;
+      lines.push('');
+      lines.push(`**${c.agentName} · ${label}**`);
+      lines.push(stringify(c.output).trim());
+    }
+  }
+  if (review) {
+    lines.push('');
+    lines.push('---');
+    lines.push(`### Ревью · ${review.agentName} (${ROLE_LABEL.reviewer})`);
+    lines.push(stringify(review.output).trim());
+  }
+  return lines.join('\n');
+}
+
+// Verdict detection for the revision round. The reviewer is instructed to end
+// with exactly one of «Готово к выпуску» / «Нужны доработки: …»; rework only
+// when the rework phrase appears WITHOUT the ship phrase (ambiguous output —
+// e.g. both quoted — ships as-is rather than burning an extra round).
+export function verdictNeedsRework(reviewOutput: unknown): boolean {
+  const text = typeof reviewOutput === 'string' ? reviewOutput : JSON.stringify(reviewOutput ?? '');
+  const lower = text.toLowerCase();
+  return lower.includes('нужны доработки') && !lower.includes('готово к выпуску');
+}
+
+// Prompt for the one revision round: the synthesis agent reworks its own output
+// against the reviewer's critique.
+export function revisionPrompt(task: string, synthesis: unknown, critique: unknown): string {
+  return [
+    `Исходная задача: ${task}`,
+    '',
+    'Твой текущий вариант ответа:',
+    '"""',
+    stringify(synthesis),
+    '"""',
+    '',
+    'Ревьюер запросил доработки:',
+    '"""',
+    stringify(critique),
+    '"""',
+    '',
+    'Доработай ответ по замечаниям ревьюера и выдай финальную версию целиком.',
+  ].join('\n');
+}
+
+// Prompt for the reviewer's collective-thinking pass: critique the team's
+// combined work against the original task and end with a clear verdict.
+export function reviewPrompt(task: string, contributions: TeamContribution[]): string {
+  const body = contributions
+    .map((c) => {
+      const label = ROLE_LABEL[c.agentType] ?? c.agentType;
+      return `### ${c.agentName} (${label})\n${stringify(c.output)}`;
+    })
+    .join('\n\n');
+  return [
+    `Исходная задача: ${task}`,
+    '',
+    'Ниже — работа команды. Кратко и по делу: укажи пробелы, риски и неточности,',
+    'затем дай вердикт одной строкой: «Готово к выпуску» или «Нужны доработки: …».',
+    '',
+    body,
+  ].join('\n');
 }

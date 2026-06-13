@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "jest",
+    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "test:integration": "jest -c jest.integration.config.js",
     "start": "ts-node src/main.ts",
     "dev:coordinator": "ts-node src/dev.ts",
@@ -20,8 +20,10 @@
     "@anthropic-ai/sdk": "^0.30.1",
     "@prisma/client": "^5.22.0",
     "bullmq": "^5.34.0",
-    "ioredis": "^5.4.1"
-
+    "ioredis": "^5.4.1",
+    "mammoth": "^1.12.0",
+    "pdf-parse": "^2.4.5",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",

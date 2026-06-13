@@ -26,6 +26,17 @@ export interface ModelProvider {
     system: string;
     messages: ModelMessage[];
     tools: ToolSchema[];
+    // Optional live-token callback. Providers that support streaming call this
+    // with incremental text deltas as they arrive (best-effort, UX only). The
+    // authoritative final text is always the resolved ModelTurn.text — callers
+    // must never treat the streamed deltas as the source of truth. Providers
+    // that don't stream simply ignore this.
+    onText?: (delta: string) => void;
+    // Optional capability hints derived from the agent (e.g. allowedTools).
+    // The subscription provider uses `webSearch` to allow the Claude CLI's
+    // built-in WebSearch/WebFetch tools only for agents permitted to search.
+    // Providers that don't support a capability simply ignore it.
+    capabilities?: { webSearch?: boolean };
   }): Promise<ModelTurn>;
 }
 

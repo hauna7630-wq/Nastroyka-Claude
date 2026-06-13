@@ -1,0 +1,51 @@
+name: Diagnose
+
+# One-off diagnostics + a clean stack restart, run over SSH by the runner so the
+# output lands in the Actions log. Read-only checks first, then a forced
+# recreate, then re-checks. Triggered manually.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Inspect + clean-restart the stack
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          command_timeout: 10m
+          script: |
+            cd ~/app
+            F=docker-compose.prod.yml
+            echo "================ BEFORE ================"
+            echo "----- docker compose ps -----"
+            docker compose -f $F ps
+            echo "----- agent-os related containers (any stray?) -----"
+            docker ps -a --format '{{.Names}}\t{{.Image}}\t{{.Status}}' | grep -iE 'agent|caddy' || true
+            echo "----- images -----"
+            docker images --format '{{.Repository}}:{{.Tag}}\t{{.ID}}\t{{.CreatedAt}}' | grep -iE 'agent-os|caddy|teamly' || true
+            echo "----- agentos INTERNAL (localhost:3000) -----"
+            docker compose -f $F exec -T agentos node -e "require('http').get('http://127.0.0.1:3000/',r=>{let d='';r.on('data',c=>d+=c);r.on('end',()=>console.log('status',r.statusCode,'| hasСотрудники',d.includes('Сотрудники'),'| hasOffice',d.includes('officeWrap'),'| len',d.length))}).on('error',e=>console.log('ERR',e.message))" || echo "exec failed"
+            echo "----- caddy FULL PATH (https via Host header, like the browser) -----"
+            curl -sk -H "Host: agent.work8n.ru" https://127.0.0.1/ -o /tmp/p.html -w "http_code=%{http_code} size=%{size_download}\n" || echo "curl failed"
+            echo "title:"; grep -o '<title>[^<]*</title>' /tmp/p.html || true
+            echo "Сотрудники:"; grep -c "Сотрудники" /tmp/p.html || true
+            echo "officeWrap:"; grep -c "officeWrap" /tmp/p.html || true
+            echo "head:"; head -c 300 /tmp/p.html; echo
+            echo "================ CLEAN RESTART ================"
+            docker compose -f $F pull
+            docker compose -f $F down --remove-orphans
+            docker compose -f $F up -d --force-recreate
+            docker image prune -f || true
+            echo "waiting for health..."
+            sleep 20
+            echo "================ AFTER ================"
+            docker compose -f $F ps
+            echo "----- caddy FULL PATH again -----"
+            curl -sk -H "Host: agent.work8n.ru" https://127.0.0.1/ -o /tmp/p2.html -w "http_code=%{http_code} size=%{size_download}\n" || echo "curl failed"
+            echo "Сотрудники:"; grep -c "Сотрудники" /tmp/p2.html || true
+            echo "officeWrap:"; grep -c "officeWrap" /tmp/p2.html || true

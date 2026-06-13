@@ -6,6 +6,7 @@
 
 export type RunEventType =
   | 'run.started'
+  | 'run.token'
   | 'step.appended'
   | 'run.succeeded'
   | 'run.failed'

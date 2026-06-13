@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<!--
+  ШАБЛОН HTML-брендбука для движка build_pdf_chromium.py.
+  Семейства 'BB Serif' (заголовки) и 'BB Sans' (текст) встраиваются скриптом
+  автоматически через @font-face base64 — они содержат кириллицу.
+  Подставь контент вместо {{...}} и фирменные цвета в :root, затем отрендери.
+-->
+<style>
+  :root{
+    --primary:#1A1A2E;   /* основной / тёмный */
+    --accent:#C9A227;    /* акцент */
+    --text:#2B2B2B;
+    --muted:#6B6B6B;
+    --light:#F5F3EE;     /* фон страниц */
+  }
+  body{font-family:'BB Sans',sans-serif;color:var(--text);}
+  h1,h2,h3,.serif{font-family:'BB Serif',serif;}
+  .page{width:210mm;min-height:297mm;box-sizing:border-box;background:var(--light);
+        padding:22mm 20mm 20mm;position:relative;}
+  .footer{position:absolute;left:20mm;right:20mm;bottom:12mm;border-top:1px solid var(--accent);
+          padding-top:3mm;display:flex;justify-content:space-between;font-size:8pt;color:var(--muted);}
+  .sec-title{background:var(--primary);color:#fff;font-family:'BB Serif',serif;font-weight:700;
+             font-size:16pt;padding:4mm 6mm;border-left:3mm solid var(--accent);margin-bottom:7mm;}
+  .label{font-family:'BB Sans';font-weight:700;font-size:9pt;letter-spacing:.08em;
+          text-transform:uppercase;color:var(--accent);margin:5mm 0 2mm;}
+  p{line-height:1.5;font-size:10.5pt;margin:0 0 3mm;}
+
+  /* Обложка */
+  .cover{background:var(--primary);color:#fff;display:flex;flex-direction:column;
+         align-items:center;justify-content:center;text-align:center;}
+  .cover .frame{position:absolute;inset:14mm;border:1.2px solid var(--accent);}
+  .cover .kicker{color:var(--accent);font-weight:700;letter-spacing:.3em;font-size:12pt;margin-bottom:30mm;}
+  .cover h1{font-size:34pt;margin:0;}
+  .cover .rule{width:60mm;height:1px;background:var(--accent);margin:6mm 0;}
+  .cover .pos{max-width:130mm;font-size:12.5pt;line-height:1.5;color:#e8e6df;}
+  .cover .year{color:var(--accent);position:absolute;bottom:30mm;font-size:11pt;}
+
+  /* Цвета */
+  .swatch{display:flex;align-items:center;gap:6mm;margin-bottom:6mm;}
+  .swatch .chip{width:22mm;height:22mm;border-radius:2mm;flex:0 0 auto;}
+  .swatch .hex{color:var(--accent);font-weight:700;font-size:9.5pt;}
+  /* Ценности */
+  .value{display:flex;gap:4mm;margin-bottom:5mm;}
+  .value .num{width:8mm;height:8mm;border-radius:50%;background:var(--primary);color:var(--accent);
+              font-weight:700;display:flex;align-items:center;justify-content:center;font-size:9pt;flex:0 0 auto;}
+  .quote{border-left:1.6mm solid var(--accent);padding-left:5mm;font-family:'BB Serif';font-size:11pt;margin:0 0 3mm;}
+  .anti{color:var(--muted);}
+</style>
+</head>
+<body>
+
+<!-- 1. ОБЛОЖКА -->
+<section class="page cover">
+  <div class="frame"></div>
+  <div class="kicker">БРЕНДБУК</div>
+  <h1>{{name}}</h1>
+  <div class="rule"></div>
+  <div class="pos">{{positioning}}</div>
+  <div class="year">{{year}}</div>
+</section>
+
+<!-- 2. КТО Я -->
+<section class="page">
+  <div class="sec-title">Кто я</div>
+  <p>{{about.bio}}</p>
+  <div class="label">Проекты</div><p>{{about.projects}}</p>
+  <div class="label">Опыт</div><p>{{about.experience}}</p>
+  <div class="label">Миссия</div><p>{{about.mission}}</p>
+  <div class="footer"><span>{{name}}</span><span>{{footer_contact}}</span><span>2</span></div>
+</section>
+
+<!-- 3. АУДИТОРИЯ, 4. ЦВЕТА, 5. ТИПОГРАФИКА, 6. ГОЛОС, 7. ЦЕННОСТИ+КОНТАКТЫ -->
+<!-- Скопируй структуру выше для остальных разделов, используя .sec-title / .label / .swatch / .value / .quote -->
+
+</body>
+</html>

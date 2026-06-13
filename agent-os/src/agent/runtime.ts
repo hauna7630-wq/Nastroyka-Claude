@@ -7,6 +7,7 @@
 //   - Surface failure by throwing, so the execution plane can retry / DLQ.
 
 import { isTerminal, transition } from '../domain/runStateMachine';
+import { EMPTY_OUTPUT_ERROR, isPlaceholderText } from '../domain/errors';
 import { ModelMessage, ModelProvider } from '../ports/model';
 import { Repository } from '../ports/repository';
 import { ToolRegistry, ToolNotAllowedError } from '../tools/registry';
@@ -59,6 +60,16 @@ export class MaxIterationsError extends Error {
   }
 }
 
+// Degradation guard: the model produced no real final answer (empty text or a
+// placeholder like "…"). The run must FAIL (worker retries → DLQ), never
+// succeed with an empty output the user sees as "...".
+export class EmptyModelOutputError extends Error {
+  constructor() {
+    super(EMPTY_OUTPUT_ERROR);
+    this.name = 'EmptyModelOutputError';
+  }
+}
+
 export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void> {
   const { repo, model, tools } = deps;
   const maxIterations = deps.maxIterations ?? DEFAULT_MAX_ITERATIONS;
@@ -100,6 +111,25 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
   // F5: recall relevant long-term/episodic memory into the system prompt.
   const task = toPrompt(run.input);
   let system = agent.systemPrompt;
+  // Personal-chat runs are a 1:1 CONVERSATION. Prepend a strong chat-mode
+  // directive to the SYSTEM prompt (the authoritative slot) so it overrides
+  // task-oriented personas — especially the orchestrator, which otherwise
+  // "accepts" small talk with «Принято» / «Ответ команды» and decomposes it.
+  const personalChat =
+    run.input != null &&
+    typeof run.input === 'object' &&
+    (run.input as { chat?: unknown }).chat === true;
+  if (personalChat) {
+    system =
+      'РЕЖИМ ЖИВОГО ЛИЧНОГО ЧАТА (1:1 с пользователем). Отвечай НАПРЯМУЮ и по существу на его ' +
+      'сообщение, как собеседник. НЕ оркеструй, НЕ декомпозируй на подзадачи, НЕ распределяй роли, ' +
+      'НЕ подтверждай получение словами «Принято» или «Ответ команды» — сразу давай содержательный ' +
+      'ответ. Если просят ответить кратко/одним словом/в заданном формате — выполни это буквально. ' +
+      'ВАЖНО: даже если в истории этой переписки твои прошлые ответы были сухими/формальными ' +
+      '(«Принято», «Ответ команды»), НЕ повторяй этот стиль — это был сбой, отвечай живо и по сути. ' +
+      'Подключай команду или подзадачи ТОЛЬКО если пользователь явно просит запустить работу команды.\n\n' +
+      system;
+  }
   if (deps.memory) {
     const recalled = await deps.memory.recall(agent.id, {
       kinds: ['long_term', 'episodic'],
@@ -120,6 +150,37 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
   // Per-run PII token mapping (never sent to the provider).
   const piiMap = new Map<string, string>();
 
+  // Live token streaming (UX only) — wired for chat runs, where a human waits on
+  // the bubble. Deltas are throttled and forwarded as `run.token` events; the
+  // authoritative answer is still the final persisted output, so a dropped or
+  // partial stream never affects correctness. PII-masked output is un-masked
+  // before it leaves so the user never sees a masking token.
+  const inputObj =
+    run.input && typeof run.input === 'object'
+      ? (run.input as { chat?: unknown; stream?: unknown })
+      : undefined;
+  // Stream live tokens for personal chat (chat:true) AND for orchestration child
+  // runs (stream:true) — the latter are bridged onto the parent stream so the
+  // "Обсуждение команды" panel can show each agent typing.
+  const isChat = !!deps.events && !!inputObj && (inputObj.chat === true || inputObj.stream === true);
+  let tokenBuf = '';
+  let lastTokenFlush = 0;
+  const flushTokens = (force: boolean): void => {
+    if (!tokenBuf) return;
+    const now = Date.now();
+    if (!force && now - lastTokenFlush < 90) return;
+    const chunk = deps.pii ? deps.pii.unmask(tokenBuf, piiMap) : tokenBuf;
+    tokenBuf = '';
+    lastTokenFlush = now;
+    emit(deps.events, 'run.token', runId, run.orgId, { text: chunk });
+  };
+  const onText = isChat
+    ? (delta: string): void => {
+        tokenBuf += delta;
+        flushTokens(false);
+      }
+    : undefined;
+
   try {
     for (let iter = 0; iter < maxIterations; iter++) {
       const started = Date.now();
@@ -132,18 +193,27 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
         system: outSystem,
         messages: outMessages,
         tools: tools.schemas(),
+        onText,
+        capabilities: { webSearch: !!agent.allowedTools?.includes('web_search') },
       });
+      flushTokens(true);
       // Un-mask the model's text back into real values for storage/use.
       const text = deps.pii ? deps.pii.unmask(turn.text ?? '', piiMap) : turn.text ?? '';
       tokensIn += turn.tokensIn;
       tokensOut += turn.tokensOut;
 
-      // Persist the assistant turn.
+      // Persist the assistant turn. The FIRST assistant step also carries a
+      // truncated preview of the composed prompt (system + task) — that is the
+      // debug-mode "what did the agent actually see" trace, with zero schema
+      // change (Step.input already exists; upserts only set input on create).
       await appendStep(repo, {
         runId,
         index: stepIndex++,
         role: 'assistant',
-        input: undefined,
+        input:
+          iter === 0
+            ? { system: truncate(outSystem, 2000), task: truncate(task, 2000) }
+            : undefined,
         output: text,
         latencyMs: Date.now() - started,
         tokensIn: turn.tokensIn,
@@ -157,7 +227,12 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
       });
 
       if (turn.toolCalls.length === 0) {
-        // No tools requested => final answer.
+        // No tools requested => final answer. Degradation guard first: an
+        // empty/placeholder answer is a FAILURE (retried, then DLQ'd with an
+        // honest reason), never a silent empty success.
+        if (!text.trim() || isPlaceholderText(text)) {
+          throw new EmptyModelOutputError();
+        }
         await repo.updateRunStatus(runId, transition('running', 'succeeded'), { output: text });
         await repo.audit({
           orgId: run.orgId,

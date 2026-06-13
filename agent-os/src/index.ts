@@ -14,11 +14,15 @@ import { codeExecTool } from './tools/codeExec';
 import { webSearchTool } from './tools/webSearch';
 import { readDocumentTool } from './tools/document';
 import { TavilySearchProvider } from './adapters/search.tavily';
-import { PlainTextDocumentParser } from './adapters/documents.text';
+import { PerplexitySearchProvider } from './adapters/search.perplexity';
+import { RichDocumentParser } from './adapters/documents.rich';
 import { WorkerDeps } from './worker/worker';
 import { PrismaRepository, PrismaClientLike } from './adapters/repo.prisma';
 import { BullMQQueue } from './adapters/queue.bullmq';
 import { AnthropicModelProvider } from './adapters/model.anthropic';
+import { ClaudeSubscriptionModelProvider } from './adapters/model.claudeSubscription';
+import { OfflineModelProvider } from './adapters/model.offline';
+import { ModelProvider } from './ports/model';
 import { ModelPlanner } from './orchestrator/planner';
 import { RedisEventBus } from './adapters/events.redis';
 import { PgVectorMemoryStore, RawSqlClient } from './adapters/memory.vector.pg';
@@ -53,10 +57,19 @@ export function buildApp(): App {
   const repo = new PrismaRepository(prisma as PrismaClientLike);
 
   const queue = new BullMQQueue({ redisUrl: config.redisUrl });
-  const model = new AnthropicModelProvider({
-    apiKey: config.anthropicApiKey,
-    model: config.anthropicModel,
-  });
+  // Brain selection: Max subscription (OAuth token) → API key → offline fallback.
+  let model: ModelProvider;
+  if (config.claudeOauthToken) {
+    model = new ClaudeSubscriptionModelProvider({ model: config.anthropicModel });
+  } else if (config.anthropicApiKey) {
+    model = new AnthropicModelProvider({
+      apiKey: config.anthropicApiKey,
+      model: config.anthropicModel,
+      baseURL: config.anthropicBaseUrl || undefined,
+    });
+  } else {
+    model = new OfflineModelProvider();
+  }
   const tools = buildToolRegistry();
   // F6: the orchestrator decomposes complex tasks into typed-agent subtasks.
   const planner = new ModelPlanner(model);
@@ -66,15 +79,23 @@ export function buildApp(): App {
   // F3: isolate for code_exec (Linux namespaces + rlimits). Swap for
   // DockerSandbox where a container runtime + images are available.
   const sandbox = new SubprocessSandbox();
-  // PRD §3 integration tools.
-  const search = config.tavilyApiKey ? new TavilySearchProvider({ apiKey: config.tavilyApiKey }) : undefined;
-  const documents = new PlainTextDocumentParser();
+  // PRD §3 integration tools. Provider cascade: Perplexity (preferred) → Tavily.
+  // Used by the agent-os web_search tool on tool-capable paths (API path); the
+  // subscription/CLI path uses the CLI's built-in WebSearch instead (see runtime
+  // capabilities + model.claudeSubscription).
+  const search = config.perplexityApiKey
+    ? new PerplexitySearchProvider({ apiKey: config.perplexityApiKey })
+    : config.tavilyApiKey
+      ? new TavilySearchProvider({ apiKey: config.tavilyApiKey })
+      : undefined;
+  // Doc-1 file handling: docx/pdf/xlsx + text/csv/json, honest actionable errors.
+  const documents = new RichDocumentParser();
   // Mask PII before prompts leave for external LLMs.
   const pii = new RegexPiiMasker();
   // F4: cross-process event bus (Redis pub/sub) + observability + control-plane API.
   const events = new RedisEventBus(config.redisUrl);
   const observability = new Observability(repo);
-  const controlPlane = new ControlPlane({ repo, queue, observability, events });
+  const controlPlane = new ControlPlane({ repo, queue, observability, events, documents });
 
   return {
     workerDeps: {

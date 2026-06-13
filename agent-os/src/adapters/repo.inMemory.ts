@@ -3,6 +3,7 @@
 import {
   Agent,
   AgentType,
+  ChatMessageRecord,
   DeadLetterRecord,
   MemoryKind,
   MemoryRecord,
@@ -30,6 +31,7 @@ export class InMemoryRepository implements Repository {
   private steps = new Map<string, Step>(); // key: `${runId}:${index}`
   private deadLetters: DeadLetterRecord[] = [];
   private memories: MemoryRecord[] = [];
+  private chatMessages: ChatMessageRecord[] = [];
   public readonly auditLog: AuditRecord[] = [];
 
   // --- Test seeding helpers (not part of the port) ---
@@ -75,6 +77,58 @@ export class InMemoryRepository implements Repository {
     return [...this.agents.values()].filter((a) => a.orgId === orgId).map((a) => ({ ...a }));
   }
 
+  // --- Chat thread (dialog memory) ---
+  async appendChatMessage(msg: ChatMessageRecord): Promise<ChatMessageRecord> {
+    const stored: ChatMessageRecord = {
+      ...msg,
+      id: msg.id ?? `msg_${randomUUID()}`,
+      createdAt: msg.createdAt ?? Date.now(),
+    };
+    this.chatMessages.push(stored);
+    return { ...stored };
+  }
+  async appendChatReplyIfAbsent(
+    msg: ChatMessageRecord & { runId: string },
+  ): Promise<boolean> {
+    const exists = this.chatMessages.some(
+      (m) => m.runId === msg.runId && m.role === msg.role,
+    );
+    if (exists) return false;
+    await this.appendChatMessage(msg);
+    return true;
+  }
+  async listChatMessages(
+    orgId: string,
+    agentId: string,
+    limit = 100,
+  ): Promise<ChatMessageRecord[]> {
+    const all = this.chatMessages
+      .filter((m) => m.orgId === orgId && m.agentId === agentId)
+      .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
+    return all.slice(-limit).map((m) => ({ ...m, reactions: m.reactions ? [...m.reactions] : undefined }));
+  }
+  async clearChatMessages(orgId: string, agentId: string): Promise<number> {
+    const before = this.chatMessages.length;
+    this.chatMessages = this.chatMessages.filter((m) => !(m.orgId === orgId && m.agentId === agentId));
+    return before - this.chatMessages.length;
+  }
+  async toggleChatReaction(
+    orgId: string,
+    agentId: string,
+    messageId: string,
+    emoji: string,
+  ): Promise<ChatMessageRecord | null> {
+    const m = this.chatMessages.find(
+      (x) => x.id === messageId && x.orgId === orgId && x.agentId === agentId,
+    );
+    if (!m) return null;
+    const set = new Set(m.reactions ?? []);
+    if (set.has(emoji)) set.delete(emoji);
+    else set.add(emoji);
+    m.reactions = [...set];
+    return { ...m, reactions: [...m.reactions] };
+  }
+
   // --- Runs ---
   async getRun(runId: string): Promise<Run | null> {
     const r = this.runs.get(runId);
@@ -93,10 +147,15 @@ export class InMemoryRepository implements Repository {
       .filter((r) => r.parentRunId === parentRunId)
       .map((r) => ({ ...r }));
   }
-  async listRunsByOrg(orgId: string): Promise<Run[]> {
-    return [...this.runs.values()]
-      .filter((r) => r.orgId === orgId)
-      .map((r) => ({ ...r }));
+  async listRunsByOrg(
+    orgId: string,
+    opts: { agentId?: string; limit?: number } = {},
+  ): Promise<Run[]> {
+    const all = [...this.runs.values()].filter(
+      (r) => r.orgId === orgId && (!opts.agentId || r.agentId === opts.agentId),
+    );
+    const capped = opts.limit ? all.slice(-opts.limit) : all;
+    return capped.map((r) => ({ ...r }));
   }
   async updateRunStatus(
     runId: string,

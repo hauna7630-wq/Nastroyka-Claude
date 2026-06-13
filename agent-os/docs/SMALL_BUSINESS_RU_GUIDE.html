@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Small Business — гид по скиллам и адаптация под РФ</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;1,500&family=Inter:wght@300;400;500;600;700&display=swap');
+:root{
+  --bg:#0e1020; --panel:#161a2e; --panel2:#1b2138; --ink:#ece8e1; --muted:#a7a290;
+  --gold:#c9a84c; --gold-light:#dfc06e; --gold-dark:#a88a3a;
+  --blue:#9bc0ef; --green:#9ad9ad; --red:#d98a86;
+  --line:rgba(201,168,76,.26);
+  --disp:'Playfair Display',Georgia,serif;
+  --body:'Inter','Helvetica Neue',Arial,sans-serif;
+}
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);
+  font-size:16px;line-height:1.65;}
+a{color:var(--gold-light);text-decoration:none;}
+a:hover{text-decoration:underline;}
+.wrap{max-width:1080px;margin:0 auto;padding:0 22px 80px;}
+h1,h2,h3,h4{font-family:var(--disp);font-weight:600;margin:0;}
+.gold{color:var(--gold-light);}
+
+/* hero */
+.hero{position:relative;overflow:hidden;padding:64px 22px 44px;
+  background:radial-gradient(120% 90% at 85% -10%,rgba(201,168,76,.18),transparent 55%),
+    linear-gradient(160deg,#0b0d18,#11142a 60%,#0b0d18);}
+.hero .inner{max-width:1080px;margin:0 auto;}
+.eyebrow{font-size:12px;letter-spacing:.34em;text-transform:uppercase;color:var(--gold);font-weight:600;}
+.hero h1{font-size:40px;line-height:1.06;margin:14px 0 0;}
+.hero h1 .it{font-style:italic;color:var(--gold-light);font-weight:500;}
+.hero p.sub{color:var(--muted);font-size:18px;max-width:760px;margin:16px 0 0;}
+.hero .meta{margin-top:22px;display:flex;flex-wrap:wrap;gap:10px;}
+.chip{background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:30px;
+  padding:5px 14px;font-size:12.5px;color:var(--muted);}
+.chip b{color:var(--ink);font-weight:600;}
+
+/* nav */
+.toc{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 22px;margin:28px 0;}
+.toc h3{font-size:14px;letter-spacing:.06em;text-transform:uppercase;color:var(--gold);margin-bottom:10px;}
+.toc ol{margin:0;padding-left:20px;columns:2;column-gap:32px;font-size:14.5px;}
+.toc li{margin:3px 0;break-inside:avoid;}
+@media(max-width:680px){.toc ol{columns:1;}}
+
+section{margin:40px 0;}
+.section-head{display:flex;align-items:baseline;gap:14px;border-bottom:1px solid var(--line);
+  padding-bottom:10px;margin-bottom:22px;}
+.section-head .num{font-family:var(--disp);font-size:30px;color:var(--gold);line-height:1;}
+.section-head h2{font-size:25px;}
+.section-head .tag{margin-left:auto;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);}
+
+p{margin:0 0 14px;}
+.lead{color:var(--muted);font-size:16.5px;max-width:820px;}
+.callout{border-left:3px solid var(--gold);background:rgba(201,168,76,.07);
+  padding:14px 18px;border-radius:0 10px 10px 0;margin:18px 0;font-size:15px;}
+.callout.warn{border-color:var(--red);background:rgba(217,138,134,.08);}
+.callout b{color:var(--gold-light);}
+.callout.warn b{color:var(--red);}
+
+/* mapping table */
+table.map{width:100%;border-collapse:collapse;font-size:14px;margin:8px 0 6px;}
+table.map th{background:var(--panel2);color:var(--gold-light);text-align:left;padding:10px 12px;
+  font-size:12px;letter-spacing:.05em;text-transform:uppercase;border-bottom:1px solid var(--line);}
+table.map td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.06);vertical-align:top;}
+table.map tr:nth-child(even) td{background:rgba(255,255,255,.018);}
+.svc{font-weight:600;color:var(--ink);}
+.status{font-size:12px;padding:2px 8px;border-radius:20px;white-space:nowrap;display:inline-block;}
+.st-no{background:rgba(217,138,134,.16);color:var(--red);}
+.st-part{background:rgba(201,168,76,.16);color:var(--gold-light);}
+.st-ok{background:rgba(120,190,140,.16);color:var(--green);}
+
+/* skill cards */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:20px 22px;margin-bottom:18px;}
+.card .top{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:6px;}
+.card h3{font-size:19px;}
+.cmd{font-family:'Inter',monospace;font-size:12.5px;color:var(--gold);background:rgba(201,168,76,.1);
+  border:1px solid var(--line);border-radius:6px;padding:2px 9px;}
+.dup{font-size:11px;color:var(--muted);font-style:italic;}
+.card .what{margin:8px 0 14px;}
+.row{display:grid;grid-template-columns:128px 1fr;gap:6px 16px;font-size:14.5px;margin:7px 0;}
+.row .k{color:var(--gold);font-weight:600;font-size:12.5px;letter-spacing:.04em;text-transform:uppercase;padding-top:1px;}
+.row .v{color:var(--ink);}
+.row .v.muted{color:var(--muted);}
+@media(max-width:620px){.row{grid-template-columns:1fr;gap:2px;}}
+
+.footer{margin-top:50px;border-top:1px solid var(--line);padding-top:18px;color:var(--muted);font-size:13px;}
+.footer .slogan{font-family:var(--disp);font-style:italic;color:var(--gold-light);font-size:16px;margin-bottom:8px;}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="inner">
+    <div class="eyebrow">Плагин Small Business · разбор и локализация</div>
+    <h1>31 скилл Small Business:<br><span class="it">что делает каждый и чем заменить коннекторы в России</span></h1>
+    <p class="sub">Подробный разбор всех скиллов плагина, перевод на понятный язык и практическая адаптация под российский рынок — с альтернативами сервисам, которых у нас нет (PayPal, Stripe, QuickBooks, HubSpot, Canva, DocuSign).</p>
+    <div class="meta">
+      <span class="chip"><b>31</b> скилл</span>
+      <span class="chip"><b>9</b> групп задач</span>
+      <span class="chip">актуально на <b>2026</b></span>
+      <span class="chip">для <b>ИП · ООО · самозанятых</b></span>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <div class="callout warn">
+    <b>Сначала — главное про коннекторы.</b> Скиллы спроектированы под зарубежные сервисы. Для России почти все они недоступны: PayPal приостановил работу с 2022 г., Stripe и Square не работают с российскими юрлицами, Canva и DocuSign закрыли оплату из РФ, HubSpot/Gmail работают нестабильно. Готовых MCP-коннекторов к российским сервисам (ЮKassa, Битрикс24, 1С и т.д.) в Cowork «из коробки» нет. Поэтому реалистичных способов использовать эти скиллы у нас три, и они описаны в разделе <a href="#how">«Как это применять в России»</a>.
+  </div>
+
+  <div class="toc">
+    <h3>Содержание</h3>
+    <ol>
+      <li><a href="#map">Карта замен: сервис → российский аналог</a></li>
+      <li><a href="#how">Как применять скиллы в России (3 способа)</a></li>
+      <li><a href="#g-meta">Навигация и старт</a></li>
+      <li><a href="#g-brief">Сводки и операционка</a></li>
+      <li><a href="#g-money">Финансы и деньги</a></li>
+      <li><a href="#g-close">Закрытие месяца и отчётность</a></li>
+      <li><a href="#g-tax">Налоги</a></li>
+      <li><a href="#g-sales">Продажи и CRM</a></li>
+      <li><a href="#g-mkt">Маркетинг и контент</a></li>
+      <li><a href="#g-cs">Клиентский сервис</a></li>
+      <li><a href="#g-hr">Найм и договоры</a></li>
+      <li><a href="#tax-note">Налоговая шпаргалка для РФ (2026)</a></li>
+    </ol>
+  </div>
+
+  <!-- ============ MAPPING ============ -->
+  <section id="map">
+    <div class="section-head"><span class="num">★</span><h2>Карта замен: сервис → российский аналог</h2></div>
+    <p class="lead">Эта таблица — ключ ко всему документу. В карточках скиллов ниже коннекторы указаны кратко, а здесь — полный список альтернатив и их статус в РФ.</p>
+    <table class="map">
+      <thead><tr><th>Коннектор в скилле</th><th>Зачем нужен</th><th>Статус в РФ</th><th>Чем заменить</th></tr></thead>
+      <tbody>
+        <tr><td class="svc">QuickBooks</td><td>бухгалтерия, учёт доходов/расходов</td><td><span class="status st-no">недоступен</span></td><td>Контур.Эльба, 1С:Бухгалтерия (1С:Фреш), «Моё дело», МойСклад (товарный учёт), Контур.Бухгалтерия, бухгалтерия от банка (Тинькофф, Точка, Сбер)</td></tr>
+        <tr><td class="svc">PayPal</td><td>приём оплат, счета, возвраты</td><td><span class="status st-no">с 2022 не работает</span></td><td>ЮKassa, CloudPayments, Robokassa, PayMaster, эквайринг банка (Тинькофф/Точка/Сбер/Альфа), СБП (оплата по QR), карты «Мир»</td></tr>
+        <tr><td class="svc">Stripe</td><td>онлайн-платежи</td><td><span class="status st-no">нет для РФ-юрлиц</span></td><td>те же: ЮKassa, CloudPayments, эквайринг банков</td></tr>
+        <tr><td class="svc">Square</td><td>офлайн-касса / POS</td><td><span class="status st-no">недоступен</span></td><td>Эвотор, АТОЛ Sigma, кассы и терминалы банков, оплата по QR через СБП</td></tr>
+        <tr><td class="svc">HubSpot</td><td>CRM, сделки, контакты</td><td><span class="status st-part">оплата затруднена</span></td><td>Битрикс24 (всё-в-одном), amoCRM (продажи), RetailCRM (интернет-магазины), Мегаплан, SberCRM</td></tr>
+        <tr><td class="svc">Gmail</td><td>почта</td><td><span class="status st-part">работает, есть риски</span></td><td>Яндекс 360 (Почта), VK WorkSpace / WorkMail, Mail.ru для бизнеса, МойОфис Почта</td></tr>
+        <tr><td class="svc">Google Calendar</td><td>календарь, встречи</td><td><span class="status st-part">работает</span></td><td>Яндекс Календарь (в Яндекс 360), VK Календарь</td></tr>
+        <tr><td class="svc">Canva</td><td>дизайн постов и баннеров</td><td><span class="status st-no">оплата из РФ закрыта</span></td><td>Supa, VistaCreate, Граформа, Flyvi, Wilda; Figma и Adobe Express (с ограничениями); Gamma — для презентаций</td></tr>
+        <tr><td class="svc">DocuSign</td><td>электронная подпись договоров</td><td><span class="status st-no">недоступен</span></td><td>Контур.Сайн (НЭП бесплатно, для самозанятых/физлиц), Nopaper, Госключ, Контур.Диадок, СБИС, Sign.Me</td></tr>
+        <tr><td class="svc">Slack</td><td>командный чат, уведомления</td><td><span class="status st-part">ограниченно</span></td><td>Telegram, Пачка, VK Teams, eXpress, Mattermost (на своём сервере), чат в Битрикс24</td></tr>
+        <tr><td class="svc">Google / Yelp reviews</td><td>отзывы клиентов</td><td><span class="status st-part">частично</span></td><td>Яндекс Бизнес (Яндекс Карты), 2ГИС, Flamp, Zoon, Otzovik, Авито, Irecommend</td></tr>
+        <tr><td class="svc">IRS / 1099 / SE-tax</td><td>налоги (США)</td><td><span class="status st-no">неприменимо</span></td><td>ФНС, личный кабинет налогоплательщика, «Мой налог» (для НПД), Эльба/Контур/1С для расчёта УСН и патента</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ HOW ============ -->
+  <section id="how">
+    <div class="section-head"><span class="num">⚙</span><h2>Как применять скиллы в России</h2></div>
+    <p class="lead">Раз готовых коннекторов к российским сервисам нет, у вас три рабочих сценария. Большинство скиллов отлично живут в режиме 1 и 2.</p>
+    <div class="card">
+      <div class="top"><h3>1. Ручная выгрузка → Claude</h3><span class="cmd">проще всего</span></div>
+      <p class="what">Выгружаете данные из российского сервиса (отчёт из Эльбы, выписка из банка, экспорт сделок из Битрикс24, отзывы из Яндекс Бизнеса) в CSV/Excel или просто копируете текст — и отдаёте Claude. Скилл делает анализ, сводку, черновики. Часть скиллов прямо поддерживает загрузку файла (например, прогноз денег умеет работать с CSV вместо QuickBooks).</p>
+      <p class="what muted">Минус: данные обновляете руками. Плюс: работает уже сегодня, без интеграций и без передачи доступов.</p>
+    </div>
+    <div class="card">
+      <div class="top"><h3>2. Скилл как методика и шаблон</h3><span class="cmd">для документов</span></div>
+      <p class="what">Многие скиллы ценны не подключением, а логикой: структура контент-плана, чек-лист закрытия месяца, схема разбора жалобы, шаблон вакансии и оффера, разбор договора по пунктам. Здесь коннекторы вообще не нужны — вы даёте вводные текстом, получаете готовый документ.</p>
+    </div>
+    <div class="card">
+      <div class="top"><h3>3. Свой мост через API / Zapier</h3><span class="cmd">для технических</span></div>
+      <p class="what">У ЮKassa, Битрикс24, amoCRM, 1С, Яндекс 360 есть API. Через Zapier/Make или собственный MCP-сервер можно связать их с Claude. Это уже работа разработчика, но даёт «живое» подключение, близкое к оригинальному замыслу скиллов.</p>
+    </div>
+    <div class="callout"><b>Вывод:</b> воспринимайте скиллы Small Business как готовые рабочие процессы и интеллект, а не как кнопку «подключить PayPal». Источник данных меняете на российский, логику оставляете.</div>
+  </section>
+
+  <!-- ============ GROUP: META ============ -->
+  <section id="g-meta">
+    <div class="section-head"><span class="num">A</span><h2>Навигация и старт</h2><span class="tag">2 скилла</span></div>
+
+    <div class="card">
+      <div class="top"><h3>Маршрутизатор</h3><span class="cmd">/smb-router</span></div>
+      <p class="what">«Парадная дверь» плагина. Выслушивает запрос — даже расплывчатый («не знаю, с чего начать», «помоги с бизнесом») — и направляет к нужному скиллу, подсказывает, что попробовать дальше. Учитывает сохранённый контекст вашего бизнеса.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v muted">не требуются</div></div>
+      <div class="row"><div class="k">Адаптация РФ</div><div class="v">Работает как есть. Полезен на старте — задайте вопрос своими словами, он предложит подходящий скилл.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Онбординг</h3><span class="cmd">/smb-onboard</span></div>
+      <p class="what">Claude в роли наставника: помогает подключить первые два инструмента, прогоняет один сценарий ради быстрого результата, расспрашивает про ваш бизнес (отрасль, размер, три главные «боли») и сохраняет это в память — чтобы остальные скиллы работали точнее. Настраивает еженедельный ритм проверок.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v muted">подключение любых доступных</div></div>
+      <div class="row"><div class="k">Адаптация РФ</div><div class="v">Вместо подключения зарубежных сервисов опишите свой стек словами (например, «Эльба + Тинькофф + Битрикс24») и расскажите про бизнес — контекст сохранится и пригодится во всех скиллах. Пропускайте шаги с подключением PayPal/HubSpot.</div></div>
+    </div>
+  </section>
+
+  <!-- ============ GROUP: BRIEFINGS ============ -->
+  <section id="g-brief">
+    <div class="section-head"><span class="num">B</span><h2>Сводки и операционка</h2><span class="tag">4 скилла</span></div>
+
+    <div class="card">
+      <div class="top"><h3>Пульс бизнеса</h3><span class="cmd">business-pulse</span></div>
+      <p class="what">Одностраничный срез по бизнесу: деньги на счетах, динамика продаж, движение в воронке, дела на неделю, что требует срочного внимания и одна главная задача на сегодня. Сам пробует все подключённые источники и собирает картину из того, что есть.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">QuickBooks, PayPal/Square, HubSpot, Календарь, Gmail/Slack</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">Эльба/банк (деньги), ЮKassa/банк (продажи), Битрикс24/amoCRM (воронка), Яндекс Календарь, почта/Telegram</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Раз в день/неделю выгружайте остатки по счёту, сумму продаж и список сделок — Claude соберёт сводку и подсветит главное. Идеальный кандидат на «живой артефакт» с ежедневным обновлением.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Понедельничная сводка</h3><span class="cmd">/monday-brief</span></div>
+      <p class="what">Бриф на утро понедельника: деньги, продажи, воронка, что впереди на неделе и три главные задачи. Можно настроить автозапуск и отправку.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">QuickBooks, PayPal, HubSpot, Календарь</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">те же российские аналоги; отправку — в Telegram вместо Slack</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Свяжите с запланированной задачей (каждый понедельник в 8:00). Источник данных — ваша выгрузка или ответы на пару вопросов.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Пятничная сводка</h3><span class="cmd">/friday-brief</span></div>
+      <p class="what">Итог недели: выручка против прошлой недели, топ-продажи, победы и тревожные сигналы. Принимает окно обзора 7 или 14 дней.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">PayPal/Square, QuickBooks</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">ЮKassa/банковский эквайринг, Эльба/МойСклад</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Дайте выгрузку продаж за 2 недели — сравнение и выводы Claude сделает сам.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Напоминание на 25-е</h3><span class="cmd">/month-heads-up</span></div>
+      <p class="what">Запускается 25-го числа: показывает прогноз денежного потока на ближайшие 30 дней и заранее подсвечивает то, что нужно решить до конца месяца. Горизонт 30 или 60 дней.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">QuickBooks, PayPal</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">Эльба/банк; учитывайте российские даты платежей — налоги по ЕНС до 28-го, взносы, зарплата</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Особенно полезно перед 28-м числом (единый налоговый платёж) и днями выплаты зарплаты/аванса.</div></div>
+    </div>
+  </section>
+
+  <!-- ============ GROUP: MONEY ============ -->
+  <section id="g-money">
+    <div class="section-head"><span class="num">C</span><h2>Финансы и деньги</h2><span class="tag">5 скиллов</span></div>
+
+    <div class="card">
+      <div class="top"><h3>Прогноз денежного потока</h3><span class="cmd">cash-flow-snapshot</span></div>
+      <p class="what">Читает дебиторку/кредиторку, историю платежей и постоянные расходы и строит прогноз денег на 30/60/90 дней с коридором уверенности и названными рисками («кассовый разрыв тогда-то»). Отдаёт сводку и Excel-файл.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">QuickBooks, PayPal, Stripe, Square <b>или загрузка CSV</b></div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">CSV/выписка из банка, отчёт из Эльбы/1С/МойСклад</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Лучший «безконнекторный» скилл: он официально умеет работать с CSV. Выгрузите выписку из банка — получите прогноз и риски кассовых разрывов.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Анализ маржи</h3><span class="cmd">margin-analyzer</span></div>
+      <p class="what">Считает юнит-экономику по каждому товару/услуге, сравнивает с инфляцией и ростом издержек, показывает сценарии цены («повышение на 5% исторически даёт ~3% падения объёма»). Только аналитика — конкретную цену не навязывает.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">PayPal merchant insights, QuickBooks (себестоимость)</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">данные о продажах из ЮKassa/МойСклад + себестоимость из 1С/Эльбы</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Дайте таблицу «товар — цена — себестоимость — продажи». Учтите в расчётах новый НДС 22% и порог НДС на УСН с 20 млн ₽ (с 2026 г.).</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Проверка цен</h3><span class="cmd">/price-check</span><span class="dup">похоже на margin-analyzer</span></div>
+      <p class="what">Таблица маржи по товарам плюс три ценовых сценария, чтобы увидеть полную финансовую картину перед изменением цены. Принимает имя конкретного товара.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">PayPal, QuickBooks</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">МойСклад/1С + ваша таблица себестоимости</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Используйте, когда нужно быстро решить по одному товару. Тот же ввод, что и для анализа маржи.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Планирование зарплаты</h3><span class="cmd">/plan-payroll</span></div>
+      <p class="what">Прогнозирует деньги, ранжирует просроченные счета и готовит напоминания, чтобы вы уверенно выплатили зарплату. Принимает горизонт и дату выплаты.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">QuickBooks, PayPal (напоминания должникам)</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">банк/Эльба; зарплатные расчёты — 1С:ЗУП, Контур.Зарплата, СБИС</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v"><b>Важно:</b> в РФ к фонду зарплаты добавьте НДФЛ (13/15%) и страховые взносы в СФР, сроки аванса и зарплаты, единый налоговый платёж. Скилл поможет с планом денег; сами расчёты налогов держите в бухгалтерском сервисе.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Сбор дебиторки</h3><span class="cmd">invoice-chase</span></div>
+      <p class="what">Пишет письма-напоминания по просроченным счетам, подбирая тон под историю платежей клиента (мягко для хороших, твёрже для регулярных должников). Отправка через PayPal с подтверждением; остальное — черновики писем.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">QuickBooks, PayPal</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">реестр счетов из Эльбы/1С; отправка — почта, Telegram, СМС; оплата по ссылке ЮKassa или QR СБП</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Отлично работает как генератор писем: дайте список должников и сумм — получите вежливые, тон-в-тон напоминания со ссылкой на оплату.</div></div>
+    </div>
+  </section>
+
+  <!-- ============ GROUP: CLOSE ============ -->
+  <section id="g-close">
+    <div class="section-head"><span class="num">D</span><h2>Закрытие месяца и отчётность</h2><span class="tag">3 скилла</span></div>
+
+    <div class="card">
+      <div class="top"><h3>Закрытие месяца</h3><span class="cmd">/close-month</span></div>
+      <p class="what">Сверяет данные бухгалтерии с платёжными сервисами, подсвечивает расхождения, пишет текстовый разбор P&amp;L (отчёта о прибылях и убытках), формирует пакет на закрытие. Принимает месяц и папку для сохранения.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">QuickBooks vs PayPal/Square/Stripe</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">сверка выписки банка/эквайринга с данными Эльбы/1С</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Дайте две выгрузки (банк и учёт) — Claude найдёт расхождения и опишет результаты месяца человеческим языком.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Подготовка к закрытию</h3><span class="cmd">month-end-prep</span><span class="dup">развёрнутый вариант close-month</span></div>
+      <p class="what">Проводит за руку через закрытие месяца: сверяет учёт с платежами, ловит непроведённые операции, подозрительные дубли и недостающие чеки/документы, пишет понятный разбор P&amp;L и выгружает пакет (Excel + одностраничный PDF).</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">QuickBooks, PayPal (Square/Stripe)</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">Эльба/1С + банк/эквайринг; «чеки» — закрывающие документы, акты, УПД</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Под РФ «недостающие чеки» = недостающие закрывающие (акты, УПД, счета-фактуры). Полезно как чек-лист перед сдачей бухгалтеру.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Квартальный обзор</h3><span class="cmd">/quarterly-review</span></div>
+      <p class="what">Полный нарратив QBR (квартального обзора бизнеса): динамика выручки и маржи, здоровье клиентской базы, ключевые возможности и риски — в виде презентации или PDF, готового к показу.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">QuickBooks, PayPal, HubSpot</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">данные из Эльбы/1С + Битрикс24/amoCRM</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Коннекторы не обязательны: дайте цифры за квартал — получите аккуратный обзор для партнёров/инвесторов/себя.</div></div>
+    </div>
+  </section>
+
+  <!-- ============ GROUP: TAX ============ -->
+  <section id="g-tax">
+    <div class="section-head"><span class="num">E</span><h2>Налоги</h2><span class="tag">2 скилла · США → РФ</span></div>
+    <div class="callout warn"><b>Эти два скилла — самые «американские».</b> Они считают федеральный налог США и готовят формы 1099/W-9. В России это неприменимо напрямую: другие налоги, режимы и формы. Используйте логику («посчитать аванс», «собрать данные по исполнителям для бухгалтера»), но цифры и формы — по российским правилам. См. <a href="#tax-note">налоговую шпаргалку</a>.</div>
+
+    <div class="card">
+      <div class="top"><h3>Подготовка к налогам</h3><span class="cmd">/tax-prep</span></div>
+      <p class="what">Два режима: (1) расчёт квартального авансового налога; (2) подготовка форм 1099 по подрядчикам в конце года. Готовит пакет для передачи бухгалтеру.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">QuickBooks, PayPal, Stripe</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">Эльба/Контур/1С; «Мой налог» для НПД; личный кабинет ФНС</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v"><b>Режим «аванс»</b> → авансовые платежи по УСН поквартально (нарастающим итогом). <b>Режим «1099»</b> → сбор данных по выплатам самозанятым (чеки из «Мой налог», их ИНН) и исполнителям по ГПХ (НДФЛ + взносы, отражение в 6-НДФЛ и сведениях в СФР). «Передача бухгалтеру» — реальный и лучший сценарий для РФ.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Налоговый органайзер</h3><span class="cmd">tax-season-organizer</span><span class="dup">подробный вариант tax-prep</span></div>
+      <p class="what">Готовит материалы к налоговому сезону именно как пакет для бухгалтера (не как налоговую консультацию): считает YTD-прибыль и обязательства; собирает список подрядчиков с выплатами свыше порога, помечает отсутствующие W-9 и делает понятную сводку.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">QuickBooks, PayPal, Stripe</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">Эльба/1С + реестр договоров ГПХ и самозанятых</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">«Список подрядчиков с W-9» → реестр исполнителей: ФИО/ИНН, статус (самозанятый/ГПХ/ИП), суммы, есть ли чек или закрывающие. Это ровно то, что просит бухгалтер. Порог $600 замените на ваши пороги и режим.</div></div>
+    </div>
+  </section>
+
+  <!-- ============ GROUP: SALES ============ -->
+  <section id="g-sales">
+    <div class="section-head"><span class="num">F</span><h2>Продажи и CRM</h2><span class="tag">4 скилла</span></div>
+
+    <div class="card">
+      <div class="top"><h3>Приоритизация лидов</h3><span class="cmd">lead-triage</span></div>
+      <p class="what">Оценивает входящие лиды по вовлечённости, соответствию профилю и срочности, выдаёт список «позвонить этим 5 сегодня» с тезисами для разговора, пишет черновики писем и резервирует время в календаре.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">HubSpot, Календарь</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">Битрикс24/amoCRM (выгрузка лидов), Яндекс Календарь</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Выгрузите лиды из CRM в CSV — получите ранжирование и тезисы. Письма адаптируйте под привычные у нас каналы: звонок, WhatsApp/Telegram.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Список звонков</h3><span class="cmd">/call-list</span><span class="dup">близко к lead-triage</span></div>
+      <p class="what">Топ-5 лидов, которым стоит позвонить сегодня, с тезисами из истории переписки, блокирует время в календаре и готовит черновики дожимающих сообщений. Принимает количество и дату.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">HubSpot, Gmail, Календарь</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">amoCRM/Битрикс24 + почта Яндекс 360 + Яндекс Календарь</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Дайте список контактов и историю — получите план обзвона на день.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Чистка CRM</h3><span class="cmd">/crm-cleanup</span></div>
+      <p class="what">Сканирует CRM на «зависшие» сделки, дубли контактов и пустые поля, затем исправляет то, что вы одобрили. Принимает область: сделки, контакты или всё.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">HubSpot</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">Битрикс24/amoCRM</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Без API правки внести нельзя, но можно выгрузить базу, получить список проблем и рекомендаций и поправить вручную. Через API Битрикс24/amoCRM (способ 3) — автоматизируемо.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Ведение CRM</h3><span class="cmd">crm-maintenance</span></div>
+      <p class="what">Держит CRM в актуальном состоянии без вашего участия: создаёт и обновляет контакты и сделки на основе писем и календаря, фиксирует заметки и звонки, помечает устаревшие записи. Скилл «перестань заниматься ручным вводом данных».</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">HubSpot, Gmail, Календарь</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">Битрикс24/amoCRM + Яндекс 360</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Максимальную пользу даёт только с живым подключением (способ 3). Без него — помощник по разовому разбору переписки в записи для CRM.</div></div>
+    </div>
+  </section>
+
+  <!-- ============ GROUP: MARKETING ============ -->
+  <section id="g-mkt">
+    <div class="section-head"><span class="num">G</span><h2>Маркетинг и контент</h2><span class="tag">4 скилла</span></div>
+
+    <div class="card">
+      <div class="top"><h3>Контент-стратегия</h3><span class="cmd">/content-strategy</span></div>
+      <p class="what">Анализирует продажи, находит лидеров и аутсайдеров, накладывает сезонность и выдаёт приоритетный контент-бриф на 30 дней: что продвигать, какие акции запускать, что придержать. Только стратегия, без календаря и макетов.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">PayPal, QuickBooks</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">данные продаж из ЮKassa/МойСклад/1С</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Дайте выгрузку продаж — получите план продвижения. Каналы ориентируйте на VK, Telegram, Дзен, Авито. Хорошо стыкуется с вашим скиллом Content Navigator.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Сводка по продажам</h3><span class="cmd">/sales-brief</span><span class="dup">близко к content-strategy</span></div>
+      <p class="what">Показывает лидеров и аутсайдеров продаж, выявляет сезонность и готовит контент-бриф на 2 недели: продвигать победителей и распродавать неликвид. Окно 30/60/90 дней.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">PayPal/Square, QuickBooks</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">ЮKassa/МойСклад</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Тот же ввод, что и контент-стратегия, но короткий горизонт (2 недели).</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Запуск кампании</h3><span class="cmd">/run-campaign</span></div>
+      <p class="what">Сквозная маркетинговая кампания: анализ продаж → контент-бриф → макеты в Canva → постановка отправки в HubSpot. Принимает окно анализа и каналы.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">PayPal, QuickBooks, Canva, HubSpot</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">данные продаж + Supa/VistaCreate (макеты) + рассылки через VK/Telegram/email-сервис (Unisender, Sendsay)</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Самый «многосервисный» скилл. В РФ разбейте на части: бриф и тексты — в Claude, макеты — в Supa/VistaCreate, рассылка — через российский сервис. Email-рассылки — Unisender/Sendsay/DashaMail.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Создание контента (Canva)</h3><span class="cmd">canva-creator</span></div>
+      <p class="what">Берёт одобренный бриф и исполняет кампанию: строит календарь публикаций, генерирует дизайны в Canva для соцсетей, пишет тексты постов и писем, ставит публикации в очередь в HubSpot. Каждый шаг — с подтверждением.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">Canva, HubSpot</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">Supa/VistaCreate/Граформа (дизайн), планировщик постов (SMMplanner, Postmypost)</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Claude напишет тексты и календарь; макеты соберите в Supa (там есть кириллица и шаблоны под VK/Telegram), публикацию автоматизируйте через SMMplanner/Postmypost.</div></div>
+    </div>
+  </section>
+
+  <!-- ============ GROUP: CUSTOMER SERVICE ============ -->
+  <section id="g-cs">
+    <div class="section-head"><span class="num">H</span><h2>Клиентский сервис</h2><span class="tag">4 скилла</span></div>
+
+    <div class="card">
+      <div class="top"><h3>Пульс клиентов</h3><span class="cmd">customer-pulse</span></div>
+      <p class="what">Собирает споры/возвраты по платежам, обратную связь и тикеты из CRM и тональность писем (плюс вставленные отзывы с карт) в отчёт по темам с цитатами и список «сделайте эти три вещи на этой неделе».</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">PayPal disputes, HubSpot, email + Google/Yelp reviews</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">возвраты из ЮKassa/банка, тикеты из CRM, отзывы из Яндекс Бизнеса / 2ГИС / Flamp</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Скопируйте отзывы с Яндекс Карт и 2ГИС, добавьте обращения — Claude сгруппирует по темам и даст план действий. Отзывы вставляются текстом, коннектор не нужен.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Проверка пульса клиентов</h3><span class="cmd">/customer-pulse-check</span><span class="dup">краткий вариант customer-pulse</span></div>
+      <p class="what">Сводит темы из споров, тикетов и выгрузок отзывов в список топ-3 решаемых проблем с готовыми шаблонами ответов. Принимает дату «начиная с».</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">PayPal, HubSpot, экспорт отзывов</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">отзывы с Яндекс Бизнеса/2ГИС/Flamp, обращения из любой системы</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Быстрый формат: вставьте отзывы за период — получите 3 главные проблемы и шаблоны ответов.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Разбор жалобы</h3><span class="cmd">/handle-complaint</span></div>
+      <p class="what">Обрабатывает входящую жалобу от и до: подтягивает контекст, пишет ответ и предлагает операционное исправление, чтобы проблема не повторилась. Принимает ID письма или тикета.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">Gmail/HubSpot, PayPal</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">почта/мессенджер + история клиента из CRM</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Вставьте текст жалобы — получите ответ в нужном тоне и совет, что починить в процессе. Коннектор не обязателен.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Ответ на обращение</h3><span class="cmd">ticket-deflector</span></div>
+      <p class="what">Читает пересланное письмо/тикет клиента, подтягивает статус заказа/возврата из платёжного сервиса и историю из CRM, пишет ответ в вашем стиле и может оформить возврат с вашим подтверждением.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">PayPal (заказ/возврат), HubSpot</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">статус оплаты/возврата из ЮKassa/банка, история из CRM</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Возврат в РФ оформляйте в ЮKassa/банке; Claude подготовит ответ клиенту. Покажите ему 2–3 своих письма — будет писать вашим голосом.</div></div>
+    </div>
+  </section>
+
+  <!-- ============ GROUP: HR / LEGAL ============ -->
+  <section id="g-hr">
+    <div class="section-head"><span class="num">I</span><h2>Найм и договоры</h2><span class="tag">3 скилла</span></div>
+
+    <div class="card">
+      <div class="top"><h3>Конструктор вакансии</h3><span class="cmd">job-post-builder</span></div>
+      <p class="what">Собирает полный пакет для найма: текст вакансии, структурированный гайд для интервью с балльной шкалой и шаблон оффера — из короткого брифа. Доводит до отправки оффера через DocuSign. (Кандидатов не оценивает.)</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">DocuSign (отправка оффера)</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">подпись — Контур.Сайн/Nopaper/Госключ; публикация — hh.ru, Avito Работа, VK Работа</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Тексты и гайд для интервью — без коннекторов. Под РФ адаптируйте вакансию под hh.ru/Avito, а «оффер» при найме в штат превращается в трудовой договор; подпись — Госключ или Контур.Сайн.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Лёгкая проверка договора</h3><span class="cmd">contract-review</span></div>
+      <p class="what">Проверка NDA, рамочных и поставщических договоров для малого бизнеса без юриста: читает договор из файла, почты или DocuSign, помечает нестандартные условия, объясняет риски простым языком и выдаёт правки-редлайн отдельным DOCX.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">локальные файлы, Gmail, DocuSign</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">файл с компьютера / Яндекс 360 / Контур.Диадок</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Работает с загруженным файлом — коннектор не нужен. <b>Важно:</b> ориентируйте разбор на ГК РФ (а не право США), русскоязычные формулировки и реальную судебную практику. Это помощник, а не замена юристу по серьёзным сделкам.</div></div>
+    </div>
+
+    <div class="card">
+      <div class="top"><h3>Разбор договора (с редлайном)</h3><span class="cmd">/review-contract</span><span class="dup">вариант contract-review</span></div>
+      <p class="what">Разбирает договор простым языком, выделяет «красные флаги» с оценкой серьёзности и выдаёт размеченный docx/PDF с предложенными правками. Принимает путь к файлу или ID конверта DocuSign.</p>
+      <div class="row"><div class="k">Коннекторы</div><div class="v">локальный файл или DocuSign</div></div>
+      <div class="row"><div class="k">Замена в РФ</div><div class="v">загрузка файла; подпись итога — Контур.Сайн/Госключ</div></div>
+      <div class="row"><div class="k">Адаптация</div><div class="v">Загрузите договор — получите редлайн с приоритетами рисков. Те же оговорки про российское право, что и выше.</div></div>
+    </div>
+  </section>
+
+  <!-- ============ TAX NOTE ============ -->
+  <section id="tax-note">
+    <div class="section-head"><span class="num">₽</span><h2>Налоговая шпаргалка для РФ (2026)</h2></div>
+    <p class="lead">Краткий ориентир для адаптации финансовых и налоговых скиллов. Это общая справочная информация, а не налоговая консультация — сверяйтесь с бухгалтером и сайтом ФНС.</p>
+    <table class="map">
+      <thead><tr><th>Понятие из скилла (США)</th><th>Российский эквивалент (2026)</th></tr></thead>
+      <tbody>
+        <tr><td class="svc">Quarterly estimated tax</td><td>Авансовые платежи по УСН — поквартально, нарастающим итогом (за квартал, полугодие, 9 месяцев), итог по году</td></tr>
+        <tr><td class="svc">Налоговые режимы</td><td>УСН «Доходы» 6% или «Доходы минус расходы» 15% (регионы могут снижать до 1% и 5%); Патент (ПСН); НПД (самозанятые); ОСНО</td></tr>
+        <tr><td class="svc">НДС</td><td>С 2026 г. на УСН платят НДС при доходе от 20 млн ₽ (порог снижен); базовая ставка НДС — 22%, для упрощенцев — пониженные 5% или 7% без вычета</td></tr>
+        <tr><td class="svc">Лимит спецрежима</td><td>УСН — до 450 млн ₽ (с дефлятором ~490,5 млн ₽ в 2026 г.); НПД — до 2,4 млн ₽ в год</td></tr>
+        <tr><td class="svc">1099-NEC по подрядчику</td><td>Самозанятый — выдаёт чек из «Мой налог» (налог платит сам); исполнитель по ГПХ — вы удерживаете НДФЛ и платите страховые взносы, отражаете в 6-НДФЛ и сведениях в СФР</td></tr>
+        <tr><td class="svc">W-9 (данные подрядчика)</td><td>ИНН + статус (самозанятый / ГПХ / ИП), для самозанятого — подтверждение статуса и чек</td></tr>
+        <tr><td class="svc">Payroll taxes</td><td>НДФЛ 13/15% с зарплаты + страховые взносы в СФР; аванс и зарплата в установленные сроки</td></tr>
+        <tr><td class="svc">Единая уплата</td><td>ЕНС/ЕНП — единый налоговый счёт и платёж; большинство налогов — до 28-го числа</td></tr>
+        <tr><td class="svc">Accountant handoff</td><td>Передача бухгалтеру (штатному/на аутсорсе) или ведение в Эльбе/Контур/1С; отчётность — через ЛК ФНС или оператора ЭДО</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <div class="footer">
+    <div class="slogan">Скиллы — это рабочие процессы, а не кнопка «подключить PayPal».</div>
+    Меняете источник данных на российский — логику и интеллект скилла оставляете. Информация о сервисах и налогах актуальна на 2026 год и носит справочный характер; перед налоговыми и юридическими решениями консультируйтесь со специалистом.
+  </div>
+
+</div>
+</body>
+</html>

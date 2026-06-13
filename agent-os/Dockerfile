@@ -14,7 +14,25 @@ RUN npx prisma generate && npm run build
 FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates git && rm -rf /var/lib/apt/lists/*
+# Claude Code CLI — drives Claude on a Max subscription (CLAUDE_CODE_OAUTH_TOKEN).
+# Inert unless the token is provided at runtime; the offline brain is used otherwise.
+RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
+# Anthropic Agent Skills library: clone and expose each skill (a dir with SKILL.md)
+# under ~/.claude/skills so the Claude CLI can auto-discover/use them. Fail-safe:
+# if the repo is unavailable the image still builds.
+RUN set -e; mkdir -p /root/.claude/skills; \
+    for repo in https://github.com/anthropics/skills https://github.com/mukul975/Anthropic-Cybersecurity-Skills; do \
+      name=$(basename "$repo"); \
+      if git clone --depth 1 "$repo" "/opt/$name" 2>/dev/null; then \
+        find "/opt/$name" -name SKILL.md -printf '%h\n' | while read d; do \
+          cp -r "$d" /root/.claude/skills/ 2>/dev/null || true; done; \
+      else echo "skills repo not available: $repo"; fi; \
+    done; \
+    echo "installed skills:"; ls -1 /root/.claude/skills 2>/dev/null || true
+# In-house skills bundled with the repo (content/creative/brand/style/teaching),
+# available to every agent under ~/.claude/skills alongside the cloned sets.
+COPY skills/ /root/.claude/skills/
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma

@@ -7,10 +7,22 @@ import { ControlPlane, NotFoundError, ValidationError } from './controlPlane';
 import { RunEvent } from '../events/bus';
 import { COORDINATOR_HTML } from './ui';
 
+// 30MB request cap: enough for a ~20MB file as base64; protects the process.
+const MAX_BODY = 30 * 1024 * 1024;
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (c) => chunks.push(Buffer.from(c)));
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > MAX_BODY) {
+        req.destroy();
+        reject(new ValidationError('файл слишком большой (лимит ~20МБ) — разбейте его на части'));
+        return;
+      }
+      chunks.push(Buffer.from(c));
+    });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
     req.on('error', reject);
   });
@@ -38,7 +50,10 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
     try {
       // GET /  — Coordinator UI
       if (method === 'GET' && path === '/') {
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          'cache-control': 'no-store, must-revalidate',
+        });
         res.end(COORDINATOR_HTML);
         return;
       }
@@ -52,12 +67,54 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
         const body = JSON.parse((await readBody(req)) || '{}');
         return json(res, 201, await cp.createRun(body));
       }
-      // GET /runs/:id  and  GET /runs/:id/(metrics|events)
+      // GET /runs/:id  and  GET /runs/:id/(metrics|events|team)
       if (method === 'GET' && seg[0] === 'runs' && seg[1]) {
         const runId = seg[1];
         if (seg[2] === 'events') return streamEvents(cp, runId, res);
         if (seg[2] === 'metrics') return json(res, 200, await cp.runMetrics(runId));
+        if (seg[2] === 'team') return json(res, 200, await cp.getRunTeam(runId));
         return json(res, 200, await cp.getRun(runId));
+      }
+      // POST /runs/:id/retry — re-enqueue a failed run (chat «Повторить»)
+      if (method === 'POST' && seg[0] === 'runs' && seg[1] && seg[2] === 'retry') {
+        return json(res, 200, await cp.retryRun(seg[1]));
+      }
+      // Per-agent run journal (observability). Registered BEFORE the
+      // agents-list route, which matches on seg[2] without a length check.
+      if (method === 'GET' && seg[0] === 'orgs' && seg[2] === 'agents' && seg[3] && seg[4] === 'runs') {
+        return json(res, 200, await cp.listAgentRuns(seg[1], seg[3]));
+      }
+      // Toggle an emoji reaction on a message. Same ordering note as above.
+      if (method === 'POST' && seg[0] === 'orgs' && seg[2] === 'agents' && seg[3] && seg[4] === 'messages' && seg[5] && seg[6] === 'react') {
+        const body = JSON.parse((await readBody(req)) || '{}');
+        return json(
+          res,
+          200,
+          await cp.reactToMessage({ orgId: seg[1], agentId: seg[3], messageId: seg[5], emoji: body.emoji }),
+        );
+      }
+      // Personal chat thread (dialog memory). Same ordering note as above.
+      if (seg[0] === 'orgs' && seg[2] === 'agents' && seg[3] && seg[4] === 'chat') {
+        if (method === 'GET') {
+          return json(res, 200, await cp.getChatHistory({ orgId: seg[1], agentId: seg[3] }));
+        }
+        if (method === 'POST') {
+          const body = JSON.parse((await readBody(req)) || '{}');
+          return json(
+            res,
+            201,
+            await cp.sendChatMessage({
+              orgId: seg[1],
+              agentId: seg[3],
+              text: body.text,
+              attachment: body.attachment,
+              replyTo: body.replyTo,
+            }),
+          );
+        }
+        if (method === 'DELETE') {
+          return json(res, 200, await cp.clearChatHistory({ orgId: seg[1], agentId: seg[3] }));
+        }
       }
       // POST /agents  (Agent Factory)
       if (method === 'POST' && path === '/agents') {
@@ -70,6 +127,22 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
       }
       if (method === 'GET' && seg[0] === 'orgs' && seg[2] === 'token-burn') {
         return json(res, 200, await cp.tokenBurn(seg[1]));
+      }
+      // GET /orgs/:id/tasks — top-level runs for the «Задачи» view
+      if (method === 'GET' && seg[0] === 'orgs' && seg[2] === 'tasks') {
+        return json(res, 200, await cp.listOrgTasks(seg[1]));
+      }
+      // Team catalog: list templates + hire a team into the org
+      if (method === 'GET' && path === '/teams/templates') {
+        return json(res, 200, cp.listTeamTemplates());
+      }
+      if (method === 'POST' && seg[0] === 'orgs' && seg[2] === 'teams' && seg[3] && seg[4] === 'hire') {
+        return json(res, 201, await cp.hireTeam({ orgId: seg[1], templateId: seg[3] }));
+      }
+      // POST /documents/extract  — Doc-1: extract text from an uploaded file
+      if (method === 'POST' && path === '/documents/extract') {
+        const body = JSON.parse((await readBody(req)) || '{}');
+        return json(res, 200, await cp.extractDocument(body));
       }
       // GET /dlq  and  POST /dlq/:id/requeue
       if (method === 'GET' && path === '/dlq') {

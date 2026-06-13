@@ -1,0 +1,209 @@
+{
+  "_комментарий": "Образец заполнения wardrobe.json. Это вымышленный человек (Анна) для демонстрации схемы — НЕ переноси эти данные на реального клиента, разбирай его с нуля. Генерация сайта: python3 build_site.py wardrobe.json ./сайт",
+
+  "config": {
+    "siteTitle": "ГАРДЕРОБ — АННА",
+    "subtitle": "True Summer × Soft Classic • летняя капсула",
+    "lookbookSubtitle": "8 позиций • cool/dusty палитра"
+  },
+
+  "person": {
+    "name": "Анна",
+    "archetype": "Современная элегантная муза — мягкая, без резкости, раскрывается при долгом взгляде",
+    "identity": [
+      {"label": "Цветотип", "value": "True Summer со сдвигом в Cool Summer"},
+      {"label": "Тип фигуры", "value": "Soft Classic с примесью Soft Natural"},
+      {"label": "Корейский mood", "value": "청순 × 도시적 — чистая свежесть и городская строгость"},
+      {"label": "Подтон кожи", "value": "Нейтрально-холодный, розово-фарфоровый"},
+      {"label": "Глаза", "value": "Серо-голубые, низкий контраст"},
+      {"label": "Натуральный тон волос", "value": "Уровень 6, холодный пепельно-нейтральный"}
+    ],
+    "measurementsNote": "Тонкая-средняя кость, узкие мягко покатые плечи, мягко читаемая талия.",
+    "measurements": [
+      {"label": "Рост", "value": "163", "unit": "см"},
+      {"label": "Вес", "value": "56", "unit": "кг"},
+      {"label": "Грудь", "value": "90", "unit": "см"},
+      {"label": "Талия", "value": "70", "unit": "см"},
+      {"label": "Бёдра", "value": "96", "unit": "см"},
+      {"label": "Запястье", "value": "15", "unit": "см"}
+    ],
+    "strengths": "Глаза, овал лица, ключицы. Всё, что подчёркивает эти точки, работает в плюс.",
+    "risks": "Тёплые цвета у лица, жёсткие формы, перегруз деталями, высокий контраст.",
+
+    "palette": {
+      "base": [
+        {"name": "Bright White", "pantone": "11-0601", "hex": "F4F5F0"},
+        {"name": "Forget-Me-Not", "pantone": "14-4115", "hex": "A6BBD0"},
+        {"name": "Glacier Grey", "pantone": "14-4102", "hex": "C0C5C9"},
+        {"name": "Soft Navy", "pantone": "19-3933", "hex": "3B3F5C"}
+      ],
+      "accent": [
+        {"name": "Lavender Frost", "pantone": "14-3812", "hex": "B5AED0"},
+        {"name": "Dusty Rose", "pantone": "15-1906", "hex": "C7A4AB"},
+        {"name": "Soft Teal", "pantone": "16-5121", "hex": "6FA39B"}
+      ],
+      "anchor": [
+        {"name": "Navy Blue", "pantone": "19-3920", "hex": "2E3450"},
+        {"name": "Plum Perfect", "pantone": "19-1606", "hex": "473235"}
+      ],
+      "no": [
+        {"name": "Camel", "pantone": "тёплый беж", "hex": "C19A6B"},
+        {"name": "Mustard", "pantone": "тёплый жёлтый", "hex": "DAA520"},
+        {"name": "Rust", "pantone": "тёплый красный", "hex": "B7410E"},
+        {"name": "Coral", "pantone": "тёплый розовый", "hex": "FF7F50"}
+      ]
+    },
+
+    "silhouettes": {
+      "works": [
+        "Полуприлегающий силуэт с мягким изгибом",
+        "Wrap-dress с запахом, slip dress на бретелях",
+        "Drape-neck и мягкие сборки",
+        "Wide-leg брюки из пластичных тканей",
+        "A-силуэт миди без объёмных карманов"
+      ],
+      "avoid": [
+        "Жёсткий тяжёлый тейлоринг и плотный твид",
+        "Bodycon из стретч-джерси",
+        "Oversize-кокон",
+        "Skinny и грубые карго"
+      ],
+      "note": "Soft Classic — это симметричная гармония с мягким изгибом: пластичные ткани, полуприлегающий крой.",
+      "lengths": "Юбки и платья — миди (закон). Мини — только в элегантном A-line. Брюки — wide-leg до щиколотки."
+    },
+
+    "fabrics": {
+      "works": ["Шёлк (атлас, твил)", "Тонкий лён", "Вискоза и тенсель", "Кашемир и тонкая мерино", "Деликатное кружево"],
+      "avoid": ["Плотный костюмный твид", "Хрустящая тафта", "Грубый лён-мешковина", "Латекс и винил"]
+    },
+
+    "hair": {
+      "color": [
+        "Холодный пепельно-нейтральный регистр, уровень 6 — не уводить в тепло",
+        "Формула-ориентир: Wella Illumina 6/76 на эмульсии 1.9%",
+        "Caramel, honey, mahogany — категорически нет"
+      ],
+      "cut": ["Italian bob / collarbone lob со слоями", "Curtain bangs смягчают лоб и открывают глаза"],
+      "styling": ["Лёгкая волна — максимум красоты", "Прямые гладкие — строгий рабочий вариант"],
+      "care": ["Бондинг Olaplex No.3 раз в неделю", "Хелатирующий уход при жёсткой воде"]
+    },
+
+    "makeup": [
+      {
+        "title": "База кожи",
+        "body": "Сияющий финиш «кожа изнутри»: Charlotte Tilbury Hollywood Flawless Filter, консилер NARS Radiant Creamy. Тон с нейтрально-холодным undertone.",
+        "avoid": ["Плотный матовый штукатурный тон", "Тон с золотистым undertone"]
+      },
+      {
+        "title": "Губы — главный регистр",
+        "body": "MLBB cool-pink: Charlotte Tilbury Pillow Talk Original. Вечер — холодный ягодный.",
+        "avoid": ["MAC Velvet Teddy и любые тёплые нюды", "Coral, brick, orange-red"]
+      },
+      {
+        "title": "Румяна",
+        "body": "Дымчатая cool-роза: Rare Beauty Soft Pinch (Hope), Glossier Cloud Paint (Dusk).",
+        "avoid": ["Тёплый персик и коралл"]
+      }
+    ],
+
+    "jewelry": [
+      "Жемчуг — украшение-подпись",
+      "Серебро 925 и белое золото",
+      "Розовое золото работает за счёт холодного подтона",
+      "Крупное жёлтое золото — против холодного подтона"
+    ],
+
+    "context": {
+      "geography": [
+        "Город с жарким летом — приоритет льну и шёлку",
+        "Жёсткая вода — важно для волос и кожи"
+      ],
+      "life": [
+        "Публичная работа: съёмки, встречи, выходы",
+        "Гардероб должен закрывать дом, офис и сцену без переодеваний"
+      ]
+    },
+
+    "goldenRules": [
+      {"title": "Подтон важнее яркости", "text": "Любой цвет, ткань, помада и краска проходят через фильтр холодный/нейтральный — да, тёплый — нет."},
+      {"title": "Низкий контраст внутри образа", "text": "True Summer — это цветовая дымка, а не графика. Чёрное с белоснежным у лица не работает."},
+      {"title": "Мягкие линии вместо жёстких", "text": "Soft Classic читается через драпировки и мягкие сборки, а не через жёсткую геометрию."},
+      {"title": "Длина миди — закон", "text": "Юбки и платья работают в миди. Мини — только в элегантном A-line."},
+      {"title": "Жемчуг и серебро", "text": "Холодные металлы и жемчуг — код украшений. Тёплое золото — дозированно."}
+    ]
+  },
+
+  "items": [
+    {"id": 1, "category": "Платья", "name": "Slip dress на бретелях", "brand": "Reformation", "brandGroup": "Reformation",
+     "colorName": "Lavender Frost", "colorFamily": "lavender", "colorHex": "B5AED0",
+     "url": "https://example.com/reformation-slip-lavender", "verdict": "yes",
+     "note": "Мягкий bias-cut, ровно ложится. База вечерних образов.", "needsHem": false, "img": ""},
+
+    {"id": 2, "category": "Платья", "name": "Ruched waist jersey midi", "brand": "COS", "brandGroup": "COS",
+     "colorName": "Soft Navy", "colorFamily": "navy", "colorHex": "3B3F5C",
+     "url": "https://example.com/cos-navy-midi", "verdict": "yes",
+     "note": "Сборки на талии создают мягкий изгиб — один предмет, весь образ.", "needsHem": false, "img": ""},
+
+    {"id": 7, "category": "Топы", "name": "Льняная рубашка oversize", "brand": "Massimo Dutti", "brandGroup": "Massimo Dutti",
+     "colorName": "Bright White", "colorFamily": "white", "colorHex": "F4F5F0",
+     "url": "https://example.com/md-linen-shirt-white", "verdict": "yes",
+     "note": "Must-have: с брюками, юбкой, поверх купальника.", "needsHem": false, "img": ""},
+
+    {"id": 8, "category": "Топы", "name": "Шёлковая блуза", "brand": "& Other Stories", "brandGroup": "& Other Stories",
+     "colorName": "Forget-Me-Not", "colorFamily": "blue", "colorHex": "A6BBD0",
+     "url": "https://example.com/stories-silk-blouse-blue", "verdict": "yes",
+     "note": "Для съёмок и встреч — мягкие сборки, dusty blue в самой палитре.", "needsHem": false, "img": ""},
+
+    {"id": 9, "category": "Топы", "name": "Тонкий кардиган", "brand": "COS", "brandGroup": "COS",
+     "colorName": "Glacier Grey", "colorFamily": "grey", "colorHex": "C0C5C9",
+     "url": "https://example.com/cos-cardigan-grey", "verdict": "maybe",
+     "note": "Нужно померить посадку по плечу — на модели сидит чуть свободно.", "needsHem": false, "img": ""},
+
+    {"id": 25, "category": "Юбки", "name": "Шёлковая юбка-миди", "brand": "Reformation", "brandGroup": "Reformation",
+     "colorName": "Forget-Me-Not", "colorFamily": "blue", "colorHex": "A6BBD0",
+     "url": "https://example.com/reformation-skirt-blue", "verdict": "yes",
+     "note": "Твоя длина и силуэт — bias-cut миди.", "needsHem": false, "img": ""},
+
+    {"id": 27, "category": "Брюки", "name": "Льняные брюки wide-leg", "brand": "Toteme", "brandGroup": "Toteme",
+     "colorName": "Off-White", "colorFamily": "white", "colorHex": "EDECE4",
+     "url": "https://example.com/toteme-linen-trousers", "verdict": "yes",
+     "note": "База низа. Подшить под рост.", "needsHem": true, "img": ""},
+
+    {"id": 28, "category": "Брюки", "name": "Брюки wide-leg pleated", "brand": "Massimo Dutti", "brandGroup": "Massimo Dutti",
+     "colorName": "Soft Navy", "colorFamily": "navy", "colorHex": "3B3F5C",
+     "url": "https://example.com/md-navy-trousers", "verdict": "yes",
+     "note": "Якорь низа на холодный сезон.", "needsHem": true, "img": ""}
+  ],
+
+  "looks": [
+    {"id": 1, "name": "Modern Muse", "occasion": "Офис / встреча", "icon": "🏢", "items": [8, 27],
+     "why": "Шёлковая блуза dusty blue + белый лён wide-leg — мягкая сила без агрессии.", "trick": ""},
+    {"id": 2, "name": "Quiet Navy", "occasion": "Офис / встреча", "icon": "🏢", "items": [7, 28],
+     "why": "Белая рубашка oversize + navy брюки — quiet luxury, только ткань и крой.", "trick": ""},
+    {"id": 3, "name": "All-White Day", "occasion": "День / бранч", "icon": "☕", "items": [7, 27],
+     "why": "Тональный белый total look — clean girl на каждый день.", "trick": ""},
+    {"id": 4, "name": "Tonal Blue", "occasion": "День / бранч", "icon": "☕", "items": [8, 25],
+     "why": "Блуза и юбка в одном dusty blue — head-to-toe тональный аккорд.", "trick": ""},
+    {"id": 5, "name": "Romantic Lavender", "occasion": "Вечер / дата", "icon": "🌙", "items": [1, 9],
+     "why": "Lavender slip + серый кардиган сверху — Soft Classic romantic в чистом виде.", "trick": ""},
+    {"id": 6, "name": "Slip & Sneakers", "occasion": "Изюминки", "icon": "🌀", "items": [1],
+     "why": "Вечернее slip-платье днём с белыми кедами — downtown reverse, evening-вещь в casual.",
+     "trick": "Slip dress + кеды + небрежный пучок"}
+  ],
+
+  "combinations": {
+    "tops": [7, 8, 9],
+    "bottoms": [25, 27, 28],
+    "matrix": {
+      "7_25": {"mood": "Soft Tonal Day", "tip": "Полузаправка рубашки, рукава закатать. Балетки nude."},
+      "7_27": {"mood": "All-White Linen", "tip": "Тотальный белый. Кеды или кожаные слайды."},
+      "7_28": {"mood": "Quiet Luxury", "tip": "Белый верх + navy низ, half-tuck. Лоферы."},
+      "8_25": {"mood": "Tonal Blue", "tip": "Блуза и юбка в одном dusty blue. Серебро только акцентом."},
+      "8_27": {"mood": "Modern Muse", "tip": "Офисный регистр. Узкий серебряный ремень, если нужна талия."},
+      "8_28": {"mood": "Best Practice", "tip": "Dusty blue + navy — сильнейший аккорд для переговоров."},
+      "9_25": {"mood": "Soft Layered", "tip": "Кардиган распахнут поверх камисоля. Уютно, но строго."},
+      "9_27": {"mood": "Cool Tonal", "tip": "Серый + белый — пудровый шёпот. Балетки cool beige."},
+      "9_28": {"mood": "Tonal Greys", "tip": "Серый кардиган + navy — monochrome холодных оттенков."}
+    }
+  }
+}
