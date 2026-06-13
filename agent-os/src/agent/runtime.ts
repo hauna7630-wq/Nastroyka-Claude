@@ -111,6 +111,23 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
   // F5: recall relevant long-term/episodic memory into the system prompt.
   const task = toPrompt(run.input);
   let system = agent.systemPrompt;
+  // Personal-chat runs are a 1:1 CONVERSATION. Prepend a strong chat-mode
+  // directive to the SYSTEM prompt (the authoritative slot) so it overrides
+  // task-oriented personas — especially the orchestrator, which otherwise
+  // "accepts" small talk with «Принято» / «Ответ команды» and decomposes it.
+  const personalChat =
+    run.input != null &&
+    typeof run.input === 'object' &&
+    (run.input as { chat?: unknown }).chat === true;
+  if (personalChat) {
+    system =
+      'РЕЖИМ ЖИВОГО ЛИЧНОГО ЧАТА (1:1 с пользователем). Отвечай НАПРЯМУЮ и по существу на его ' +
+      'сообщение, как собеседник. НЕ оркеструй, НЕ декомпозируй на подзадачи, НЕ распределяй роли, ' +
+      'НЕ подтверждай получение словами «Принято» или «Ответ команды» — сразу давай содержательный ' +
+      'ответ. Если просят ответить кратко/одним словом/в заданном формате — выполни это буквально. ' +
+      'Подключай команду или подзадачи ТОЛЬКО если пользователь явно просит запустить работу команды.\n\n' +
+      system;
+  }
   if (deps.memory) {
     const recalled = await deps.memory.recall(agent.id, {
       kinds: ['long_term', 'episodic'],

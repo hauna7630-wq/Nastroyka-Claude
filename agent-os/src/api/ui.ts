@@ -142,7 +142,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v38 · ходьба</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v39 · диалоги</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -174,7 +174,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
       <div class="coord-side">
         <div class="status" id="cstatus"></div>
         <div id="phaseWrap" style="display:none"><div class="section-title">Жизненный цикл задачи</div><div id="phaseBar" class="phasebar"></div></div>
-        <div id="discussWrap" style="display:none"><div class="section-title">Обсуждение команды</div><div id="discussFeed" class="dfeed" style="max-height:none"></div></div>
+        <div id="discussWrap" style="display:none"><div class="section-title">Обсуждение команды</div><div id="discussFeed" class="dfeed" style="max-height:42vh"></div></div>
         <div id="graphWrap" style="display:none"><div class="section-title">Граф сборки</div><div class="graph" id="graph"></div></div>
         <div id="resultWrap" style="display:none"><div class="section-title">Результат</div><div class="result" id="result"></div></div>
         <div class="section-title">Лента активности</div><div id="activityFeed" class="actfeed"></div>
@@ -320,12 +320,12 @@ function renderDiscuss(){
     var el=document.createElement('div'); el.className='dmsg '+d.kind;
     var label=d.kind==='review'?' · ревью':d.kind==='revision'?' · доработка':'';
     var ic=d.kind==='review'?'🔍':d.kind==='revision'?'♻️':roleIcon(d.agentType);
-    el.innerHTML='<span class="dwho" style="color:'+roleColor(d.agentType)+'">'+ic+' '+escapeHtml(shortName(d.author))+label+'</span>'+escapeHtml(d.text.slice(0,600));
+    el.innerHTML='<span class="dwho" style="color:'+roleColor(d.agentType)+'">'+ic+' '+escapeHtml(shortName(d.author))+label+'</span><div class="dbody">'+mdLite(d.text.slice(0,2000))+'</div>';
     feed.appendChild(el); });
   liveIds.forEach(function(sid){
     var d=discussLive[sid]; if(!d||!d.text) return;
     var el=document.createElement('div'); el.className='dmsg contribution live';
-    el.innerHTML='<span class="dwho" style="color:'+roleColor(d.agentType)+'">'+roleIcon(d.agentType)+' '+escapeHtml(shortName(d.agentName))+' · печатает…</span>'+escapeHtml(d.text.slice(-600))+'<span class="tcursor">▍</span>';
+    el.innerHTML='<span class="dwho" style="color:'+roleColor(d.agentType)+'">'+roleIcon(d.agentType)+' '+escapeHtml(shortName(d.agentName))+' · печатает…</span><div class="dbody">'+mdLite(d.text.slice(-1400))+'<span class="tcursor">▍</span></div>';
     feed.appendChild(el); });
   feed.scrollTop=feed.scrollHeight;
 }
@@ -337,7 +337,7 @@ function pollTeam(runId){
     var terminal=(t.phase==='completed'||t.phase==='failed'||t.phase==='needs_human');
     if(terminal){
       if($('resultWrap').style.display==='none' && t.run && t.run.output!==undefined){
-        $('resultWrap').style.display='block'; $('result').textContent=render(t.run.output); }
+        $('resultWrap').style.display='block'; $('result').innerHTML=mdLite(render(t.run.output)); }
       return;
     }
     teamPollTimer=setTimeout(function(){ pollTeam(runId); },3000);
@@ -366,7 +366,7 @@ $('f').addEventListener('submit', async (e) => {
     var cur=discussLive[d.subtaskId]||{agentName:d.agentName,agentType:d.agentType,text:''};
     cur.text=(cur.text||'')+d.text; discussLive[d.subtaskId]=cur; renderDiscuss(); });
   es.addEventListener('run.succeeded', async (ev)=>{ const e2=JSON.parse(ev.data); if(e2.runId!==runId)return;
-    const r=await api('/runs/'+runId); $('resultWrap').style.display='block'; $('result').textContent=render(r.run&&r.run.output);
+    const r=await api('/runs/'+runId); $('resultWrap').style.display='block'; $('result').innerHTML=mdLite(render(r.run&&r.run.output));
     $('cstatus').textContent='Готово ✓'; officeSet(null,'orchestrator','succeeded'); $('go').disabled=false; es.close(); });
   ['run.failed','run.needs_human'].forEach((t)=>es.addEventListener(t,(ev)=>{ const e2=JSON.parse(ev.data); if(e2.runId!==runId)return;
     $('cstatus').textContent = t==='run.needs_human'?'Требуется человек (лимит итераций).':'Задача завершилась с ошибкой.'; $('go').disabled=false; es.close(); }));
