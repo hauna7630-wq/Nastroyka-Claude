@@ -142,7 +142,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v29 · markdown</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v30 · детализация</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -766,7 +766,8 @@ var TYPE_ACC={orchestrator:'case',coder:'laptop',researcher:'mag',analyst:'table
 function lookFor(a){ var h=hashStr(a.name); var shirt=roleColor(a.type); var styles=['short','short','long','bald','short','curly'];
   return { skin:SKINS[h%SKINS.length], hair:HAIRS[(h>>3)%HAIRS.length], hairStyle:styles[(h>>6)%styles.length],
     shirt:shirt, suit:SUITS[(h>>15)%SUITS.length], pants:PANTS[(h>>9)%PANTS.length],
-    acc:TYPE_ACC[a.type]||null,
+    acc:TYPE_ACC[a.type]||null, seed:(h%150),
+    phones:(a.type==='coder'),
     glasses:(a.type==='analyst'||a.type==='reviewer'||((h>>12)%3===0)) }; }
 // --- Sprite 2.0: big-head pixel characters from char-grids (own art) -------
 // Grid 16w x 23h, cell CH_CELL px => ~54x78px on screen. Palette keys:
@@ -867,21 +868,46 @@ function drawAccessory(ctx,fx,fy,acc){
   else if(acc==='check'){ ctx.fillStyle='#d9dee3'; ctx.fillRect(hx,hy-2,11,14); ctx.fillStyle='#8a949d'; ctx.fillRect(hx+3,hy-4,5,3);
     ctx.strokeStyle='#2ea043'; ctx.lineWidth=1.6; for(var k2=0;k2<3;k2++){ ctx.beginPath(); ctx.moveTo(hx+2,hy+2+k2*4); ctx.lineTo(hx+4,hy+4+k2*4); ctx.lineTo(hx+8,hy+k2*4); ctx.stroke(); } }
 }
+// dark palette for the silhouette pass (every sprite key → near-black)
+var DARK_PAL={H:'#0c0f13',S:'#0c0f13',e:'#0c0f13',J:'#0c0f13',j:'#0c0f13',T:'#0c0f13',t:'#0c0f13',P:'#0c0f13',B:'#0c0f13'};
 function drawCharacter(ctx,fx,fy,look,bob,step){
   fx=Math.round(fx); fy=Math.round(fy); bob=bob||0; var ty=-bob;
   var frame=-1;
   if(step){ frame=Math.floor(officeFrame/6)%2; var ph=Math.sin((officeFrame+fx)/3.2); ty-=Math.round(Math.abs(ph)*2); }
-  // shadow
-  ctx.save(); ctx.globalAlpha=0.22; ctx.fillStyle='#000'; ctx.beginPath(); ctx.ellipse(fx,fy,17,5,0,0,Math.PI*2); ctx.fill(); ctx.restore();
+  // grounding shadow: two stacked ellipses (soft halo + tight core), no shadowBlur
+  ctx.save(); ctx.fillStyle='#000';
+  ctx.globalAlpha=0.15; ctx.beginPath(); ctx.ellipse(fx,fy+1,20,6,0,0,Math.PI*2); ctx.fill();
+  ctx.globalAlpha=0.30; ctx.beginPath(); ctx.ellipse(fx,fy,13,4,0,0,Math.PI*2); ctx.fill();
+  ctx.restore();
   var rows=spriteRows(look.hairStyle,frame);
+  var c=CH_CELL;
+  var x0=fx-CH_W*c/2, y0=fy-CH_H*c+ty;
+  // silhouette pass: same sprite in near-black, nudged down-right → depth + clean edge
+  ctx.save(); ctx.globalAlpha=0.45; drawGrid(ctx,x0+1.3,y0+1.3,rows,DARK_PAL,c); ctx.restore();
+  // body
   var pal={H:look.hair,S:look.skin,e:'#141a21',J:look.suit,j:shade(look.suit,-28),T:'#eef2f6',t:look.shirt,P:look.pants,B:'#14181d'};
-  var x0=fx-CH_W*CH_CELL/2, y0=fy-CH_H*CH_CELL+ty;
-  drawGrid(ctx,x0,y0,rows,pal,CH_CELL);
+  drawGrid(ctx,x0,y0,rows,pal,c);
+  // hair sheen (top-left highlight) — a thin lighter strip across the crown
+  ctx.save(); ctx.globalAlpha=0.5; ctx.fillStyle=shade(look.hair,30); ctx.fillRect(x0+4*c,y0+1*c,5*c,0.8*c); ctx.restore();
+  // --- face (eyes at grid cols 4 & 11, row 6; all grid-snapped so never misplaced)
+  var blink=((officeFrame+look.seed)%170)<6;
+  if(blink){ ctx.fillStyle=look.skin; ctx.fillRect(x0+4*c,y0+6*c,c+0.4,c+0.4); ctx.fillRect(x0+11*c,y0+6*c,c+0.4,c+0.4);
+    ctx.strokeStyle=shade(look.skin,-55); ctx.lineWidth=1.2; ctx.beginPath();
+    ctx.moveTo(x0+4*c,y0+6.6*c); ctx.lineTo(x0+5.2*c,y0+6.6*c); ctx.moveTo(x0+11*c,y0+6.6*c); ctx.lineTo(x0+12.2*c,y0+6.6*c); ctx.stroke(); }
+  // brows (subtle, just above the eyes)
+  ctx.fillStyle=shade(look.hair,-6); ctx.fillRect(x0+4*c,y0+5*c,1.7*c,0.55*c); ctx.fillRect(x0+10.8*c,y0+5*c,1.7*c,0.55*c);
+  // mouth
+  ctx.fillStyle=shade(look.skin,-60); ctx.fillRect(x0+7*c,y0+8*c,2.2*c,0.7*c);
   // glasses overlay (eye row = 6)
-  if(look.glasses){ var gy=y0+6*CH_CELL-1, c=CH_CELL;
+  if(look.glasses){ var gy=y0+6*c-1;
     ctx.strokeStyle='#10151b'; ctx.lineWidth=1.4;
     ctx.strokeRect(x0+3.4*c,gy,2.6*c,1.9*c); ctx.strokeRect(x0+9.9*c,gy,2.6*c,1.9*c);
     ctx.beginPath(); ctx.moveTo(x0+6*c,gy+0.8*c); ctx.lineTo(x0+9.9*c,gy+0.8*c); ctx.stroke(); }
+  // headphones (coder) — band over the crown + two ear cups, changes the silhouette
+  if(look.phones){ var lx=x0+2.4*c, rx=x0+13.6*c, ey=y0+6*c, cx=(lx+rx)/2;
+    ctx.strokeStyle='#1b2027'; ctx.lineWidth=2.6; ctx.beginPath(); ctx.arc(cx,ey,(rx-lx)/2,Math.PI,2*Math.PI); ctx.stroke();
+    ctx.fillStyle='#262c34'; roundRect(ctx,lx-1.6,ey-2,4.4,8,2); ctx.fill(); roundRect(ctx,rx-2.8,ey-2,4.4,8,2); ctx.fill();
+    ctx.fillStyle=look.shirt; ctx.fillRect(lx-0.4,ey,1.6,4); ctx.fillRect(rx-1.6,ey,1.6,4); }
   // role accessory in the right hand
   if(look.acc) drawAccessory(ctx,fx,fy+ty,look.acc);
 }
@@ -983,12 +1009,13 @@ function drawStation(ctx,a){
   ctx.fillStyle=col; ctx.fillRect(dg.x-22,dg.y-9,6,7); ctx.fillStyle='#eceff2'; ctx.fillRect(dg.x+13,dg.y-7,10,6);
   // monitor (billboard at the back of the desk)
   var mx=dg.x, my=dg.y-28;
-  ctx.fillStyle='#0e1318'; roundRect(ctx,mx-18,my-14,36,24,2); ctx.fill();
+  ctx.fillStyle='#0e1318'; roundRect(ctx,mx-18,my-14,36,24,3); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,.08)'; ctx.lineWidth=1; roundRect(ctx,mx-17.5,my-13.5,35,23,3); ctx.stroke();
   var screen=(!atDesk||st==='idle')?'#2a3742' : st==='done'?'#2ea043' : st==='failed'?'#f85149' : col;
   if(st==='working'&&atDesk){ ctx.globalAlpha=0.62+0.38*(0.5+0.5*Math.sin(officeFrame/6)); }
   ctx.fillStyle=screen; ctx.fillRect(mx-16,my-12,32,19); ctx.globalAlpha=1;
   if(atDesk){ ctx.fillStyle='rgba(255,255,255,.42)'; ctx.fillRect(mx-10,my-7,15,1); ctx.fillRect(mx-10,my-4,11,1); ctx.fillRect(mx-10,my-1,17,1); ctx.fillRect(mx-10,my+2,8,1); }
-  ctx.fillStyle='#0e1318'; ctx.fillRect(mx-2,my+10,4,4);
+  ctx.fillStyle='#0e1318'; ctx.fillRect(mx-2,my+10,4,6); roundRect(ctx,mx-7,my+15,14,3,1.5); ctx.fill();
   var dot=st==='working'?'#d29922':st==='done'?'#2ea043':st==='failed'?'#f85149':'#3a4450';
   ctx.fillStyle=dot; ctx.beginPath(); ctx.arc(mx+17,my-10,2.5,0,Math.PI*2); ctx.fill();
   // role-specific desk props (analyst charts, coder 2nd monitor, researcher books, …)
@@ -1065,7 +1092,7 @@ function drawOffice(){
   var rl='ПЕРЕГОВОРНАЯ'; var rw=ctx.measureText(rl).width+14; ctx.fillStyle='rgba(13,17,23,.62)';
   roundRect(ctx,mg.x-rw/2,mg.y-44,rw,15,5); ctx.fill(); ctx.fillStyle='#cfe0ff'; ctx.fillText(rl,mg.x,mg.y-33); ctx.restore();
   // static decor at back edges (low depth, drawn before people)
-  isoPlant(ctx,1,0); isoPlant(ctx,0,1); isoCooler(ctx,2,0); isoPrinter(ctx,0,2); isoCoffee(ctx,3,0);
+  isoPlant(ctx,1,0); isoPlant(ctx,0,1); isoPlant(ctx,GRIDW-1,0); isoCooler(ctx,2,0); isoPrinter(ctx,0,2); isoCoffee(ctx,3,0);
   // people + desks, depth-sorted (back to front)
   updateOffice();
   officeAgents.slice().sort(function(a,b){ var pa=officePos[a.name]||officeHome[a.name]||{gx:0,gy:0}, pb=officePos[b.name]||officeHome[b.name]||{gx:0,gy:0}; return (pa.gx+pa.gy)-(pb.gx+pb.gy); }).forEach(function(a){ drawStation(ctx,a); });
