@@ -142,7 +142,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v41 · скролл чата</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v42 · 3D-люди</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -890,53 +890,62 @@ function drawAccessory(ctx,fx,fy,acc){
 var DARK_PAL={H:'#0c0f13',S:'#0c0f13',e:'#0c0f13',J:'#0c0f13',j:'#0c0f13',T:'#0c0f13',t:'#0c0f13',P:'#0c0f13',B:'#0c0f13'};
 // warm rim-light palette (every key → warm light) for the directional edge pass
 var LIGHT_PAL={H:'#fff1d6',S:'#fff1d6',e:'#fff1d6',J:'#fff1d6',j:'#fff1d6',T:'#fff1d6',t:'#fff1d6',P:'#fff1d6',B:'#fff1d6'};
+// Auto-shaded iso block (top lit, left darkest, right mid) — same 3D look as the
+// office furniture. Characters are built from these so they read as volumetric.
+function vbox(ctx,sx,sy,hw,hh,h,base){ isoBox(ctx,sx,sy,hw,hh,h, shade(base,24), shade(base,-34), shade(base,-14)); }
 function drawCharacter(ctx,fx,fy,look,walk,working){
   fx=Math.round(fx); fy=Math.round(fy);
-  // Smooth, natural vertical motion — NO integer hops (which read as "fleas").
-  // Everyone has a slow idle breath; walkers get a soft stride bounce; workers a
-  // gentle lean. All continuous sines, per-person phase via look.seed.
-  var ty=-(0.5+0.5*Math.sin(officeFrame/30+look.seed*0.7))*0.8;
-  var frame=-1;
-  if(walk){ frame=Math.floor(officeFrame/10)%2; ty-=Math.abs(Math.sin(officeFrame/10+fx*0.12))*1.4; }
+  // smooth vertical motion (idle breath / walk bounce / work lean) — no integer hops
+  var ty=-(0.5+0.5*Math.sin(officeFrame/30+look.seed*0.7))*0.8, legLift=0;
+  if(walk){ ty-=Math.abs(Math.sin(officeFrame/10+fx*0.12))*1.3; legLift=Math.sin(officeFrame/8+fx*0.1); }
   else if(working){ ty-=(0.5+0.5*Math.sin(officeFrame/14+look.seed))*0.9; }
-  // grounding shadow: two stacked ellipses (soft halo + tight core), no shadowBlur
+  var by=fy+ty;
+  var skin=look.skin, shirt=look.shirt, pants=look.pants, hair=look.hair;
+  // grounding shadow (two ellipses, no shadowBlur)
   ctx.save(); ctx.fillStyle='#000';
-  ctx.globalAlpha=0.15; ctx.beginPath(); ctx.ellipse(fx,fy+1,20,6,0,0,Math.PI*2); ctx.fill();
-  ctx.globalAlpha=0.30; ctx.beginPath(); ctx.ellipse(fx,fy,13,4,0,0,Math.PI*2); ctx.fill();
+  ctx.globalAlpha=0.16; ctx.beginPath(); ctx.ellipse(fx,fy+1,18,6,0,0,Math.PI*2); ctx.fill();
+  ctx.globalAlpha=0.30; ctx.beginPath(); ctx.ellipse(fx,fy,12,4,0,0,Math.PI*2); ctx.fill();
   ctx.restore();
-  var rows=spriteRows(look.hairStyle,frame);
-  var c=CH_CELL;
-  var x0=fx-CH_W*c/2, y0=fy-CH_H*c+ty;
-  // silhouette pass: same sprite in near-black, nudged down-right → depth + clean edge
-  ctx.save(); ctx.globalAlpha=0.45; drawGrid(ctx,x0+1.3,y0+1.3,rows,DARK_PAL,c); ctx.restore();
-  // warm rim-light pass: same sprite in light, nudged up-left → directional lighting
-  ctx.save(); ctx.globalAlpha=0.20; drawGrid(ctx,x0-1.1,y0-1.1,rows,LIGHT_PAL,c); ctx.restore();
-  // body
-  var pal={H:look.hair,S:look.skin,e:'#141a21',J:look.suit,j:shade(look.suit,-28),T:'#eef2f6',t:look.shirt,P:look.pants,B:'#14181d'};
-  drawGrid(ctx,x0,y0,rows,pal,c);
-  // hair sheen (top-left highlight) — a thin lighter strip across the crown
-  ctx.save(); ctx.globalAlpha=0.5; ctx.fillStyle=shade(look.hair,30); ctx.fillRect(x0+4*c,y0+1*c,5*c,0.8*c); ctx.restore();
-  // --- face (eyes at grid cols 4 & 11, row 6; all grid-snapped so never misplaced)
+  // legs (alternate lift while walking)
+  var llift=walk?Math.max(0,legLift)*2:0, rlift=walk?Math.max(0,-legLift)*2:0;
+  vbox(ctx, fx-5, by-llift, 4, 3.5, 12, pants);
+  vbox(ctx, fx+5, by-rlift, 4, 3.5, 12, pants);
+  var torsoBaseY=by-12;
+  var sleeve=shade(shirt,-12);
+  // back (left) arm → drawn before the torso for depth
+  vbox(ctx, fx-12.5, torsoBaseY-1, 3, 3.5, 14, sleeve);
+  // torso (shirt = role colour)
+  vbox(ctx, fx, torsoBaseY, 10, 6, 18, shirt);
+  // collar/tie hint
+  ctx.fillStyle=shade(shirt,30); ctx.fillRect(fx-3,by-30,6,4);
+  // front (right) arm → after the torso
+  vbox(ctx, fx+12.5, torsoBaseY-1, 3, 3.5, 14, sleeve);
+  // head (skin cube)
+  var headBaseY=torsoBaseY-18;
+  vbox(ctx, fx, headBaseY, 8.5, 6.5, 16, skin);
+  // hair cap (unless bald)
+  if(look.hairStyle!=='bald'){ vbox(ctx, fx, headBaseY-13, 9, 7, 5, hair);
+    if(look.hairStyle==='long'){ ctx.fillStyle=shade(hair,-16); ctx.fillRect(fx-9,headBaseY-13,3,16); ctx.fillRect(fx+6,headBaseY-13,3,16); } }
+  // --- face on the front faces (front edge at x=fx)
+  var eyeY=headBaseY-6;
   var blink=((officeFrame+look.seed)%170)<6;
-  if(blink){ ctx.fillStyle=look.skin; ctx.fillRect(x0+4*c,y0+6*c,c+0.4,c+0.4); ctx.fillRect(x0+11*c,y0+6*c,c+0.4,c+0.4);
-    ctx.strokeStyle=shade(look.skin,-55); ctx.lineWidth=1.2; ctx.beginPath();
-    ctx.moveTo(x0+4*c,y0+6.6*c); ctx.lineTo(x0+5.2*c,y0+6.6*c); ctx.moveTo(x0+11*c,y0+6.6*c); ctx.lineTo(x0+12.2*c,y0+6.6*c); ctx.stroke(); }
-  // brows (subtle, just above the eyes)
-  ctx.fillStyle=shade(look.hair,-6); ctx.fillRect(x0+4*c,y0+5*c,1.7*c,0.55*c); ctx.fillRect(x0+10.8*c,y0+5*c,1.7*c,0.55*c);
-  // mouth
-  ctx.fillStyle=shade(look.skin,-60); ctx.fillRect(x0+7*c,y0+8*c,2.2*c,0.7*c);
-  // glasses overlay (eye row = 6)
-  if(look.glasses){ var gy=y0+6*c-1;
-    ctx.strokeStyle='#10151b'; ctx.lineWidth=1.4;
-    ctx.strokeRect(x0+3.4*c,gy,2.6*c,1.9*c); ctx.strokeRect(x0+9.9*c,gy,2.6*c,1.9*c);
-    ctx.beginPath(); ctx.moveTo(x0+6*c,gy+0.8*c); ctx.lineTo(x0+9.9*c,gy+0.8*c); ctx.stroke(); }
-  // headphones (coder) — band over the crown + two ear cups, changes the silhouette
-  if(look.phones){ var lx=x0+2.4*c, rx=x0+13.6*c, ey=y0+6*c, cx=(lx+rx)/2;
-    ctx.strokeStyle='#1b2027'; ctx.lineWidth=2.6; ctx.beginPath(); ctx.arc(cx,ey,(rx-lx)/2,Math.PI,2*Math.PI); ctx.stroke();
-    ctx.fillStyle='#262c34'; roundRect(ctx,lx-1.6,ey-2,4.4,8,2); ctx.fill(); roundRect(ctx,rx-2.8,ey-2,4.4,8,2); ctx.fill();
-    ctx.fillStyle=look.shirt; ctx.fillRect(lx-0.4,ey,1.6,4); ctx.fillRect(rx-1.6,ey,1.6,4); }
-  // role accessory in the right hand
-  if(look.acc) drawAccessory(ctx,fx,fy+ty,look.acc);
+  if(blink){ ctx.fillStyle=shade(skin,-48); ctx.fillRect(fx-5,eyeY+1.4,2.6,1); ctx.fillRect(fx+2.4,eyeY+1.4,2.6,1); }
+  else { ctx.fillStyle='#11161c'; ctx.fillRect(fx-5,eyeY,2.5,3); ctx.fillRect(fx+2.6,eyeY,2.5,3);
+    ctx.fillStyle='rgba(255,255,255,.75)'; ctx.fillRect(fx-4.6,eyeY+0.3,0.9,0.9); ctx.fillRect(fx+3,eyeY+0.3,0.9,0.9); }
+  // brows + mouth
+  ctx.fillStyle=shade(hair,-6); ctx.fillRect(fx-5.2,eyeY-1.6,2.9,1); ctx.fillRect(fx+2.3,eyeY-1.6,2.9,1);
+  ctx.fillStyle=shade(skin,-55); ctx.fillRect(fx-1.8,eyeY+5,3.6,1.2);
+  // glasses
+  if(look.glasses){ ctx.strokeStyle='#11151b'; ctx.lineWidth=1.3;
+    ctx.strokeRect(fx-5.6,eyeY-0.7,3.7,3.6); ctx.strokeRect(fx+2,eyeY-0.7,3.7,3.6);
+    ctx.beginPath(); ctx.moveTo(fx-1.9,eyeY+1); ctx.lineTo(fx+2,eyeY+1); ctx.stroke(); }
+  // headphones (coder): band over the head + ear cups
+  if(look.phones){ var hy=headBaseY-7;
+    ctx.strokeStyle='#1b2027'; ctx.lineWidth=2.6; ctx.beginPath(); ctx.arc(fx,hy,11,Math.PI,2*Math.PI); ctx.stroke();
+    ctx.fillStyle='#262c34'; roundRect(ctx,fx-13,hy-2,5,9,2); ctx.fill(); roundRect(ctx,fx+8,hy-2,5,9,2); ctx.fill();
+    ctx.fillStyle=shirt; ctx.fillRect(fx-11.5,hy,1.8,5); ctx.fillRect(fx+9.7,hy,1.8,5); }
+  // role accessory held in the (right) hand
+  if(look.acc) drawAccessory(ctx, fx-14, by, look.acc);
 }
 // --- isometric projection (2:1) ---
 var ISO_TW2=42, ISO_TH2=21, ISO_OX=0, ISO_OY=84, GRIDW=13, GRIDH=8;
