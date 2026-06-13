@@ -112,6 +112,9 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
             }),
           );
         }
+        if (method === 'DELETE') {
+          return json(res, 200, await cp.clearChatHistory({ orgId: seg[1], agentId: seg[3] }));
+        }
       }
       // POST /agents  (Agent Factory)
       if (method === 'POST' && path === '/agents') {

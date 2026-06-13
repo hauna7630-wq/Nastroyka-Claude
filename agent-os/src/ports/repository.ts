@@ -41,6 +41,8 @@ export interface Repository {
   appendChatReplyIfAbsent(msg: ChatMessageRecord & { runId: string }): Promise<boolean>;
   // Ascending by createdAt; returns the last `limit` messages (default 100).
   listChatMessages(orgId: string, agentId: string, limit?: number): Promise<ChatMessageRecord[]>;
+  // Delete the whole chat thread for an agent; returns the number removed.
+  clearChatMessages(orgId: string, agentId: string): Promise<number>;
   // Toggle an emoji reaction on a message; returns the updated record (or null
   // if the message doesn't exist / belongs to another org+agent).
   toggleChatReaction(

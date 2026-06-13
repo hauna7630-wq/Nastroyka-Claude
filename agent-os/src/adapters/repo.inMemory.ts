@@ -107,6 +107,11 @@ export class InMemoryRepository implements Repository {
       .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
     return all.slice(-limit).map((m) => ({ ...m, reactions: m.reactions ? [...m.reactions] : undefined }));
   }
+  async clearChatMessages(orgId: string, agentId: string): Promise<number> {
+    const before = this.chatMessages.length;
+    this.chatMessages = this.chatMessages.filter((m) => !(m.orgId === orgId && m.agentId === agentId));
+    return before - this.chatMessages.length;
+  }
   async toggleChatReaction(
     orgId: string,
     agentId: string,

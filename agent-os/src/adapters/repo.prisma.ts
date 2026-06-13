@@ -205,6 +205,11 @@ export class PrismaRepository implements Repository {
     return rows.reverse().map((m: any) => this.mapChatMessage(m));
   }
 
+  async clearChatMessages(orgId: string, agentId: string): Promise<number> {
+    const res = await this.db.chatMessage.deleteMany({ where: { orgId, agentId } });
+    return (res && typeof res.count === 'number') ? res.count : 0;
+  }
+
   async toggleChatReaction(
     orgId: string,
     agentId: string,

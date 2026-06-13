@@ -142,7 +142,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v39 · диалоги</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v40 · очистка чата</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -474,11 +474,22 @@ async function loadStaff(){
     el.addEventListener('click', function(){ selectAgent(a.id); }); list.appendChild(el); });
   if(pendingStaffSelect){ var pid=pendingStaffSelect; pendingStaffSelect=null; selectAgent(pid); }
 }
+// Clear a poisoned thread server-side (the server replays history into the
+// prompt, so a client-only clear wouldn't stop the model copying old replies).
+function clearChatThread(){
+  if(!currentAgent) return; var aid=currentAgent.id;
+  if(!window.confirm('Очистить всю историю чата с '+shortName(currentAgent.name)+'? Переписка удалится безвозвратно.')) return;
+  api('/orgs/'+ORG+'/agents/'+aid+'/chat',{method:'DELETE'}).then(function(){
+    chatThreads[aid]=[]; try{ delete chatPending[aid]; }catch(e){} saveChat();
+    if(currentAgent&&currentAgent.id===aid) renderChat();
+  }).catch(function(){ window.alert('Не удалось очистить чат — попробуйте ещё раз.'); });
+}
 function selectAgent(id){
   currentAgent = staffAgents.filter(function(a){ return a.id===id; })[0]; if(!currentAgent) return;
   document.querySelectorAll('.staff-item').forEach(function(x){ x.classList.remove('active'); });
   var c=$('st_'+id); if(c) c.classList.add('active');
-  $('chatHead').textContent = shortName(currentAgent.name)+' — '+roleOf(currentAgent);
+  $('chatHead').innerHTML='<span>'+escapeHtml(shortName(currentAgent.name)+' — '+roleOf(currentAgent))+'</span><button id="chatClear" type="button" title="Удалить всю историю переписки с этим сотрудником" style="float:right;font:inherit;font-size:12px;font-weight:600;color:var(--muted);background:#1b232c;border:1px solid var(--border);border-radius:7px;padding:3px 9px;cursor:pointer">🗑 Очистить чат</button>';
+  var cb=$('chatClear'); if(cb) cb.addEventListener('click', clearChatThread);
   $('chatInput').disabled=false; $('chatSend').disabled=false; $('chatClip').disabled=false; $('chatInput').focus();
   chatReplyTo=null; renderReplyChip();
   renderChat();

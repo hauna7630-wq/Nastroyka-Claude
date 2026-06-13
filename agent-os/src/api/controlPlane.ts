@@ -362,6 +362,16 @@ export class ControlPlane {
     return { runId, status, message };
   }
 
+  async clearChatHistory(args: { orgId: string; agentId: string }): Promise<{ cleared: number }> {
+    const { repo } = this.deps;
+    const agent = await repo.getAgent(args.agentId);
+    if (!agent || agent.orgId !== args.orgId) {
+      throw new NotFoundError(`agent ${args.agentId}`);
+    }
+    const cleared = await repo.clearChatMessages(args.orgId, args.agentId);
+    return { cleared };
+  }
+
   async getChatHistory(args: {
     orgId: string;
     agentId: string;
