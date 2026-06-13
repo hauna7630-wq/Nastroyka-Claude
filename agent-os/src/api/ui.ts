@@ -875,14 +875,22 @@ function drawGrid(ctx,x0,y0,rows,pal,cell){
 }
 function drawAccessory(ctx,fx,fy,acc){
   var hx=fx, hy=fy; // anchored directly at the hand position passed in
-  if(acc==='case'){ ctx.fillStyle='#6b4327'; ctx.fillRect(hx-2,hy-2,15,12); ctx.fillStyle='#7d5233'; ctx.fillRect(hx-1,hy-1,13,4);
-    ctx.strokeStyle='#4d2f1a'; ctx.lineWidth=1.5; ctx.strokeRect(hx-2,hy-2,15,12); ctx.strokeRect(hx+3,hy-5,5,3); }
+  if(acc==='case'){ // brown briefcase: body, lighter lid, top handle, two brass clasps
+    ctx.fillStyle='#6f4827'; roundRect(ctx,hx-7,hy-1,15,12,1.6); ctx.fill();
+    ctx.fillStyle='#835833'; roundRect(ctx,hx-7,hy-1,15,3.6,1.4); ctx.fill();
+    ctx.fillStyle='#4d3019'; ctx.fillRect(hx-7,hy+2.4,15,1.2);
+    ctx.strokeStyle='#3f2916'; ctx.lineWidth=1.3; ctx.beginPath(); ctx.arc(hx+0.5,hy-2.4,3,Math.PI,0); ctx.stroke();
+    ctx.fillStyle='#d9b066'; ctx.fillRect(hx-3.2,hy+1.2,1.8,2.2); ctx.fillRect(hx+1.6,hy+1.2,1.8,2.2); }
   else if(acc==='laptop'){ ctx.fillStyle='#aab4bd'; ctx.fillRect(hx-2,hy,14,9); ctx.fillStyle='#2a3743'; ctx.fillRect(hx-1,hy+1,12,7); }
   else if(acc==='mag'){ ctx.strokeStyle='#cfd6dc'; ctx.lineWidth=2.4; ctx.beginPath(); ctx.arc(hx+4,hy+1,5,0,Math.PI*2); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(hx+8,hy+5); ctx.lineTo(hx+12,hy+9); ctx.stroke(); ctx.fillStyle='rgba(160,210,255,.35)'; ctx.beginPath(); ctx.arc(hx+4,hy+1,4,0,Math.PI*2); ctx.fill(); }
   else if(acc==='tablet'){ ctx.fillStyle='#0e1318'; ctx.fillRect(hx-1,hy-2,12,15); ctx.fillStyle='#16323f'; ctx.fillRect(hx,hy-1,10,13);
     ctx.fillStyle='#2ea043'; ctx.fillRect(hx+1,hy+8,2,3); ctx.fillRect(hx+4,hy+5,2,6); ctx.fillRect(hx+7,hy+7,2,4); }
-  else if(acc==='note'){ ctx.fillStyle='#eceff2'; ctx.fillRect(hx,hy-1,11,13); ctx.fillStyle='#9aa4ad'; for(var i=0;i<4;i++) ctx.fillRect(hx+2,hy+2+i*3,7,1); }
+  else if(acc==='note'){ // clipboard: white sheet, metal clip at top, ruled lines
+    ctx.fillStyle='#cdd3da'; roundRect(ctx,hx-1,hy-3,12,15,1.4); ctx.fill();
+    ctx.fillStyle='#f3f6f9'; roundRect(ctx,hx,hy-2,10,13,1); ctx.fill();
+    ctx.fillStyle='#8a949d'; ctx.fillRect(hx+3,hy-4,4,2.2); // clip
+    ctx.fillStyle='#9aa4ad'; for(var i=0;i<4;i++) ctx.fillRect(hx+2,hy+1+i*2.6,6.5,1); }
   else if(acc==='check'){ ctx.fillStyle='#d9dee3'; ctx.fillRect(hx,hy-2,11,14); ctx.fillStyle='#8a949d'; ctx.fillRect(hx+3,hy-4,5,3);
     ctx.strokeStyle='#2ea043'; ctx.lineWidth=1.6; for(var k2=0;k2<3;k2++){ ctx.beginPath(); ctx.moveTo(hx+2,hy+2+k2*4); ctx.lineTo(hx+4,hy+4+k2*4); ctx.lineTo(hx+8,hy+k2*4); ctx.stroke(); } }
 }
@@ -890,10 +898,10 @@ function drawAccessory(ctx,fx,fy,acc){
 var DARK_PAL={H:'#0c0f13',S:'#0c0f13',e:'#0c0f13',J:'#0c0f13',j:'#0c0f13',T:'#0c0f13',t:'#0c0f13',P:'#0c0f13',B:'#0c0f13'};
 // warm rim-light palette (every key → warm light) for the directional edge pass
 var LIGHT_PAL={H:'#fff1d6',S:'#fff1d6',e:'#fff1d6',J:'#fff1d6',j:'#fff1d6',T:'#fff1d6',t:'#fff1d6',P:'#fff1d6',B:'#fff1d6'};
-// --- Flat front-facing character (Stardew/Crossy-Road style) -----------------
-// One flat plane for the face (no iso edge down the middle → no "triangular"
-// head). Everyone wears a sharp dark business suit + white shirt; the role
-// colour becomes the TIE, so departments stay readable while matching the brief.
+// --- Flat front-facing character (matches the "Coordinator" reference) -------
+// One flat plane for the face (no iso edge → no "triangular" head). Sharp navy
+// business suit, peaked lapels, white shirt, RED tie. Role colour survives as a
+// breast-pocket square so departments stay readable.
 function drawCharacter(ctx,fx,fy,look,walk,working){
   fx=Math.round(fx); fy=Math.round(fy);
   // smooth vertical motion (idle breath / walk bounce / work lean) — no integer hops
@@ -901,8 +909,9 @@ function drawCharacter(ctx,fx,fy,look,walk,working){
   if(walk){ ty-=Math.abs(Math.sin(officeFrame/10+fx*0.12))*1.2; legPhase=Math.sin(officeFrame/8+fx*0.1); }
   else if(working){ ty-=(0.5+0.5*Math.sin(officeFrame/14+look.seed))*0.9; }
   var by=fy+ty;
-  var skin=look.skin, suit=look.suit, pants=look.pants, hair=look.hair, tie=look.shirt; // tie = role colour
-  var skinD=shade(skin,-30), suitD=shade(suit,-22), suitL=shade(suit,20), hairD=shade(hair,-22);
+  var skin=look.skin, suit=look.suit, pants=look.pants, hair=look.hair, role=look.shirt;
+  var skinD=shade(skin,-30), suitD=shade(suit,-24), suitL=shade(suit,22), hairD=shade(hair,-26), hairL=shade(hair,32);
+  var tieCol='#b22a30', tieD='#7e1d22'; // crisp business red, as on the reference
 
   // grounding shadow (two ellipses, no shadowBlur)
   ctx.save(); ctx.fillStyle='#000';
@@ -921,16 +930,17 @@ function drawCharacter(ctx,fx,fy,look,walk,working){
   leg(fx-4.4, llift); leg(fx+4.4, rlift);
 
   // ---- geometry anchors ----
-  var shoulderY=by-39, waistY=by-15, shoulderHW=13, waistHW=9.2;
-  var headCY=by-51, headRX=10.5, headRY=11.5;
+  var shoulderY=by-39, waistY=by-15, shoulderHW=13.5, waistHW=9.4;
+  var headCY=by-52, headRX=10.5, headRY=11.8;
   var armSwing=walk?legPhase*1.3:0;
 
-  // ---- back arms (drawn before torso for depth) ----
+  // ---- back (left) arm → before torso for depth ----
   function arm(side,swing){
-    var ax=fx+side*(shoulderHW-1.5);
-    ctx.fillStyle=side<0?suitD:suit; roundRect(ctx, ax-2.6, shoulderY+1, 5.2, 19+swing*side, 2.4); ctx.fill();
-    ctx.fillStyle=skin; ctx.beginPath(); ctx.arc(ax, shoulderY+21+swing*side, 2.7, 0, Math.PI*2); ctx.fill(); // hand
-    return {x:ax, y:shoulderY+21+swing*side};
+    var ax=fx+side*(shoulderHW-1.8);
+    ctx.fillStyle=side<0?suitD:suit; roundRect(ctx, ax-2.7, shoulderY+1, 5.4, 19+swing*side, 2.5); ctx.fill();
+    ctx.fillStyle=side<0?shade(suit,-34):suitD; ctx.fillRect(ax-2.7, shoulderY+1, 1.6, 18); // sleeve inner fold
+    ctx.fillStyle=skin; ctx.beginPath(); ctx.arc(ax, shoulderY+21.5+swing*side, 2.8, 0, Math.PI*2); ctx.fill(); // hand
+    return {x:ax, y:shoulderY+21.5+swing*side};
   }
   var lh=arm(-1, armSwing);
 
@@ -938,33 +948,50 @@ function drawCharacter(ctx,fx,fy,look,walk,working){
   ctx.fillStyle=suit;
   ctx.beginPath();
   ctx.moveTo(fx-shoulderHW, shoulderY+5);
-  ctx.quadraticCurveTo(fx-shoulderHW, shoulderY-1, fx-shoulderHW+5, shoulderY-1.5);
-  ctx.lineTo(fx+shoulderHW-5, shoulderY-1.5);
-  ctx.quadraticCurveTo(fx+shoulderHW, shoulderY-1, fx+shoulderHW, shoulderY+5);
+  ctx.quadraticCurveTo(fx-shoulderHW, shoulderY-1.5, fx-shoulderHW+5, shoulderY-2);
+  ctx.lineTo(fx+shoulderHW-5, shoulderY-2);
+  ctx.quadraticCurveTo(fx+shoulderHW, shoulderY-1.5, fx+shoulderHW, shoulderY+5);
   ctx.lineTo(fx+waistHW, waistY); ctx.lineTo(fx-waistHW, waistY);
   ctx.closePath(); ctx.fill();
-  // right-side body shadow for volume
+  // right-side body shadow + left-shoulder highlight for volume
   ctx.fillStyle=suitD; ctx.beginPath();
-  ctx.moveTo(fx+2.5, shoulderY-1); ctx.lineTo(fx+shoulderHW, shoulderY+5);
+  ctx.moveTo(fx+2.5, shoulderY-1.5); ctx.lineTo(fx+shoulderHW, shoulderY+5);
   ctx.lineTo(fx+waistHW, waistY); ctx.lineTo(fx+1.6, waistY); ctx.closePath(); ctx.fill();
+  ctx.fillStyle=suitL; roundRect(ctx, fx-shoulderHW+3, shoulderY-2, 6, 2.4, 1.2); ctx.fill();
 
-  // ---- white shirt wedge + tie ----
+  // ---- white shirt wedge ----
   ctx.fillStyle='#eef2f6';
-  ctx.beginPath(); ctx.moveTo(fx-5.4, shoulderY-0.5); ctx.lineTo(fx+5.4, shoulderY-0.5);
+  ctx.beginPath(); ctx.moveTo(fx-5.6, shoulderY-1); ctx.lineTo(fx+5.6, shoulderY-1);
   ctx.lineTo(fx, waistY-1); ctx.closePath(); ctx.fill();
-  // tie (role colour) with knot + body
-  ctx.fillStyle=tie; ctx.beginPath();
-  ctx.moveTo(fx-2.2, shoulderY+1.2); ctx.lineTo(fx+2.2, shoulderY+1.2); // knot top
-  ctx.lineTo(fx+1.3, shoulderY+4); ctx.lineTo(fx+3, waistY-2);
-  ctx.lineTo(fx-3, waistY-2); ctx.lineTo(fx-1.3, shoulderY+4); ctx.closePath(); ctx.fill();
-  ctx.fillStyle=shade(tie,-24); ctx.fillRect(fx+0.2, shoulderY+4, 2.4, waistY-shoulderY-6); // tie shade
-  // lapels (suit) framing the shirt
-  ctx.fillStyle=suitL;
-  ctx.beginPath(); ctx.moveTo(fx-shoulderHW+4.5, shoulderY-1); ctx.lineTo(fx-1.4, shoulderY+1); ctx.lineTo(fx-6, shoulderY+9.5); ctx.closePath(); ctx.fill();
-  ctx.fillStyle=shade(suit,8);
-  ctx.beginPath(); ctx.moveTo(fx+shoulderHW-4.5, shoulderY-1); ctx.lineTo(fx+1.4, shoulderY+1); ctx.lineTo(fx+6, shoulderY+9.5); ctx.closePath(); ctx.fill();
+  // shirt collar (two small flaps tucked under the chin)
+  ctx.fillStyle='#dde3ea';
+  ctx.beginPath(); ctx.moveTo(fx-4.2, shoulderY-1.5); ctx.lineTo(fx-0.6, shoulderY-0.5); ctx.lineTo(fx-1.4, shoulderY+2.4); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(fx+4.2, shoulderY-1.5); ctx.lineTo(fx+0.6, shoulderY-0.5); ctx.lineTo(fx+1.4, shoulderY+2.4); ctx.closePath(); ctx.fill();
+  // ---- red tie (knot + blade + dimple) ----
+  ctx.fillStyle=tieCol;
+  ctx.beginPath(); ctx.moveTo(fx-2.1, shoulderY+0.6); ctx.lineTo(fx+2.1, shoulderY+0.6);
+  ctx.lineTo(fx+1.4, shoulderY+3.4); ctx.lineTo(fx-1.4, shoulderY+3.4); ctx.closePath(); ctx.fill(); // knot
+  ctx.beginPath(); ctx.moveTo(fx-1.4, shoulderY+3.6); ctx.lineTo(fx+1.4, shoulderY+3.6);
+  ctx.lineTo(fx+3, waistY-1.5); ctx.lineTo(fx, waistY+0.5); ctx.lineTo(fx-3, waistY-1.5); ctx.closePath(); ctx.fill(); // blade
+  ctx.fillStyle=tieD; ctx.fillRect(fx+0.3, shoulderY+4, 2.4, waistY-shoulderY-6); // right-half shade
+  ctx.fillRect(fx-1.1, shoulderY+1.4, 2.2, 1); // knot dimple shadow
 
-  // ---- front arm (after torso) ----
+  // ---- peaked lapels (over the shirt edges) ----
+  ctx.fillStyle=suitL;
+  ctx.beginPath(); ctx.moveTo(fx-shoulderHW+4, shoulderY-2); ctx.lineTo(fx-1.6, shoulderY+0.5);
+  ctx.lineTo(fx-3, shoulderY+4.5); ctx.lineTo(fx-7.2, shoulderY+1.5); ctx.lineTo(fx-6.4, shoulderY+10); ctx.lineTo(fx-2, shoulderY+11.5);
+  ctx.lineTo(fx-1, shoulderY+4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle=shade(suit,10);
+  ctx.beginPath(); ctx.moveTo(fx+shoulderHW-4, shoulderY-2); ctx.lineTo(fx+1.6, shoulderY+0.5);
+  ctx.lineTo(fx+3, shoulderY+4.5); ctx.lineTo(fx+7.2, shoulderY+1.5); ctx.lineTo(fx+6.4, shoulderY+10); ctx.lineTo(fx+2, shoulderY+11.5);
+  ctx.lineTo(fx+1, shoulderY+4); ctx.closePath(); ctx.fill();
+  // center placket + two buttons below the tie
+  ctx.strokeStyle=suitD; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(fx, waistY-6); ctx.lineTo(fx, waistY); ctx.stroke();
+  ctx.fillStyle=shade(suit,-10); ctx.beginPath(); ctx.arc(fx, waistY-4.5, 0.9, 0, Math.PI*2); ctx.arc(fx, waistY-1.5, 0.9, 0, Math.PI*2); ctx.fill();
+  // breast-pocket square = role colour (keeps departments readable)
+  ctx.fillStyle=role; ctx.beginPath(); ctx.moveTo(fx-9.5, shoulderY+6.5); ctx.lineTo(fx-6, shoulderY+6.5); ctx.lineTo(fx-7.7, shoulderY+9); ctx.closePath(); ctx.fill();
+
+  // ---- front (right) arm → after torso ----
   var rh=arm(1, armSwing);
 
   // ---- neck ----
@@ -974,44 +1001,51 @@ function drawCharacter(ctx,fx,fy,look,walk,working){
   // ---- head (rounded, flat front face) ----
   ctx.fillStyle=skin;
   roundRect(ctx, fx-headRX, headCY-headRY, headRX*2, headRY*2, 6.5); ctx.fill();
-  // ears
-  ctx.beginPath(); ctx.arc(fx-headRX+0.5, headCY+1.5, 2.3, 0, Math.PI*2); ctx.arc(fx+headRX-0.5, headCY+1.5, 2.3, 0, Math.PI*2); ctx.fill();
-  // soft right-side cheek shadow
-  ctx.fillStyle=skinD; ctx.globalAlpha=0.5;
-  roundRect(ctx, fx+headRX-5, headCY-headRY+3, 5, headRY*2-6, 4); ctx.fill();
-  ctx.globalAlpha=1;
+  ctx.beginPath(); ctx.arc(fx-headRX+0.5, headCY+1.5, 2.3, 0, Math.PI*2); ctx.arc(fx+headRX-0.5, headCY+1.5, 2.3, 0, Math.PI*2); ctx.fill(); // ears
+  ctx.fillStyle=skinD; ctx.globalAlpha=0.5; // soft right-cheek shadow
+  roundRect(ctx, fx+headRX-5, headCY-headRY+3, 5, headRY*2-6, 4); ctx.fill(); ctx.globalAlpha=1;
 
   // ---- hair ----
-  if(look.hairStyle!=='bald'){
+  if(look.hairStyle==='bald'){
+    ctx.fillStyle=hairD; // thin side fringe only
+    roundRect(ctx, fx-headRX-0.5, headCY-2, 2.5, 7, 1); ctx.fill(); roundRect(ctx, fx+headRX-2, headCY-2, 2.5, 7, 1); ctx.fill();
+  } else if(look.hairStyle==='long'){
     ctx.fillStyle=hair; ctx.beginPath();
-    ctx.moveTo(fx-headRX-0.5, headCY+1.5);
-    ctx.quadraticCurveTo(fx-headRX-0.5, headCY-headRY-2.5, fx, headCY-headRY-2.5);
-    ctx.quadraticCurveTo(fx+headRX+0.5, headCY-headRY-2.5, fx+headRX+0.5, headCY+1.5);
-    if(look.hairStyle==='long'){ // falls down past the ears
-      ctx.lineTo(fx+headRX+0.5, headCY+headRY-1);
-      ctx.lineTo(fx+headRX-2.5, headCY+headRY-1); ctx.lineTo(fx+headRX-2.5, headCY-1);
-      ctx.quadraticCurveTo(fx+4, headCY-4, fx, headCY-3.5);
-      ctx.quadraticCurveTo(fx-4, headCY-3, fx-headRX+2.5, headCY-1);
-      ctx.lineTo(fx-headRX+2.5, headCY+headRY-1); ctx.lineTo(fx-headRX-0.5, headCY+headRY-1);
-    } else { // side-parted hairline sweep
-      ctx.lineTo(fx+headRX-1, headCY-1);
-      ctx.quadraticCurveTo(fx+5, headCY-4.5, fx+1, headCY-3);
-      ctx.quadraticCurveTo(fx-5.5, headCY-1, fx-headRX+1, headCY-0.5);
-    }
+    ctx.moveTo(fx-headRX-1.5, headCY+headRY-1);
+    ctx.lineTo(fx-headRX-1.5, headCY-3); ctx.quadraticCurveTo(fx-headRX-1.5, headCY-headRY-3, fx, headCY-headRY-3);
+    ctx.quadraticCurveTo(fx+headRX+1.5, headCY-headRY-3, fx+headRX+1.5, headCY-3); ctx.lineTo(fx+headRX+1.5, headCY+headRY-1);
+    ctx.lineTo(fx+headRX-2.5, headCY+headRY-1); ctx.lineTo(fx+headRX-2.5, headCY-2);
+    ctx.quadraticCurveTo(fx+4, headCY-4.5, fx, headCY-4); ctx.quadraticCurveTo(fx-4, headCY-3.5, fx-headRX+2.5, headCY-2);
+    ctx.lineTo(fx-headRX+2.5, headCY+headRY-1); ctx.closePath(); ctx.fill();
+    ctx.fillStyle=hairL; ctx.fillRect(fx-5.5, headCY-headRY+0.5, 4.5, 1.6);
+  } else {
+    // business pompadour / quiff with a side part (default + curly + short)
+    ctx.fillStyle=hair; ctx.beginPath();
+    ctx.moveTo(fx-headRX-0.5, headCY+2);
+    ctx.quadraticCurveTo(fx-headRX-2.5, headCY-headRY-2, fx-headRX+1, headCY-headRY-4.5); // left side rises
+    ctx.quadraticCurveTo(fx-2.5, headCY-headRY-8.5, fx+4.5, headCY-headRY-5);             // quiff crest sweeps right
+    ctx.quadraticCurveTo(fx+headRX+1, headCY-headRY-1.5, fx+headRX+0.5, headCY+1.5);      // right side down
+    ctx.lineTo(fx+headRX-1, headCY-1.5);
+    ctx.quadraticCurveTo(fx+6, headCY-5.5, fx+1.5, headCY-4);                              // right forehead sweep
+    ctx.quadraticCurveTo(fx-0.5, headCY-6, fx-2.6, headCY-3.4);                            // part dip
+    ctx.quadraticCurveTo(fx-6, headCY-1.6, fx-headRX+1, headCY-0.6);                       // left forehead
     ctx.closePath(); ctx.fill();
-    if(look.hairStyle==='curly'){ // bumpy crown on top of the cap
-      ctx.fillStyle=hair; for(var ci=-1;ci<=1;ci++){ ctx.beginPath(); ctx.arc(fx+ci*6, headCY-headRY-1.5, 4, 0, Math.PI*2); ctx.fill(); } }
-    ctx.fillStyle=hairD; ctx.beginPath(); // right-side hair shadow
-    ctx.moveTo(fx+headRX+0.5, headCY+1.5); ctx.quadraticCurveTo(fx+headRX+0.5, headCY-headRY-1, fx+3, headCY-headRY-1.5);
-    ctx.lineTo(fx+3, headCY-2.5); ctx.quadraticCurveTo(fx+headRX-2, headCY-2, fx+headRX-1, headCY-1); ctx.closePath(); ctx.fill();
-    ctx.fillStyle=shade(hair,26); ctx.fillRect(fx-5.5, headCY-headRY+0.5, 5, 1.5); // top highlight
+    if(look.hairStyle==='curly'){ ctx.fillStyle=hair; for(var ci=-1;ci<=2;ci++){ ctx.beginPath(); ctx.arc(fx-5+ci*5, headCY-headRY-3.5, 4, 0, Math.PI*2); ctx.fill(); } }
+    // shine streak along the crest
+    ctx.fillStyle=hairL; ctx.beginPath();
+    ctx.moveTo(fx-4, headCY-headRY-1.5); ctx.quadraticCurveTo(fx-0.5, headCY-headRY-6, fx+4.5, headCY-headRY-4);
+    ctx.lineTo(fx+3.5, headCY-headRY-2); ctx.quadraticCurveTo(fx-0.5, headCY-headRY-3.5, fx-3.5, headCY-headRY+0.5);
+    ctx.closePath(); ctx.fill();
+    // right-side hair shadow
+    ctx.fillStyle=hairD; ctx.beginPath();
+    ctx.moveTo(fx+headRX+0.5, headCY+1.5); ctx.quadraticCurveTo(fx+headRX+1, headCY-headRY-1.5, fx+4.5, headCY-headRY-2);
+    ctx.lineTo(fx+4, headCY-headRY+1); ctx.quadraticCurveTo(fx+headRX-1.5, headCY-1, fx+headRX-1, headCY+1); ctx.closePath(); ctx.fill();
   }
 
   // ---- face on the flat front plane ----
   var eyeY=headCY+1.5;
   var blink=((officeFrame+look.seed)%180)<6;
-  // brows
-  ctx.fillStyle=hairD;
+  ctx.fillStyle=hairD; // brows
   roundRect(ctx, fx-6.4, eyeY-3.6, 4.2, 1.4, 0.7); ctx.fill();
   roundRect(ctx, fx+2.2, eyeY-3.6, 4.2, 1.4, 0.7); ctx.fill();
   if(blink){ ctx.fillStyle=skinD; ctx.fillRect(fx-6, eyeY+0.4, 4, 1); ctx.fillRect(fx+2, eyeY+0.4, 4, 1); }
@@ -1019,15 +1053,14 @@ function drawCharacter(ctx,fx,fy,look,walk,working){
     ctx.fillStyle='#f4f6f8'; // whites
     roundRect(ctx, fx-6.2, eyeY-1.5, 4.3, 3.4, 1.4); ctx.fill();
     roundRect(ctx, fx+1.9, eyeY-1.5, 4.3, 3.4, 1.4); ctx.fill();
-    ctx.fillStyle='#1a2230'; // pupils
-    ctx.fillRect(fx-4.6, eyeY-1.1, 1.9, 2.7); ctx.fillRect(fx+2.7, eyeY-1.1, 1.9, 2.7);
-    ctx.fillStyle='rgba(255,255,255,.9)'; // catchlights
-    ctx.fillRect(fx-4.3, eyeY-0.8, 0.8, 0.8); ctx.fillRect(fx+3, eyeY-0.8, 0.8, 0.8);
+    ctx.fillStyle='#26313f'; // pupils (toward centre = looking ahead)
+    ctx.fillRect(fx-4.2, eyeY-1.1, 1.9, 2.7); ctx.fillRect(fx+2.3, eyeY-1.1, 1.9, 2.7);
+    ctx.fillStyle='rgba(255,255,255,.9)';
+    ctx.fillRect(fx-3.9, eyeY-0.8, 0.8, 0.8); ctx.fillRect(fx+2.6, eyeY-0.8, 0.8, 0.8);
   }
-  // nose + mouth (slight smile)
-  ctx.fillStyle=skinD; ctx.fillRect(fx-0.4, eyeY+1.4, 1.4, 2.2);
+  ctx.fillStyle=skinD; ctx.fillRect(fx-0.4, eyeY+1.4, 1.4, 2.2); // nose
   ctx.strokeStyle=shade(skin,-62); ctx.lineWidth=1.2; ctx.lineCap='round';
-  ctx.beginPath(); ctx.moveTo(fx-2.6, eyeY+5); ctx.quadraticCurveTo(fx, eyeY+6.6, fx+2.6, eyeY+5); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(fx-2.4, eyeY+5); ctx.quadraticCurveTo(fx, eyeY+6.4, fx+2.4, eyeY+5); ctx.stroke();
   ctx.lineCap='butt';
 
   // ---- glasses ----
@@ -1039,10 +1072,13 @@ function drawCharacter(ctx,fx,fy,look,walk,working){
   if(look.phones){
     ctx.strokeStyle='#1b2027'; ctx.lineWidth=2.6; ctx.beginPath(); ctx.arc(fx, headCY-1, headRX+1.5, Math.PI*1.05, Math.PI*1.95); ctx.stroke();
     ctx.fillStyle='#262c34'; roundRect(ctx, fx-headRX-2.5, headCY-1.5, 5, 9, 2); ctx.fill(); roundRect(ctx, fx+headRX-2.5, headCY-1.5, 5, 9, 2); ctx.fill();
-    ctx.fillStyle=tie; ctx.fillRect(fx-headRX-1, headCY+0.5, 1.8, 5); ctx.fillRect(fx+headRX-0.8, headCY+0.5, 1.8, 5); }
+    ctx.fillStyle=role; ctx.fillRect(fx-headRX-1, headCY+0.5, 1.8, 5); ctx.fillRect(fx+headRX-0.8, headCY+0.5, 1.8, 5); }
 
-  // role accessory held in the lowered front hand
-  if(look.acc) drawAccessory(ctx, rh.x-6, rh.y+3, look.acc);
+  // ---- props in hands ----
+  // Coordinator holds a briefcase AND a clipboard (one per hand), like the
+  // reference; every other role holds its single tool in the front hand.
+  if(look.acc==='case'){ drawAccessory(ctx, lh.x, lh.y+2, 'case'); drawAccessory(ctx, rh.x+1, rh.y-1, 'note'); }
+  else if(look.acc){ drawAccessory(ctx, rh.x, rh.y+2, look.acc); }
 }
 // --- isometric projection (2:1) ---
 var ISO_TW2=42, ISO_TH2=21, ISO_OX=0, ISO_OY=84, GRIDW=13, GRIDH=8;
