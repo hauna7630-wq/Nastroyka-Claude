@@ -142,7 +142,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v36 · зона отдыха</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v37 · чат+доска</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -561,7 +561,11 @@ function toggleReaction(msg, emoji){
     .catch(function(){});
 }
 function renderChat(){
-  if(!currentAgent) return; var log=$('chatLog'); log.innerHTML=''; var th=chatThreads[currentAgent.id]||[];
+  if(!currentAgent) return; var log=$('chatLog');
+  // Stick-to-bottom: only auto-scroll if the user is already near the bottom, so
+  // re-renders during streaming don't yank the view away while reading history.
+  var stick=(log.scrollHeight-log.scrollTop-log.clientHeight)<70;
+  log.innerHTML=''; var th=chatThreads[currentAgent.id]||[];
   th.forEach(function(m,i){ var el=document.createElement('div'); el.className='msg '+(m.role==='me'?'me':'them');
     var parts=splitQuote(m.text);
     var inner=(m.role==='me'?'':'<div class="who">'+escapeHtml(shortName(currentAgent.name))+'</div>');
@@ -580,7 +584,7 @@ function renderChat(){
     if(m.failedRunId){ var b=document.createElement('button'); b.textContent='Повторить'; b.className='primary'; b.style.cssText='margin-top:6px;padding:4px 10px;font-size:12px';
       b.addEventListener('click', (function(aid,idx,rid){ return function(){ retryChat(aid,idx,rid); }; })(currentAgent.id,i,m.failedRunId)); el.appendChild(b); }
     log.appendChild(el); });
-  log.scrollTop=log.scrollHeight;
+  if(stick) log.scrollTop=log.scrollHeight;
 }
 function setBubbleText(aid,idx,text){
   if(!(chatThreads[aid]&&chatThreads[aid][idx])) return;
@@ -749,6 +753,7 @@ var officeFrame=0; var officeRAF=null; var offW=760, offH=440; var officeSim=nul
 var officeCards=[];
 var officeVig=null; // cached screen-space vignette gradient (recomputed only on resize)
 var officeGrade=null; // cached cinematic grade (depth haze) gradient
+var floorTint={}; // cached per-tile department tint (keyed gx*100+gy), built in layoutOffice
 function pushOfficeCard(icon,title,sub,color){
   officeCards.push({icon:icon, title:String(title||''), sub:String(sub||''), color:color||'#8b949e', born:officeFrame, until:officeFrame+420});
   if(officeCards.length>4) officeCards.shift();
@@ -937,6 +942,13 @@ function layoutOffice(){
     officeHome[a.name]={gx:t[0],gy:t[1]};
     if(!officePos[a.name]) officePos[a.name]={gx:t[0],gy:t[1]};
     officeTgt[a.name]={gx:t[0],gy:t[1]}; officeDwell[a.name]=120+Math.floor(Math.random()*200); }
+  // Precompute the per-tile department tint once (was a 104×7 nearest-agent search
+  // EVERY frame). Recomputed only here, when the roster/home layout changes.
+  floorTint={};
+  for(var fy2=0; fy2<GRIDH; fy2++){ for(var fx2=0; fx2<GRIDW; fx2++){
+    var nr=null,bd=99; for(var ai=0;ai<officeAgents.length;ai++){ var hm=officeHome[officeAgents[ai].name]; if(!hm)continue; var d=Math.abs(hm.gx-fx2)+Math.abs(hm.gy-fy2); if(d<bd){bd=d;nr=officeAgents[ai];} }
+    if(nr && bd<=1) floorTint[fx2*100+fy2]=roleColor(nr.type);
+  } }
 }
 function setBubble(name,text,frames){ officeBubble[name]={text:text, until:officeFrame+(frames||200)}; }
 // Activity log: shared array renders both the office feed and the
@@ -962,7 +974,7 @@ function pushActivity(text){
 }
 // Wander targets are the meeting room + spots next to amenities (coffee/cooler/
 // printer) — so idle agents gather at something, not at a bare floor square.
-function socialTile(){ var pts=[{gx:MEET_TILE[0],gy:MEET_TILE[1]},{gx:4,gy:1},{gx:1,gy:1},{gx:1,gy:3}]; return pick(pts); }
+function socialTile(){ var pts=[{gx:6,gy:7},{gx:4,gy:1},{gx:1,gy:1},{gx:1,gy:3}]; return pick(pts); }
 function updateOffice(){
   officeAgents.forEach(function(a){ var nm=a.name; var home=officeHome[nm]; if(!home) return; var st=officeState[nm]||'idle';
     var tgt;
@@ -1132,6 +1144,19 @@ function isoLowTable(ctx,gx,gy){ var g=groundAt(gx,gy);
   ctx.fillStyle='#6b5640'; ctx.beginPath(); ctx.ellipse(g.x,g.y-7,13,6,0,0,Math.PI*2); ctx.fill();
   ctx.fillStyle='#2f8f4a'; ctx.fillRect(g.x-2,g.y-11,5,4); ctx.fillStyle='#e7ecf1'; ctx.fillRect(g.x+4,g.y-9,5,3); // plant + magazine
 }
+// Free-standing whiteboard on an easel (beside the meeting room).
+function isoWhiteboard(ctx,gx,gy){ var g=groundAt(gx,gy);
+  ctx.strokeStyle='#5a4632'; ctx.lineWidth=2.4; ctx.beginPath();
+  ctx.moveTo(g.x-12,g.y); ctx.lineTo(g.x-7,g.y-30); ctx.moveTo(g.x+12,g.y); ctx.lineTo(g.x+7,g.y-30); ctx.moveTo(g.x,g.y+2); ctx.lineTo(g.x+3,g.y-26); ctx.stroke();
+  ctx.fillStyle='#eef2f5'; roundRect(ctx,g.x-20,g.y-54,40,28,2); ctx.fill();
+  ctx.strokeStyle='#9aa4ad'; ctx.lineWidth=1.5; roundRect(ctx,g.x-20,g.y-54,40,28,2); ctx.stroke();
+  // scribbles: two flow boxes + arrow, a green curve, an amber underline
+  ctx.strokeStyle='#2f81f7'; ctx.lineWidth=1.4; ctx.strokeRect(g.x-15,g.y-50,9,6); ctx.strokeRect(g.x+6,g.y-50,9,6);
+  ctx.beginPath(); ctx.moveTo(g.x-6,g.y-47); ctx.lineTo(g.x+6,g.y-47); ctx.stroke();
+  ctx.strokeStyle='#2ea043'; ctx.beginPath(); ctx.moveTo(g.x-15,g.y-38); ctx.lineTo(g.x-8,g.y-34); ctx.lineTo(g.x+2,g.y-40); ctx.lineTo(g.x+13,g.y-36); ctx.stroke();
+  ctx.strokeStyle='#d29922'; ctx.beginPath(); ctx.moveTo(g.x-15,g.y-31); ctx.lineTo(g.x-2,g.y-31); ctx.stroke();
+  ctx.fillStyle='#cfd6dc'; ctx.fillRect(g.x-20,g.y-27,40,2); // marker tray
+}
 // One pane of a framed glass partition between floor points A and B, height h.
 function drawGlassWall(ctx,A,B,h){
   var A2={x:A.x,y:A.y-h}, B2={x:B.x,y:B.y-h};
@@ -1173,9 +1198,9 @@ function drawMeetingRoom(ctx){
   ctx.fillStyle='#2f81f7'; for(var li=0;li<3;li++){ ctx.fillRect(q0.x+5,q0.y-sct+6+li*5,16+li*7,2); }
   // hung nameplate
   ctx.save(); ctx.font='bold 10px system-ui,Segoe UI,sans-serif'; ctx.textAlign='center';
-  var rl='ПЕРЕГОВОРНАЯ'; var rw=ctx.measureText(rl).width+16; ctx.fillStyle='rgba(13,17,23,.74)';
-  roundRect(ctx,mg.x-rw/2,mg.y-60,rw,16,5); ctx.fill(); ctx.strokeStyle='rgba(120,170,220,.4)'; ctx.lineWidth=1; ctx.stroke();
-  ctx.fillStyle='#cfe0ff'; ctx.fillText(rl,mg.x,mg.y-49); ctx.restore();
+  var rl='ПЕРЕГОВОРНАЯ'; var rw=ctx.measureText(rl).width+16; ctx.fillStyle='rgba(13,17,23,.78)';
+  roundRect(ctx,mg.x-rw/2,mg.y-80,rw,16,5); ctx.fill(); ctx.strokeStyle='rgba(120,170,220,.4)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle='#cfe0ff'; ctx.fillText(rl,mg.x,mg.y-69); ctx.restore();
 }
 var bubbleRects=[];
 function drawOffice(){
@@ -1198,8 +1223,7 @@ function drawOffice(){
     // bevel: light on the top-left edge, shadow on the bottom-right edge → plank relief
     ctx.strokeStyle='rgba(255,238,205,.08)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(tt.x-ISO_TW2,tt.y+ISO_TH2); ctx.lineTo(tt.x,tt.y); ctx.lineTo(tt.x+ISO_TW2,tt.y+ISO_TH2); ctx.stroke();
     ctx.strokeStyle='rgba(38,24,10,.32)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(tt.x-ISO_TW2,tt.y+ISO_TH2); ctx.lineTo(tt.x,tt.y+ISO_TH2*2); ctx.lineTo(tt.x+ISO_TW2,tt.y+ISO_TH2); ctx.stroke();
-    var near=null,bd=99; for(var ai=0;ai<officeAgents.length;ai++){ var hm=officeHome[officeAgents[ai].name]; if(!hm)continue; var d=Math.abs(hm.gx-gx)+Math.abs(hm.gy-gy); if(d<bd){bd=d;near=officeAgents[ai];} }
-    if(near && bd<=1){ isoTileDiamond(ctx,gx,gy); ctx.globalAlpha=0.14; ctx.fillStyle=roleColor(near.type); ctx.fill(); ctx.globalAlpha=1; }
+    var ft=floorTint[gx*100+gy]; if(ft){ isoTileDiamond(ctx,gx,gy); ctx.globalAlpha=0.14; ctx.fillStyle=ft; ctx.fill(); ctx.globalAlpha=1; }
   } }
   // glass-walled meeting room (replaces the bare blue square)
   drawMeetingRoom(ctx);
@@ -1208,6 +1232,7 @@ function drawOffice(){
   // lounge / rest zone (front-left): warm rug + two-seat sofa + coffee table
   [[1,6],[1,7],[2,7]].forEach(function(R){ isoTileDiamond(ctx,R[0],R[1]); ctx.globalAlpha=0.45; ctx.fillStyle='#6a4a3a'; ctx.fill(); ctx.globalAlpha=1; });
   isoSofa(ctx,1,7); isoLowTable(ctx,2,7); isoPlant(ctx,1,6);
+  isoWhiteboard(ctx,4,5); // board beside the meeting room
   // ceiling pendant lamps — warm pools of light on the floor (atmosphere)
   [[3,1],[7,1],[10,2]].forEach(function(L){ var c=isoTop(L[0],L[1]); var lx=Math.round(c.x), ly=Math.round(c.y-74);
     var gg=ctx.createRadialGradient(lx,ly+4,2,lx,ly+14,38); gg.addColorStop(0,'rgba(255,226,150,.26)'); gg.addColorStop(1,'rgba(255,226,150,0)');
