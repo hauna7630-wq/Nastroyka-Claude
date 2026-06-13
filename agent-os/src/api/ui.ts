@@ -35,12 +35,12 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .sactive { margin-left:auto; font-size:9.5px; color:var(--ok); background:rgba(46,160,67,.15); padding:2px 6px; border-radius:999px; }
   .sbottom { margin-top:auto; padding-top:10px; border-top:1px solid #1b232c; color:var(--muted); font-size:12px; padding-left:6px; }
   .content { flex:1; display:flex; flex-direction:column; min-height:0; }
-  main { flex:1; width:100%; max-width:1500px; margin:0 auto; padding:18px 22px; overflow:auto; min-height:0; }
+  main { flex:1; width:100%; max-width:1500px; margin:0 auto; padding:18px 22px; overflow:hidden; min-height:0; display:flex; flex-direction:column; }
   @media (max-width: 920px){ aside#side { width:68px; min-width:68px; padding:14px 8px; }
     aside#side .sname, aside#side .srole, aside#side .sactive, aside#side .sside-title,
     aside#side .logo .vbadge, aside#side .logo .ltext, aside#side .sbottom { display:none; }
     aside#side .newtask { font-size:16px; padding:7px 0; } }
-  .tab { display:none; } .tab.active { display:flex; flex-direction:column; flex:1; min-height:0; }
+  .tab { display:none; } .tab.active { display:flex; flex-direction:column; flex:1; min-height:0; overflow:auto; }
   form { display:flex; gap:8px; margin-bottom:16px; }
   input, textarea, select { background:var(--card); color:var(--fg); border:1px solid var(--border);
              border-radius:8px; padding:9px 12px; font:inherit; }
@@ -142,7 +142,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v40 · очистка чата</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v41 · скролл чата</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
