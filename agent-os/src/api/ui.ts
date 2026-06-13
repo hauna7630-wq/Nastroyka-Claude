@@ -79,7 +79,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .chat { display:flex; flex-direction:column; height:100%; min-height:0; border:1px solid var(--border); border-radius:10px; background:var(--card); }
   .chat-head { padding:11px 13px; border-bottom:1px solid var(--border); font-weight:600; }
   .chat-log { flex:1; overflow:auto; padding:13px; display:flex; flex-direction:column; gap:9px; }
-  .msg { max-width:82%; padding:8px 11px; border-radius:10px; white-space:pre-wrap; font-size:14px; line-height:1.4; position:relative; }
+  .msg { max-width:min(82%,680px); padding:8px 11px; border-radius:10px; white-space:pre-wrap; word-break:break-word; font-size:14px; line-height:1.45; position:relative; }
   .msg.me { align-self:flex-end; background:var(--accent); color:#fff; }
   .msg.them { align-self:flex-start; background:#0d1117; border:1px solid var(--border); }
   .msg .who { font-size:11px; color:var(--muted); margin-bottom:3px; }
@@ -142,7 +142,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v31 · офис+</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v32 · плавность</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -871,10 +871,15 @@ function drawAccessory(ctx,fx,fy,acc){
 }
 // dark palette for the silhouette pass (every sprite key → near-black)
 var DARK_PAL={H:'#0c0f13',S:'#0c0f13',e:'#0c0f13',J:'#0c0f13',j:'#0c0f13',T:'#0c0f13',t:'#0c0f13',P:'#0c0f13',B:'#0c0f13'};
-function drawCharacter(ctx,fx,fy,look,bob,step){
-  fx=Math.round(fx); fy=Math.round(fy); bob=bob||0; var ty=-bob;
+function drawCharacter(ctx,fx,fy,look,walk,working){
+  fx=Math.round(fx); fy=Math.round(fy);
+  // Smooth, natural vertical motion — NO integer hops (which read as "fleas").
+  // Everyone has a slow idle breath; walkers get a soft stride bounce; workers a
+  // gentle lean. All continuous sines, per-person phase via look.seed.
+  var ty=-(0.5+0.5*Math.sin(officeFrame/30+look.seed*0.7))*0.8;
   var frame=-1;
-  if(step){ frame=Math.floor(officeFrame/6)%2; var ph=Math.sin((officeFrame+fx)/3.2); ty-=Math.round(Math.abs(ph)*2); }
+  if(walk){ frame=Math.floor(officeFrame/10)%2; ty-=Math.abs(Math.sin(officeFrame/10+fx*0.12))*1.4; }
+  else if(working){ ty-=(0.5+0.5*Math.sin(officeFrame/14+look.seed))*0.9; }
   // grounding shadow: two stacked ellipses (soft halo + tight core), no shadowBlur
   ctx.save(); ctx.fillStyle='#000';
   ctx.globalAlpha=0.15; ctx.beginPath(); ctx.ellipse(fx,fy+1,20,6,0,0,Math.PI*2); ctx.fill();
@@ -956,9 +961,10 @@ function updateOffice(){
     var tgt;
     if(st==='working'||st==='done'||st==='failed'){ tgt=home; }
     else if(officeMeetUntil[nm] && officeFrame<officeMeetUntil[nm]){ tgt=officeTgt[nm]; }
-    else { officeDwell[nm]=(officeDwell[nm]||0)-1; if(officeDwell[nm]<=0){ tgt = Math.random()<0.45 ? socialTile() : home; officeTgt[nm]=tgt; officeDwell[nm]=180+Math.floor(Math.random()*260); } tgt=officeTgt[nm]; }
+    else { officeDwell[nm]=(officeDwell[nm]||0)-1; if(officeDwell[nm]<=0){ tgt = Math.random()<0.28 ? socialTile() : home; officeTgt[nm]=tgt; officeDwell[nm]=300+Math.floor(Math.random()*360); } tgt=officeTgt[nm]; }
     var p=officePos[nm]; if(!p){ p={gx:home.gx,gy:home.gy}; officePos[nm]=p; }
-    p.gx += (tgt.gx-p.gx)*0.06; p.gy += (tgt.gy-p.gy)*0.06;
+    // gentle glide (slower lerp) — reads as a calm walk, not a teleport
+    p.gx += (tgt.gx-p.gx)*0.045; p.gy += (tgt.gy-p.gy)*0.045;
   });
 }
 function isoBox(ctx,sx,sy,hw,hh,h,top,left,right){
@@ -1000,18 +1006,21 @@ function drawRoleProps(ctx,x,y,type){
 function drawStation(ctx,a){
   var nm=a.name; var home=officeHome[nm]; if(!home) return; var p=officePos[nm]||home; var st=officeState[nm]||'idle'; var col=roleColor(a.type);
   var dg=groundAt(home.gx,home.gy); var pg=groundAt(p.gx,p.gy);
-  var dist=Math.abs(p.gx-home.gx)+Math.abs(p.gy-home.gy); var atDesk=dist<0.3; var walking=!atDesk;
-  var step=walking?(Math.floor(officeFrame/7)%2===0):false;
-  var bob=(st==='working'&&atDesk)?(Math.sin((officeFrame+dg.x)/9)>0?1:0):0;
+  var dist=Math.abs(p.gx-home.gx)+Math.abs(p.gy-home.gy); var atDesk=dist<0.3; var walking=dist>0.14;
+  var working=(st==='working'&&atDesk);
   var look=a._look||(a._look=lookFor(a));
   // cubicle partitions (back edges) — department room divider, behind the person
   drawCubicle(ctx, home.gx, home.gy, col);
   // person (feet on iso ground)
-  drawCharacter(ctx, pg.x, pg.y, look, bob, step);
-  // desk as iso box
-  isoBox(ctx, dg.x, dg.y-2, 40, 20, 16, '#7a5a32','#5d4427','#49351f');
-  // mug + papers on the desk top
-  ctx.fillStyle=col; ctx.fillRect(dg.x-22,dg.y-9,6,7); ctx.fillStyle='#eceff2'; ctx.fillRect(dg.x+13,dg.y-7,10,6);
+  drawCharacter(ctx, pg.x, pg.y, look, walking, working);
+  // desk as iso box (warmer wood) + a thin top-front edge highlight
+  isoBox(ctx, dg.x, dg.y-2, 40, 20, 16, '#86643a','#664a2c','#503922');
+  ctx.strokeStyle='rgba(255,228,180,.16)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(dg.x-40,dg.y-18); ctx.lineTo(dg.x,dg.y+2); ctx.lineTo(dg.x+40,dg.y-18); ctx.stroke();
+  // desktop items: keyboard + mug + papers
+  ctx.fillStyle='#222a32'; roundRect(ctx,dg.x-12,dg.y-7,24,7,1.5); ctx.fill();
+  ctx.fillStyle='#3c4853'; for(var kr=0;kr<2;kr++){ for(var kc=0;kc<6;kc++){ ctx.fillRect(dg.x-10+kc*3.5,dg.y-6+kr*3,2.4,2); } }
+  ctx.fillStyle=col; ctx.fillRect(dg.x-23,dg.y-10,6,8); ctx.fillStyle='rgba(255,255,255,.25)'; ctx.fillRect(dg.x-22,dg.y-9,1.6,6);
+  ctx.fillStyle='#eceff2'; ctx.fillRect(dg.x+14,dg.y-8,11,7); ctx.fillStyle='#c2c9d0'; ctx.fillRect(dg.x+15,dg.y-9,11,7);
   // monitor (billboard at the back of the desk)
   var mx=dg.x, my=dg.y-28;
   ctx.fillStyle='#0e1318'; roundRect(ctx,mx-18,my-14,36,24,3); ctx.fill();
