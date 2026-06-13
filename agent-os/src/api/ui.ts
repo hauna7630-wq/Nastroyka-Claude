@@ -142,7 +142,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v34 · cinematic</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v35 · переговорка</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -960,7 +960,9 @@ function pushActivity(text){
   var big=document.getElementById('activityBig');
   if(big && big.offsetParent) renderActivity('activityBig',200);
 }
-function socialTile(){ var pts=[{gx:MEET_TILE[0],gy:MEET_TILE[1]},{gx:11,gy:7},{gx:2,gy:7},{gx:GRIDW-2,gy:1}]; return pick(pts); }
+// Wander targets are the meeting room + spots next to amenities (coffee/cooler/
+// printer) — so idle agents gather at something, not at a bare floor square.
+function socialTile(){ var pts=[{gx:MEET_TILE[0],gy:MEET_TILE[1]},{gx:4,gy:1},{gx:1,gy:1},{gx:1,gy:3}]; return pick(pts); }
 function updateOffice(){
   officeAgents.forEach(function(a){ var nm=a.name; var home=officeHome[nm]; if(!home) return; var st=officeState[nm]||'idle';
     var tgt;
@@ -1114,6 +1116,51 @@ function isoPlant(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,9,5,9,
 function isoCooler(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,7,4,16,'#e2eaf0','#c4d2dc','#aebecb'); ctx.fillStyle='#bfe3f5'; ctx.fillRect(g.x-6,g.y-31,12,11); ctx.fillStyle='#5fbfe0'; ctx.fillRect(g.x-5,g.y-30,10,8); }
 function isoPrinter(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,11,6,11,'#cdd3da','#aab2bb','#9098a1'); ctx.fillStyle='#2a323b'; ctx.fillRect(g.x-7,g.y-15,14,3); ctx.fillStyle='#eef2f5'; ctx.fillRect(g.x-5,g.y-13,10,4); }
 function isoCoffee(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,8,5,16,'#2a323b','#1e242b','#171c22'); ctx.fillStyle='#d29922'; ctx.fillRect(g.x-4,g.y-22,8,3); ctx.fillStyle='#7a4a2a'; ctx.fillRect(g.x-3,g.y-12,6,4); }
+// One pane of a framed glass partition between floor points A and B, height h.
+function drawGlassWall(ctx,A,B,h){
+  var A2={x:A.x,y:A.y-h}, B2={x:B.x,y:B.y-h};
+  ctx.fillStyle='rgba(150,194,224,0.12)'; ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.lineTo(B2.x,B2.y); ctx.lineTo(A2.x,A2.y); ctx.closePath(); ctx.fill();
+  // diagonal glass sheen
+  ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(lerpP(A,B,0.22).x,lerpP(A,B,0.22).y-3); ctx.lineTo(lerpP(A2,B2,0.42).x,lerpP(A2,B2,0.42).y+3); ctx.stroke();
+  // frame: top rail + bottom rail + end posts + middle mullion
+  ctx.strokeStyle='#5b6876'; ctx.lineWidth=2.6; ctx.beginPath(); ctx.moveTo(A2.x,A2.y); ctx.lineTo(B2.x,B2.y); ctx.stroke();
+  ctx.strokeStyle='#3c4651'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.stroke();
+  ctx.strokeStyle='#6c7a88'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(A2.x,A2.y); ctx.moveTo(B.x,B.y); ctx.lineTo(B2.x,B2.y); ctx.stroke();
+  var m=lerpP(A,B,0.5), m2=lerpP(A2,B2,0.5); ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(m.x,m.y); ctx.lineTo(m2.x,m2.y); ctx.stroke();
+}
+// The «Переговорная»: carpet, glass back walls (front open), conference table with
+// laptop/cups, stools around it, a wall presentation screen, and a hung nameplate.
+function drawMeetingRoom(ctx){
+  var N=isoTop(5,5), E=isoTop(8,5), S=isoTop(8,8), W=isoTop(5,8);
+  // carpet (3x3) two-tone + border
+  for(var dy=-1;dy<=1;dy++){ for(var dx=-1;dx<=1;dx++){ var rgx=6+dx, rgy=6+dy; if(rgx<0||rgy<0||rgx>=GRIDW||rgy>=GRIDH)continue;
+    isoTileDiamond(ctx,rgx,rgy); ctx.globalAlpha=0.62; ctx.fillStyle=(((dx+dy)&1)===0)?'#274363':'#22384f'; ctx.fill(); ctx.globalAlpha=1; } }
+  ctx.strokeStyle='rgba(120,170,220,.30)'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(N.x,N.y); ctx.lineTo(E.x,E.y); ctx.lineTo(S.x,S.y); ctx.lineTo(W.x,W.y); ctx.closePath(); ctx.stroke();
+  // conference table
+  var mg=groundAt(6,6);
+  isoBox(ctx,mg.x,mg.y-2,52,26,9,'#3a3f47','#2c3036','#212429');
+  ctx.fillStyle='#474d56'; ctx.beginPath(); ctx.ellipse(mg.x,mg.y-13,46,21,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#525964'; ctx.beginPath(); ctx.ellipse(mg.x,mg.y-14,40,17,0,0,Math.PI*2); ctx.fill();
+  // table props: laptop, papers, mug
+  ctx.fillStyle='#10151b'; ctx.fillRect(mg.x-20,mg.y-19,12,8); ctx.fillStyle='#2ea043'; ctx.fillRect(mg.x-19,mg.y-18,10,6);
+  ctx.fillStyle='#e7ecf1'; ctx.fillRect(mg.x+6,mg.y-16,12,8); ctx.fillStyle='#d29922'; ctx.fillRect(mg.x-2,mg.y-15,4,4);
+  // stools around the table
+  var seats=[[mg.x-36,mg.y-2],[mg.x+36,mg.y-2],[mg.x-16,mg.y+12],[mg.x+16,mg.y+12],[mg.x-16,mg.y-20],[mg.x+16,mg.y-20]];
+  seats.forEach(function(s){ ctx.fillStyle='#333d49'; roundRect(ctx,s[0]-6,s[1]-7,12,8,3); ctx.fill(); ctx.fillStyle='#2a3038'; ctx.fillRect(s[0]-1.5,s[1]+1,3,5); });
+  // glass partitions on the two far edges (front stays open so we see in)
+  drawGlassWall(ctx,N,W,36); drawGlassWall(ctx,N,E,36);
+  // wall presentation screen on the back-right glass
+  var sc0=lerpP(N,E,0.42), sc1=lerpP(N,E,0.72), sct=24;
+  var q0={x:sc0.x,y:sc0.y-12}, q1={x:sc1.x,y:sc1.y-12};
+  ctx.fillStyle='#0e141b'; ctx.beginPath(); ctx.moveTo(q0.x,q0.y); ctx.lineTo(q1.x,q1.y); ctx.lineTo(q1.x,q1.y-sct); ctx.lineTo(q0.x,q0.y-sct); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='#2a3744'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.fillStyle='#2f81f7'; for(var li=0;li<3;li++){ ctx.fillRect(q0.x+5,q0.y-sct+6+li*5,16+li*7,2); }
+  // hung nameplate
+  ctx.save(); ctx.font='bold 10px system-ui,Segoe UI,sans-serif'; ctx.textAlign='center';
+  var rl='ПЕРЕГОВОРНАЯ'; var rw=ctx.measureText(rl).width+16; ctx.fillStyle='rgba(13,17,23,.74)';
+  roundRect(ctx,mg.x-rw/2,mg.y-60,rw,16,5); ctx.fill(); ctx.strokeStyle='rgba(120,170,220,.4)'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle='#cfe0ff'; ctx.fillText(rl,mg.x,mg.y-49); ctx.restore();
+}
 var bubbleRects=[];
 function drawOffice(){
   var cv=document.getElementById('office'); if(!cv)return; var ctx=cv.getContext('2d'); var W=cv.width,H=cv.height; offW=W; offH=H;
@@ -1138,14 +1185,8 @@ function drawOffice(){
     var near=null,bd=99; for(var ai=0;ai<officeAgents.length;ai++){ var hm=officeHome[officeAgents[ai].name]; if(!hm)continue; var d=Math.abs(hm.gx-gx)+Math.abs(hm.gy-gy); if(d<bd){bd=d;near=officeAgents[ai];} }
     if(near && bd<=1){ isoTileDiamond(ctx,gx,gy); ctx.globalAlpha=0.14; ctx.fillStyle=roleColor(near.type); ctx.fill(); ctx.globalAlpha=1; }
   } }
-  // meeting rug (3x3 tiles around MEET) + iso table
-  for(var dy=-1;dy<=1;dy++){ for(var dx=-1;dx<=1;dx++){ var rgx=MEET_TILE[0]+dx, rgy=MEET_TILE[1]+dy; if(rgx<0||rgy<0||rgx>=GRIDW||rgy>=GRIDH)continue;
-    isoTileDiamond(ctx,rgx,rgy); ctx.globalAlpha=0.5; ctx.fillStyle='#2f4d80'; ctx.fill(); ctx.globalAlpha=1; } }
-  var mg=groundAt(MEET_TILE[0],MEET_TILE[1]); isoBox(ctx,mg.x,mg.y-2,50,25,11,'#7a5a32','#5d4427','#49351f');
-  // room nameplate over the meeting rug
-  ctx.save(); ctx.font='bold 10px system-ui,Segoe UI,sans-serif'; ctx.textAlign='center';
-  var rl='ПЕРЕГОВОРНАЯ'; var rw=ctx.measureText(rl).width+14; ctx.fillStyle='rgba(13,17,23,.62)';
-  roundRect(ctx,mg.x-rw/2,mg.y-44,rw,15,5); ctx.fill(); ctx.fillStyle='#cfe0ff'; ctx.fillText(rl,mg.x,mg.y-33); ctx.restore();
+  // glass-walled meeting room (replaces the bare blue square)
+  drawMeetingRoom(ctx);
   // static decor at back edges (low depth, drawn before people)
   isoPlant(ctx,1,0); isoPlant(ctx,0,1); isoPlant(ctx,GRIDW-1,0); isoPlant(ctx,GRIDW-1,GRIDH-1); isoCooler(ctx,2,0); isoPrinter(ctx,0,2); isoCoffee(ctx,3,0);
   // ceiling pendant lamps — warm pools of light on the floor (atmosphere)
