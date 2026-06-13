@@ -142,7 +142,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v37 · чат+доска</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v38 · ходьба</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -982,9 +982,21 @@ function updateOffice(){
     else if(officeMeetUntil[nm] && officeFrame<officeMeetUntil[nm]){ tgt=officeTgt[nm]; }
     else { officeDwell[nm]=(officeDwell[nm]||0)-1; if(officeDwell[nm]<=0){ tgt = Math.random()<0.28 ? socialTile() : home; officeTgt[nm]=tgt; officeDwell[nm]=300+Math.floor(Math.random()*360); } tgt=officeTgt[nm]; }
     var p=officePos[nm]; if(!p){ p={gx:home.gx,gy:home.gy}; officePos[nm]=p; }
-    // gentle glide (slower lerp) — reads as a calm walk, not a teleport
-    p.gx += (tgt.gx-p.gx)*0.045; p.gy += (tgt.gy-p.gy)*0.045;
+    p._tgt=tgt;
+    // steady walking pace toward the target (constant speed, snap when close) —
+    // reads as a real walk, not floaty easing that slows to a crawl near the goal.
+    var dx=tgt.gx-p.gx, dy=tgt.gy-p.gy, dl=Math.sqrt(dx*dx+dy*dy), spd=0.034;
+    if(dl>0.0001){ if(dl<=spd){ p.gx=tgt.gx; p.gy=tgt.gy; } else { p.gx+=dx/dl*spd; p.gy+=dy/dl*spd; } }
   });
+  // separation (boids-style): never let two people occupy the same spot — push
+  // apart any pair closer than MINSEP, gently and symmetrically. Run twice so a
+  // tight cluster settles in one frame.
+  var MINSEP=0.95, ag=officeAgents;
+  for(var pass=0;pass<2;pass++){ for(var i=0;i<ag.length;i++){ var pi=officePos[ag[i].name]; if(!pi) continue;
+    for(var j=i+1;j<ag.length;j++){ var pj=officePos[ag[j].name]; if(!pj) continue;
+      var sx=pi.gx-pj.gx, sy=pi.gy-pj.gy, q=sx*sx+sy*sy;
+      if(q>1e-7 && q<MINSEP*MINSEP){ var dd=Math.sqrt(q), ph=(MINSEP-dd)*0.25, ux=sx/dd, uy=sy/dd; pi.gx+=ux*ph; pi.gy+=uy*ph; pj.gx-=ux*ph; pj.gy-=uy*ph; }
+      else if(q<=1e-7){ pi.gx+=0.07; pj.gx-=0.07; } } } }
 }
 function isoBox(ctx,sx,sy,hw,hh,h,top,left,right){
   var Tx=sx,Ty=sy-h-hh, Rx=sx+hw,Ry=sy-h, Fx=sx,Fy=sy-h+hh, Lx=sx-hw,Ly=sy-h;
@@ -1042,7 +1054,10 @@ function drawRoleProps(ctx,x,y,type){
 function drawStation(ctx,a){
   var nm=a.name; var home=officeHome[nm]; if(!home) return; var p=officePos[nm]||home; var st=officeState[nm]||'idle'; var col=roleColor(a.type);
   var dg=groundAt(home.gx,home.gy); var pg=groundAt(p.gx,p.gy);
-  var dist=Math.abs(p.gx-home.gx)+Math.abs(p.gy-home.gy); var atDesk=dist<0.3; var walking=dist>0.14;
+  var dist=Math.abs(p.gx-home.gx)+Math.abs(p.gy-home.gy); var atDesk=dist<0.3;
+  // "walking" = actually moving toward the current target (not merely "away from
+  // home") — so an agent idling at a social spot doesn't moonwalk in place.
+  var tg=p._tgt||home; var walking=(Math.abs(p.gx-tg.gx)+Math.abs(p.gy-tg.gy))>0.12;
   var working=(st==='working'&&atDesk);
   var look=a._look||(a._look=lookFor(a));
   // cubicle partitions (back edges) — department room divider, behind the person
