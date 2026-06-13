@@ -874,7 +874,7 @@ function drawGrid(ctx,x0,y0,rows,pal,cell){
       ctx.fillStyle=col; ctx.fillRect(x0+c*cell, y0+r*cell, cell+0.35, cell+0.35); } }
 }
 function drawAccessory(ctx,fx,fy,acc){
-  var hx=fx+CH_W*CH_CELL/2-3, hy=fy-16; // right-hand zone
+  var hx=fx, hy=fy; // anchored directly at the hand position passed in
   if(acc==='case'){ ctx.fillStyle='#6b4327'; ctx.fillRect(hx-2,hy-2,15,12); ctx.fillStyle='#7d5233'; ctx.fillRect(hx-1,hy-1,13,4);
     ctx.strokeStyle='#4d2f1a'; ctx.lineWidth=1.5; ctx.strokeRect(hx-2,hy-2,15,12); ctx.strokeRect(hx+3,hy-5,5,3); }
   else if(acc==='laptop'){ ctx.fillStyle='#aab4bd'; ctx.fillRect(hx-2,hy,14,9); ctx.fillStyle='#2a3743'; ctx.fillRect(hx-1,hy+1,12,7); }
@@ -890,62 +890,159 @@ function drawAccessory(ctx,fx,fy,acc){
 var DARK_PAL={H:'#0c0f13',S:'#0c0f13',e:'#0c0f13',J:'#0c0f13',j:'#0c0f13',T:'#0c0f13',t:'#0c0f13',P:'#0c0f13',B:'#0c0f13'};
 // warm rim-light palette (every key → warm light) for the directional edge pass
 var LIGHT_PAL={H:'#fff1d6',S:'#fff1d6',e:'#fff1d6',J:'#fff1d6',j:'#fff1d6',T:'#fff1d6',t:'#fff1d6',P:'#fff1d6',B:'#fff1d6'};
-// Auto-shaded iso block (top lit, left darkest, right mid) — same 3D look as the
-// office furniture. Characters are built from these so they read as volumetric.
-function vbox(ctx,sx,sy,hw,hh,h,base){ isoBox(ctx,sx,sy,hw,hh,h, shade(base,24), shade(base,-34), shade(base,-14)); }
+// --- Flat front-facing character (Stardew/Crossy-Road style) -----------------
+// One flat plane for the face (no iso edge down the middle → no "triangular"
+// head). Everyone wears a sharp dark business suit + white shirt; the role
+// colour becomes the TIE, so departments stay readable while matching the brief.
 function drawCharacter(ctx,fx,fy,look,walk,working){
   fx=Math.round(fx); fy=Math.round(fy);
   // smooth vertical motion (idle breath / walk bounce / work lean) — no integer hops
-  var ty=-(0.5+0.5*Math.sin(officeFrame/30+look.seed*0.7))*0.8, legLift=0;
-  if(walk){ ty-=Math.abs(Math.sin(officeFrame/10+fx*0.12))*1.3; legLift=Math.sin(officeFrame/8+fx*0.1); }
+  var ty=-(0.5+0.5*Math.sin(officeFrame/30+look.seed*0.7))*0.8, legPhase=0;
+  if(walk){ ty-=Math.abs(Math.sin(officeFrame/10+fx*0.12))*1.2; legPhase=Math.sin(officeFrame/8+fx*0.1); }
   else if(working){ ty-=(0.5+0.5*Math.sin(officeFrame/14+look.seed))*0.9; }
   var by=fy+ty;
-  var skin=look.skin, shirt=look.shirt, pants=look.pants, hair=look.hair;
+  var skin=look.skin, suit=look.suit, pants=look.pants, hair=look.hair, tie=look.shirt; // tie = role colour
+  var skinD=shade(skin,-30), suitD=shade(suit,-22), suitL=shade(suit,20), hairD=shade(hair,-22);
+
   // grounding shadow (two ellipses, no shadowBlur)
   ctx.save(); ctx.fillStyle='#000';
-  ctx.globalAlpha=0.16; ctx.beginPath(); ctx.ellipse(fx,fy+1,18,6,0,0,Math.PI*2); ctx.fill();
-  ctx.globalAlpha=0.30; ctx.beginPath(); ctx.ellipse(fx,fy,12,4,0,0,Math.PI*2); ctx.fill();
+  ctx.globalAlpha=0.16; ctx.beginPath(); ctx.ellipse(fx,fy+1,15,5,0,0,Math.PI*2); ctx.fill();
+  ctx.globalAlpha=0.30; ctx.beginPath(); ctx.ellipse(fx,fy,9,3,0,0,Math.PI*2); ctx.fill();
   ctx.restore();
-  // legs (alternate lift while walking)
-  var llift=walk?Math.max(0,legLift)*2:0, rlift=walk?Math.max(0,-legLift)*2:0;
-  vbox(ctx, fx-5, by-llift, 4, 3.5, 12, pants);
-  vbox(ctx, fx+5, by-rlift, 4, 3.5, 12, pants);
-  var torsoBaseY=by-12;
-  var sleeve=shade(shirt,-12);
-  // back (left) arm → drawn before the torso for depth
-  vbox(ctx, fx-12.5, torsoBaseY-1, 3, 3.5, 14, sleeve);
-  // torso (shirt = role colour)
-  vbox(ctx, fx, torsoBaseY, 10, 6, 18, shirt);
-  // collar/tie hint
-  ctx.fillStyle=shade(shirt,30); ctx.fillRect(fx-3,by-30,6,4);
-  // front (right) arm → after the torso
-  vbox(ctx, fx+12.5, torsoBaseY-1, 3, 3.5, 14, sleeve);
-  // head (skin cube)
-  var headBaseY=torsoBaseY-18;
-  vbox(ctx, fx, headBaseY, 8.5, 6.5, 16, skin);
-  // hair cap (unless bald)
-  if(look.hairStyle!=='bald'){ vbox(ctx, fx, headBaseY-13, 9, 7, 5, hair);
-    if(look.hairStyle==='long'){ ctx.fillStyle=shade(hair,-16); ctx.fillRect(fx-9,headBaseY-13,3,16); ctx.fillRect(fx+6,headBaseY-13,3,16); } }
-  // --- face on the front faces (front edge at x=fx)
-  var eyeY=headBaseY-6;
-  var blink=((officeFrame+look.seed)%170)<6;
-  if(blink){ ctx.fillStyle=shade(skin,-48); ctx.fillRect(fx-5,eyeY+1.4,2.6,1); ctx.fillRect(fx+2.4,eyeY+1.4,2.6,1); }
-  else { ctx.fillStyle='#11161c'; ctx.fillRect(fx-5,eyeY,2.5,3); ctx.fillRect(fx+2.6,eyeY,2.5,3);
-    ctx.fillStyle='rgba(255,255,255,.75)'; ctx.fillRect(fx-4.6,eyeY+0.3,0.9,0.9); ctx.fillRect(fx+3,eyeY+0.3,0.9,0.9); }
-  // brows + mouth
-  ctx.fillStyle=shade(hair,-6); ctx.fillRect(fx-5.2,eyeY-1.6,2.9,1); ctx.fillRect(fx+2.3,eyeY-1.6,2.9,1);
-  ctx.fillStyle=shade(skin,-55); ctx.fillRect(fx-1.8,eyeY+5,3.6,1.2);
-  // glasses
+
+  // ---- legs + shoes (alternate lift while walking) ----
+  var llift=walk?Math.max(0,legPhase)*2.2:0, rlift=walk?Math.max(0,-legPhase)*2.2:0;
+  function leg(cx,lift){
+    ctx.fillStyle=pants; roundRect(ctx, cx-3.3, by-15-lift, 6.6, 13, 1.6); ctx.fill();
+    ctx.fillStyle=shade(pants,-16); ctx.fillRect(cx+0.7, by-15-lift, 2.3, 12.5); // inner crease shade
+    ctx.fillStyle='#15181d'; roundRect(ctx, cx-4.2, by-3.6-lift, 9, 4.6, 2); ctx.fill(); // shoe
+    ctx.fillStyle='#2c323b'; ctx.fillRect(cx-3.8, by-3.4-lift, 7.8, 1.1); // shoe shine
+  }
+  leg(fx-4.4, llift); leg(fx+4.4, rlift);
+
+  // ---- geometry anchors ----
+  var shoulderY=by-39, waistY=by-15, shoulderHW=13, waistHW=9.2;
+  var headCY=by-51, headRX=10.5, headRY=11.5;
+  var armSwing=walk?legPhase*1.3:0;
+
+  // ---- back arms (drawn before torso for depth) ----
+  function arm(side,swing){
+    var ax=fx+side*(shoulderHW-1.5);
+    ctx.fillStyle=side<0?suitD:suit; roundRect(ctx, ax-2.6, shoulderY+1, 5.2, 19+swing*side, 2.4); ctx.fill();
+    ctx.fillStyle=skin; ctx.beginPath(); ctx.arc(ax, shoulderY+21+swing*side, 2.7, 0, Math.PI*2); ctx.fill(); // hand
+    return {x:ax, y:shoulderY+21+swing*side};
+  }
+  var lh=arm(-1, armSwing);
+
+  // ---- torso: suit jacket (tapered, rounded shoulders) ----
+  ctx.fillStyle=suit;
+  ctx.beginPath();
+  ctx.moveTo(fx-shoulderHW, shoulderY+5);
+  ctx.quadraticCurveTo(fx-shoulderHW, shoulderY-1, fx-shoulderHW+5, shoulderY-1.5);
+  ctx.lineTo(fx+shoulderHW-5, shoulderY-1.5);
+  ctx.quadraticCurveTo(fx+shoulderHW, shoulderY-1, fx+shoulderHW, shoulderY+5);
+  ctx.lineTo(fx+waistHW, waistY); ctx.lineTo(fx-waistHW, waistY);
+  ctx.closePath(); ctx.fill();
+  // right-side body shadow for volume
+  ctx.fillStyle=suitD; ctx.beginPath();
+  ctx.moveTo(fx+2.5, shoulderY-1); ctx.lineTo(fx+shoulderHW, shoulderY+5);
+  ctx.lineTo(fx+waistHW, waistY); ctx.lineTo(fx+1.6, waistY); ctx.closePath(); ctx.fill();
+
+  // ---- white shirt wedge + tie ----
+  ctx.fillStyle='#eef2f6';
+  ctx.beginPath(); ctx.moveTo(fx-5.4, shoulderY-0.5); ctx.lineTo(fx+5.4, shoulderY-0.5);
+  ctx.lineTo(fx, waistY-1); ctx.closePath(); ctx.fill();
+  // tie (role colour) with knot + body
+  ctx.fillStyle=tie; ctx.beginPath();
+  ctx.moveTo(fx-2.2, shoulderY+1.2); ctx.lineTo(fx+2.2, shoulderY+1.2); // knot top
+  ctx.lineTo(fx+1.3, shoulderY+4); ctx.lineTo(fx+3, waistY-2);
+  ctx.lineTo(fx-3, waistY-2); ctx.lineTo(fx-1.3, shoulderY+4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle=shade(tie,-24); ctx.fillRect(fx+0.2, shoulderY+4, 2.4, waistY-shoulderY-6); // tie shade
+  // lapels (suit) framing the shirt
+  ctx.fillStyle=suitL;
+  ctx.beginPath(); ctx.moveTo(fx-shoulderHW+4.5, shoulderY-1); ctx.lineTo(fx-1.4, shoulderY+1); ctx.lineTo(fx-6, shoulderY+9.5); ctx.closePath(); ctx.fill();
+  ctx.fillStyle=shade(suit,8);
+  ctx.beginPath(); ctx.moveTo(fx+shoulderHW-4.5, shoulderY-1); ctx.lineTo(fx+1.4, shoulderY+1); ctx.lineTo(fx+6, shoulderY+9.5); ctx.closePath(); ctx.fill();
+
+  // ---- front arm (after torso) ----
+  var rh=arm(1, armSwing);
+
+  // ---- neck ----
+  ctx.fillStyle=skin; ctx.fillRect(fx-3, shoulderY-5, 6, 6.5);
+  ctx.fillStyle=skinD; ctx.fillRect(fx-3, shoulderY-1.5, 6, 2); // neck shadow under chin
+
+  // ---- head (rounded, flat front face) ----
+  ctx.fillStyle=skin;
+  roundRect(ctx, fx-headRX, headCY-headRY, headRX*2, headRY*2, 6.5); ctx.fill();
+  // ears
+  ctx.beginPath(); ctx.arc(fx-headRX+0.5, headCY+1.5, 2.3, 0, Math.PI*2); ctx.arc(fx+headRX-0.5, headCY+1.5, 2.3, 0, Math.PI*2); ctx.fill();
+  // soft right-side cheek shadow
+  ctx.fillStyle=skinD; ctx.globalAlpha=0.5;
+  roundRect(ctx, fx+headRX-5, headCY-headRY+3, 5, headRY*2-6, 4); ctx.fill();
+  ctx.globalAlpha=1;
+
+  // ---- hair ----
+  if(look.hairStyle!=='bald'){
+    ctx.fillStyle=hair; ctx.beginPath();
+    ctx.moveTo(fx-headRX-0.5, headCY+1.5);
+    ctx.quadraticCurveTo(fx-headRX-0.5, headCY-headRY-2.5, fx, headCY-headRY-2.5);
+    ctx.quadraticCurveTo(fx+headRX+0.5, headCY-headRY-2.5, fx+headRX+0.5, headCY+1.5);
+    if(look.hairStyle==='long'){ // falls down past the ears
+      ctx.lineTo(fx+headRX+0.5, headCY+headRY-1);
+      ctx.lineTo(fx+headRX-2.5, headCY+headRY-1); ctx.lineTo(fx+headRX-2.5, headCY-1);
+      ctx.quadraticCurveTo(fx+4, headCY-4, fx, headCY-3.5);
+      ctx.quadraticCurveTo(fx-4, headCY-3, fx-headRX+2.5, headCY-1);
+      ctx.lineTo(fx-headRX+2.5, headCY+headRY-1); ctx.lineTo(fx-headRX-0.5, headCY+headRY-1);
+    } else { // side-parted hairline sweep
+      ctx.lineTo(fx+headRX-1, headCY-1);
+      ctx.quadraticCurveTo(fx+5, headCY-4.5, fx+1, headCY-3);
+      ctx.quadraticCurveTo(fx-5.5, headCY-1, fx-headRX+1, headCY-0.5);
+    }
+    ctx.closePath(); ctx.fill();
+    if(look.hairStyle==='curly'){ // bumpy crown on top of the cap
+      ctx.fillStyle=hair; for(var ci=-1;ci<=1;ci++){ ctx.beginPath(); ctx.arc(fx+ci*6, headCY-headRY-1.5, 4, 0, Math.PI*2); ctx.fill(); } }
+    ctx.fillStyle=hairD; ctx.beginPath(); // right-side hair shadow
+    ctx.moveTo(fx+headRX+0.5, headCY+1.5); ctx.quadraticCurveTo(fx+headRX+0.5, headCY-headRY-1, fx+3, headCY-headRY-1.5);
+    ctx.lineTo(fx+3, headCY-2.5); ctx.quadraticCurveTo(fx+headRX-2, headCY-2, fx+headRX-1, headCY-1); ctx.closePath(); ctx.fill();
+    ctx.fillStyle=shade(hair,26); ctx.fillRect(fx-5.5, headCY-headRY+0.5, 5, 1.5); // top highlight
+  }
+
+  // ---- face on the flat front plane ----
+  var eyeY=headCY+1.5;
+  var blink=((officeFrame+look.seed)%180)<6;
+  // brows
+  ctx.fillStyle=hairD;
+  roundRect(ctx, fx-6.4, eyeY-3.6, 4.2, 1.4, 0.7); ctx.fill();
+  roundRect(ctx, fx+2.2, eyeY-3.6, 4.2, 1.4, 0.7); ctx.fill();
+  if(blink){ ctx.fillStyle=skinD; ctx.fillRect(fx-6, eyeY+0.4, 4, 1); ctx.fillRect(fx+2, eyeY+0.4, 4, 1); }
+  else {
+    ctx.fillStyle='#f4f6f8'; // whites
+    roundRect(ctx, fx-6.2, eyeY-1.5, 4.3, 3.4, 1.4); ctx.fill();
+    roundRect(ctx, fx+1.9, eyeY-1.5, 4.3, 3.4, 1.4); ctx.fill();
+    ctx.fillStyle='#1a2230'; // pupils
+    ctx.fillRect(fx-4.6, eyeY-1.1, 1.9, 2.7); ctx.fillRect(fx+2.7, eyeY-1.1, 1.9, 2.7);
+    ctx.fillStyle='rgba(255,255,255,.9)'; // catchlights
+    ctx.fillRect(fx-4.3, eyeY-0.8, 0.8, 0.8); ctx.fillRect(fx+3, eyeY-0.8, 0.8, 0.8);
+  }
+  // nose + mouth (slight smile)
+  ctx.fillStyle=skinD; ctx.fillRect(fx-0.4, eyeY+1.4, 1.4, 2.2);
+  ctx.strokeStyle=shade(skin,-62); ctx.lineWidth=1.2; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(fx-2.6, eyeY+5); ctx.quadraticCurveTo(fx, eyeY+6.6, fx+2.6, eyeY+5); ctx.stroke();
+  ctx.lineCap='butt';
+
+  // ---- glasses ----
   if(look.glasses){ ctx.strokeStyle='#11151b'; ctx.lineWidth=1.3;
-    ctx.strokeRect(fx-5.6,eyeY-0.7,3.7,3.6); ctx.strokeRect(fx+2,eyeY-0.7,3.7,3.6);
-    ctx.beginPath(); ctx.moveTo(fx-1.9,eyeY+1); ctx.lineTo(fx+2,eyeY+1); ctx.stroke(); }
-  // headphones (coder): band over the head + ear cups
-  if(look.phones){ var hy=headBaseY-7;
-    ctx.strokeStyle='#1b2027'; ctx.lineWidth=2.6; ctx.beginPath(); ctx.arc(fx,hy,11,Math.PI,2*Math.PI); ctx.stroke();
-    ctx.fillStyle='#262c34'; roundRect(ctx,fx-13,hy-2,5,9,2); ctx.fill(); roundRect(ctx,fx+8,hy-2,5,9,2); ctx.fill();
-    ctx.fillStyle=shirt; ctx.fillRect(fx-11.5,hy,1.8,5); ctx.fillRect(fx+9.7,hy,1.8,5); }
-  // role accessory held in the (right) hand
-  if(look.acc) drawAccessory(ctx, fx-14, by, look.acc);
+    roundRect(ctx, fx-6.4, eyeY-1.9, 4.7, 4.4, 1.3); ctx.stroke();
+    roundRect(ctx, fx+1.7, eyeY-1.9, 4.7, 4.4, 1.3); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(fx-1.7, eyeY-0.2); ctx.lineTo(fx+1.7, eyeY-0.2); ctx.stroke(); }
+  // ---- headphones (coder) ----
+  if(look.phones){
+    ctx.strokeStyle='#1b2027'; ctx.lineWidth=2.6; ctx.beginPath(); ctx.arc(fx, headCY-1, headRX+1.5, Math.PI*1.05, Math.PI*1.95); ctx.stroke();
+    ctx.fillStyle='#262c34'; roundRect(ctx, fx-headRX-2.5, headCY-1.5, 5, 9, 2); ctx.fill(); roundRect(ctx, fx+headRX-2.5, headCY-1.5, 5, 9, 2); ctx.fill();
+    ctx.fillStyle=tie; ctx.fillRect(fx-headRX-1, headCY+0.5, 1.8, 5); ctx.fillRect(fx+headRX-0.8, headCY+0.5, 1.8, 5); }
+
+  // role accessory held in the lowered front hand
+  if(look.acc) drawAccessory(ctx, rh.x-6, rh.y+3, look.acc);
 }
 // --- isometric projection (2:1) ---
 var ISO_TW2=42, ISO_TH2=21, ISO_OX=0, ISO_OY=84, GRIDW=13, GRIDH=8;
