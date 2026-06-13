@@ -142,7 +142,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v32 · плавность</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v33 · реализм</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -989,6 +989,23 @@ function drawCubicle(ctx,gx,gy,color){
   // corner post at the back vertex
   ctx.fillStyle=shade(color,-34); ctx.fillRect(T2.x-1.5,T2.y,3,wallH);
 }
+// Office swivel chair (drawn behind the person at the desk). Stays at the desk
+// when the worker walks off → an empty chair, which reads as a real workplace.
+function drawChair(ctx,cx,cy){
+  cx=Math.round(cx); cy=Math.round(cy);
+  // 5-star base with castors
+  ctx.strokeStyle='#23282e'; ctx.lineWidth=2.4;
+  for(var a=0;a<5;a++){ var ang=a*Math.PI*2/5-Math.PI/2; ctx.beginPath(); ctx.moveTo(cx,cy-2); ctx.lineTo(cx+Math.cos(ang)*11,cy-2+Math.sin(ang)*5.5); ctx.stroke(); }
+  ctx.fillStyle='#14181d'; for(var a2=0;a2<5;a2++){ var an=a2*Math.PI*2/5-Math.PI/2; ctx.beginPath(); ctx.arc(cx+Math.cos(an)*11,cy-2+Math.sin(an)*5.5,2,0,Math.PI*2); ctx.fill(); }
+  // gas cylinder
+  ctx.fillStyle='#2a3038'; ctx.fillRect(cx-2,cy-16,4,14);
+  // seat cushion
+  ctx.fillStyle='#3b4654'; roundRect(ctx,cx-12,cy-23,24,9,3); ctx.fill();
+  ctx.fillStyle='#46525f'; roundRect(ctx,cx-11,cy-23,22,3,2); ctx.fill();
+  // backrest (rises behind the person)
+  ctx.fillStyle='#333d49'; roundRect(ctx,cx-11,cy-48,22,27,6); ctx.fill();
+  ctx.fillStyle='#3e4a57'; roundRect(ctx,cx-9,cy-46,18,12,5); ctx.fill();
+}
 function drawRoleProps(ctx,x,y,type){
   if(type==='analyst'){ ctx.fillStyle='#0e1318'; ctx.fillRect(x+17,y-27,17,15); ctx.fillStyle='#16323f'; ctx.fillRect(x+19,y-25,13,11);
     var bars=[6,10,4,8]; for(var i=0;i<4;i++){ ctx.fillStyle='#2ea043'; ctx.fillRect(x+20+i*3,y-14-bars[i],2,bars[i]); } }
@@ -1011,6 +1028,8 @@ function drawStation(ctx,a){
   var look=a._look||(a._look=lookFor(a));
   // cubicle partitions (back edges) — department room divider, behind the person
   drawCubicle(ctx, home.gx, home.gy, col);
+  // swivel chair stays at the desk (empty when the worker walks off)
+  drawChair(ctx, dg.x, dg.y+3);
   // person (feet on iso ground)
   drawCharacter(ctx, pg.x, pg.y, look, walking, working);
   // desk as iso box (warmer wood) + a thin top-front edge highlight
@@ -1068,6 +1087,9 @@ function drawWall(ctx,A,B,h,base,topc,nwin){
     ctx.fillStyle=sg; ctx.beginPath(); ctx.moveTo(p0.x,p0.y); ctx.lineTo(p1.x,p1.y); ctx.lineTo(p2.x,p2.y); ctx.lineTo(p3.x,p3.y); ctx.closePath(); ctx.fill();
     ctx.strokeStyle='#0e1620'; ctx.lineWidth=2; ctx.stroke();
     var m0=lerpP(p3,p2,0.5), m1=lerpP(p0,p1,0.5); ctx.beginPath(); ctx.moveTo(m0.x,m0.y); ctx.lineTo(m1.x,m1.y); ctx.stroke();
+    var n0=lerpP(p0,p3,0.5), n1=lerpP(p1,p2,0.5); ctx.beginPath(); ctx.moveTo(n0.x,n0.y); ctx.lineTo(n1.x,n1.y); ctx.stroke();
+    // window sill ledge
+    ctx.fillStyle='#2c3540'; ctx.beginPath(); ctx.moveTo(p0.x-1.5,p0.y+1); ctx.lineTo(p1.x+1.5,p1.y+1); ctx.lineTo(p1.x+1.5,p1.y+4); ctx.lineTo(p0.x-1.5,p0.y+4); ctx.closePath(); ctx.fill();
   }
   // baseboard trim along the floor seam (bottom edge A-B)
   var bh=6;
@@ -1120,7 +1142,14 @@ function drawOffice(){
   var rl='ПЕРЕГОВОРНАЯ'; var rw=ctx.measureText(rl).width+14; ctx.fillStyle='rgba(13,17,23,.62)';
   roundRect(ctx,mg.x-rw/2,mg.y-44,rw,15,5); ctx.fill(); ctx.fillStyle='#cfe0ff'; ctx.fillText(rl,mg.x,mg.y-33); ctx.restore();
   // static decor at back edges (low depth, drawn before people)
-  isoPlant(ctx,1,0); isoPlant(ctx,0,1); isoPlant(ctx,GRIDW-1,0); isoCooler(ctx,2,0); isoPrinter(ctx,0,2); isoCoffee(ctx,3,0);
+  isoPlant(ctx,1,0); isoPlant(ctx,0,1); isoPlant(ctx,GRIDW-1,0); isoPlant(ctx,GRIDW-1,GRIDH-1); isoCooler(ctx,2,0); isoPrinter(ctx,0,2); isoCoffee(ctx,3,0);
+  // ceiling pendant lamps — warm pools of light on the floor (atmosphere)
+  [[3,1],[7,1],[10,2]].forEach(function(L){ var c=isoTop(L[0],L[1]); var lx=Math.round(c.x), ly=Math.round(c.y-74);
+    var gg=ctx.createRadialGradient(lx,ly+4,2,lx,ly+14,38); gg.addColorStop(0,'rgba(255,226,150,.26)'); gg.addColorStop(1,'rgba(255,226,150,0)');
+    ctx.fillStyle=gg; ctx.beginPath(); ctx.ellipse(lx,ly+16,34,26,0,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle='#262c34'; ctx.lineWidth=1.4; ctx.beginPath(); ctx.moveTo(lx,ly-34); ctx.lineTo(lx,ly-9); ctx.stroke();
+    ctx.fillStyle='#39424d'; ctx.beginPath(); ctx.moveTo(lx-11,ly); ctx.lineTo(lx+11,ly); ctx.lineTo(lx+6,ly-10); ctx.lineTo(lx-6,ly-10); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#ffe7a6'; roundRect(ctx,lx-8,ly-2,16,3,1.5); ctx.fill(); });
   // people + desks, depth-sorted (back to front)
   updateOffice();
   officeAgents.slice().sort(function(a,b){ var pa=officePos[a.name]||officeHome[a.name]||{gx:0,gy:0}, pb=officePos[b.name]||officeHome[b.name]||{gx:0,gy:0}; return (pa.gx+pa.gy)-(pb.gx+pb.gy); }).forEach(function(a){ drawStation(ctx,a); });
