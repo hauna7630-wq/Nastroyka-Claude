@@ -142,7 +142,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v35 · переговорка</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v36 · зона отдыха</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -1075,11 +1075,12 @@ function drawStation(ctx,a){
   // name + role under the desk
   ctx.fillStyle='#eef2f6'; ctx.font='bold 11px system-ui,Segoe UI,sans-serif'; ctx.textAlign='center'; ctx.fillText(shortName(a.name),dg.x,dg.y+22);
   ctx.fillStyle='#9aa4ad'; ctx.font='9px system-ui,Segoe UI,sans-serif'; ctx.fillText(roleOf(a),dg.x,dg.y+33);
-  // department name plate above the cubicle
-  var ct=isoTop(home.gx,home.gy); var dep=DEPT[a.type]||roleOf(a);
+  // department name plate — hung high above the seated head so it never covers the face
+  var dep=DEPT[a.type]||roleOf(a);
   ctx.font='bold 9px system-ui,Segoe UI,sans-serif'; var dw=ctx.measureText(dep).width+10;
-  ctx.fillStyle='rgba(13,17,23,.62)'; roundRect(ctx,ct.x-dw/2,ct.y-42,dw,13,3); ctx.fill();
-  ctx.fillStyle=col; ctx.textAlign='center'; ctx.fillText(dep,ct.x,ct.y-33);
+  var npY=dg.y-110;
+  ctx.fillStyle='rgba(13,17,23,.70)'; roundRect(ctx,dg.x-dw/2,npY,dw,13,3); ctx.fill();
+  ctx.fillStyle=col; ctx.textAlign='center'; ctx.fillText(dep,dg.x,npY+9);
 }
 function lerpP(a,b,t){ return {x:a.x+(b.x-a.x)*t, y:a.y+(b.y-a.y)*t}; }
 function drawWall(ctx,A,B,h,base,topc,nwin){
@@ -1116,6 +1117,21 @@ function isoPlant(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,9,5,9,
 function isoCooler(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,7,4,16,'#e2eaf0','#c4d2dc','#aebecb'); ctx.fillStyle='#bfe3f5'; ctx.fillRect(g.x-6,g.y-31,12,11); ctx.fillStyle='#5fbfe0'; ctx.fillRect(g.x-5,g.y-30,10,8); }
 function isoPrinter(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,11,6,11,'#cdd3da','#aab2bb','#9098a1'); ctx.fillStyle='#2a323b'; ctx.fillRect(g.x-7,g.y-15,14,3); ctx.fillStyle='#eef2f5'; ctx.fillRect(g.x-5,g.y-13,10,4); }
 function isoCoffee(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,8,5,16,'#2a323b','#1e242b','#171c22'); ctx.fillStyle='#d29922'; ctx.fillRect(g.x-4,g.y-22,8,3); ctx.fillStyle='#7a4a2a'; ctx.fillRect(g.x-3,g.y-12,6,4); }
+// Lounge: a small two-seat sofa + a low coffee table (rest zone).
+function isoSofa(ctx,gx,gy){ var g=groundAt(gx,gy);
+  isoBox(ctx,g.x,g.y-2,21,10,6,'#414b66','#353d54','#2b3145'); // base block
+  ctx.fillStyle='#566089'; roundRect(ctx,g.x-19,g.y-13,38,7,3); ctx.fill();      // seat
+  ctx.fillStyle='#4a547a'; ctx.fillRect(g.x-1,g.y-13,2,7);                          // seat seam
+  ctx.fillStyle='#3e4763'; roundRect(ctx,g.x-19,g.y-30,38,17,5); ctx.fill();       // backrest
+  ctx.fillStyle='#4a547a'; roundRect(ctx,g.x-17,g.y-28,34,7,4); ctx.fill();        // backrest highlight
+  ctx.fillStyle='#363e57'; roundRect(ctx,g.x-23,g.y-21,7,15,3); ctx.fill(); roundRect(ctx,g.x+16,g.y-21,7,15,3); ctx.fill(); // armrests
+  ctx.fillStyle='#c0563c'; roundRect(ctx,g.x-14,g.y-13,9,7,2); ctx.fill();          // throw cushion
+}
+function isoLowTable(ctx,gx,gy){ var g=groundAt(gx,gy);
+  isoBox(ctx,g.x,g.y-2,12,6,5,'#5a4632','#46361f','#372a18');
+  ctx.fillStyle='#6b5640'; ctx.beginPath(); ctx.ellipse(g.x,g.y-7,13,6,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle='#2f8f4a'; ctx.fillRect(g.x-2,g.y-11,5,4); ctx.fillStyle='#e7ecf1'; ctx.fillRect(g.x+4,g.y-9,5,3); // plant + magazine
+}
 // One pane of a framed glass partition between floor points A and B, height h.
 function drawGlassWall(ctx,A,B,h){
   var A2={x:A.x,y:A.y-h}, B2={x:B.x,y:B.y-h};
@@ -1189,6 +1205,9 @@ function drawOffice(){
   drawMeetingRoom(ctx);
   // static decor at back edges (low depth, drawn before people)
   isoPlant(ctx,1,0); isoPlant(ctx,0,1); isoPlant(ctx,GRIDW-1,0); isoPlant(ctx,GRIDW-1,GRIDH-1); isoCooler(ctx,2,0); isoPrinter(ctx,0,2); isoCoffee(ctx,3,0);
+  // lounge / rest zone (front-left): warm rug + two-seat sofa + coffee table
+  [[1,6],[1,7],[2,7]].forEach(function(R){ isoTileDiamond(ctx,R[0],R[1]); ctx.globalAlpha=0.45; ctx.fillStyle='#6a4a3a'; ctx.fill(); ctx.globalAlpha=1; });
+  isoSofa(ctx,1,7); isoLowTable(ctx,2,7); isoPlant(ctx,1,6);
   // ceiling pendant lamps — warm pools of light on the floor (atmosphere)
   [[3,1],[7,1],[10,2]].forEach(function(L){ var c=isoTop(L[0],L[1]); var lx=Math.round(c.x), ly=Math.round(c.y-74);
     var gg=ctx.createRadialGradient(lx,ly+4,2,lx,ly+14,38); gg.addColorStop(0,'rgba(255,226,150,.26)'); gg.addColorStop(1,'rgba(255,226,150,0)');
