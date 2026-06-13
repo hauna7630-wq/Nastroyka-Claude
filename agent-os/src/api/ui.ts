@@ -142,7 +142,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v30 · детализация</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v31 · офис+</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -747,6 +747,7 @@ var officeFrame=0; var officeRAF=null; var offW=760, offH=440; var officeSim=nul
 // Office event-cards (P2 visual): a live stack in the top-right HUD showing the
 // last few things that happened — icon + who + what — fading out over time.
 var officeCards=[];
+var officeVig=null; // cached screen-space vignette gradient (recomputed only on resize)
 function pushOfficeCard(icon,title,sub,color){
   officeCards.push({icon:icon, title:String(title||''), sub:String(sub||''), color:color||'#8b949e', born:officeFrame, until:officeFrame+420});
   if(officeCards.length>4) officeCards.shift();
@@ -772,7 +773,7 @@ function lookFor(a){ var h=hashStr(a.name); var shirt=roleColor(a.type); var sty
 // --- Sprite 2.0: big-head pixel characters from char-grids (own art) -------
 // Grid 16w x 23h, cell CH_CELL px => ~54x78px on screen. Palette keys:
 // H hair, S skin, e eye, J jacket, j jacket shade, T shirt, t tie, P pants, B shoes.
-var CH_CELL=3.4, CH_W=16, CH_H=23;
+var CH_CELL=3.8, CH_W=16, CH_H=23;
 function headRows(style){
   if(style==='bald') return [
   '................',
@@ -968,15 +969,19 @@ function isoBox(ctx,sx,sy,hw,hh,h,top,left,right){
   ctx.fillStyle=top; ctx.beginPath(); ctx.moveTo(Tx,Ty); ctx.lineTo(Rx,Ry); ctx.lineTo(Fx,Fy); ctx.lineTo(Lx,Ly); ctx.closePath(); ctx.fill();
 }
 function drawCubicle(ctx,gx,gy,color){
-  var wallH=26; var T=isoTop(gx,gy);
+  var wallH=30; var T=isoTop(gx,gy);
   var R={x:T.x+ISO_TW2,y:T.y+ISO_TH2}, L={x:T.x-ISO_TW2,y:T.y+ISO_TH2};
   var T2={x:T.x,y:T.y-wallH}, R2={x:R.x,y:R.y-wallH}, L2={x:L.x,y:L.y-wallH};
-  // back-right panel (edge T-R)
-  ctx.fillStyle='#3a444f'; ctx.beginPath(); ctx.moveTo(T.x,T.y); ctx.lineTo(R.x,R.y); ctx.lineTo(R2.x,R2.y); ctx.lineTo(T2.x,T2.y); ctx.closePath(); ctx.fill();
-  // back-left panel (edge T-L)
-  ctx.fillStyle='#2f3741'; ctx.beginPath(); ctx.moveTo(T.x,T.y); ctx.lineTo(L.x,L.y); ctx.lineTo(L2.x,L2.y); ctx.lineTo(T2.x,T2.y); ctx.closePath(); ctx.fill();
-  // department-coloured top rail
-  ctx.strokeStyle=color; ctx.lineWidth=3; ctx.beginPath(); ctx.moveTo(L2.x,L2.y); ctx.lineTo(T2.x,T2.y); ctx.lineTo(R2.x,R2.y); ctx.stroke();
+  // back-right panel (lit side)
+  ctx.fillStyle='#525d6b'; ctx.beginPath(); ctx.moveTo(T.x,T.y); ctx.lineTo(R.x,R.y); ctx.lineTo(R2.x,R2.y); ctx.lineTo(T2.x,T2.y); ctx.closePath(); ctx.fill();
+  // back-left panel (shaded side)
+  ctx.fillStyle='#3c4651'; ctx.beginPath(); ctx.moveTo(T.x,T.y); ctx.lineTo(L.x,L.y); ctx.lineTo(L2.x,L2.y); ctx.lineTo(T2.x,T2.y); ctx.closePath(); ctx.fill();
+  // frosted highlight band just under the top edge
+  ctx.strokeStyle='rgba(255,255,255,.10)'; ctx.lineWidth=1.5; ctx.beginPath(); ctx.moveTo(L2.x,L2.y+4); ctx.lineTo(T2.x,T2.y+4); ctx.lineTo(R2.x,R2.y+4); ctx.stroke();
+  // department-coloured top rail (rounded)
+  ctx.lineCap='round'; ctx.strokeStyle=color; ctx.lineWidth=3.5; ctx.beginPath(); ctx.moveTo(L2.x,L2.y); ctx.lineTo(T2.x,T2.y); ctx.lineTo(R2.x,R2.y); ctx.stroke(); ctx.lineCap='butt';
+  // corner post at the back vertex
+  ctx.fillStyle=shade(color,-34); ctx.fillRect(T2.x-1.5,T2.y,3,wallH);
 }
 function drawRoleProps(ctx,x,y,type){
   if(type==='analyst'){ ctx.fillStyle='#0e1318'; ctx.fillRect(x+17,y-27,17,15); ctx.fillStyle='#16323f'; ctx.fillRect(x+19,y-25,13,11);
@@ -1055,6 +1060,17 @@ function drawWall(ctx,A,B,h,base,topc,nwin){
     ctx.strokeStyle='#0e1620'; ctx.lineWidth=2; ctx.stroke();
     var m0=lerpP(p3,p2,0.5), m1=lerpP(p0,p1,0.5); ctx.beginPath(); ctx.moveTo(m0.x,m0.y); ctx.lineTo(m1.x,m1.y); ctx.stroke();
   }
+  // baseboard trim along the floor seam (bottom edge A-B)
+  var bh=6;
+  ctx.fillStyle='#1a212b'; ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y); ctx.lineTo(B.x,B.y-bh); ctx.lineTo(A.x,A.y-bh); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,.06)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(A.x,A.y-bh); ctx.lineTo(B.x,B.y-bh); ctx.stroke();
+  // framed wall art between the windows (adds life to the back walls)
+  for(var w2=1; w2<nwin; w2++){ var ta=w2/nwin; var ca=lerpP(A,B,ta); var aw=0.05, amid=h*0.46, ah=h*0.26;
+    var a0={x:ca.x-dir.x*aw, y:ca.y-dir.y*aw-amid}, a1={x:ca.x+dir.x*aw, y:ca.y+dir.y*aw-amid}, a2={x:a1.x,y:a1.y-ah}, a3={x:a0.x,y:a0.y-ah};
+    var pic=['#3f6f5a','#6a4f7a','#7a5a3a','#3a5a7a'][w2%4];
+    ctx.fillStyle=pic; ctx.beginPath(); ctx.moveTo(a0.x,a0.y); ctx.lineTo(a1.x,a1.y); ctx.lineTo(a2.x,a2.y); ctx.lineTo(a3.x,a3.y); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='#cdb98c'; ctx.lineWidth=2; ctx.stroke();
+  }
 }
 function isoTileDiamond(ctx,gx,gy){ var t=isoTop(gx,gy); ctx.beginPath(); ctx.moveTo(t.x,t.y); ctx.lineTo(t.x+ISO_TW2,t.y+ISO_TH2); ctx.lineTo(t.x,t.y+ISO_TH2*2); ctx.lineTo(t.x-ISO_TW2,t.y+ISO_TH2); ctx.closePath(); }
 function isoPlant(ctx,gx,gy){ var g=groundAt(gx,gy); isoBox(ctx,g.x,g.y-2,9,5,9,'#b5643c','#9c4f2e','#86421f');
@@ -1075,13 +1091,16 @@ function drawOffice(){
   // back walls (two iso parallelograms meeting at the back corner)
   drawWall(ctx, isoTop(0,0), isoTop(GRIDW,0), 96, '#2b3340','#3b4654', 3);   // right-back
   drawWall(ctx, isoTop(0,0), isoTop(0,GRIDH), 96, '#232a35','#323c49', 2);   // left-back
-  // floor diamonds (wood checker + soft department tint near desks)
+  // floor — warm wood planks with bevelled plank seams + soft department tint near desks
   for(var gy=0; gy<GRIDH; gy++){ for(var gx=0; gx<GRIDW; gx++){
+    var tt=isoTop(gx,gy);
     isoTileDiamond(ctx,gx,gy);
-    ctx.fillStyle=(((gx+gy)%2)===0)?'#9a7048':'#8d6440'; ctx.fill();
-    ctx.strokeStyle='rgba(45,30,15,.28)'; ctx.lineWidth=1; ctx.stroke();
+    ctx.fillStyle=(((gx+gy)%2)===0)?'#b58a55':'#a87e4b'; ctx.fill();
+    // bevel: light on the top-left edge, shadow on the bottom-right edge → plank relief
+    ctx.strokeStyle='rgba(255,238,205,.08)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(tt.x-ISO_TW2,tt.y+ISO_TH2); ctx.lineTo(tt.x,tt.y); ctx.lineTo(tt.x+ISO_TW2,tt.y+ISO_TH2); ctx.stroke();
+    ctx.strokeStyle='rgba(38,24,10,.32)'; ctx.lineWidth=1; ctx.beginPath(); ctx.moveTo(tt.x-ISO_TW2,tt.y+ISO_TH2); ctx.lineTo(tt.x,tt.y+ISO_TH2*2); ctx.lineTo(tt.x+ISO_TW2,tt.y+ISO_TH2); ctx.stroke();
     var near=null,bd=99; for(var ai=0;ai<officeAgents.length;ai++){ var hm=officeHome[officeAgents[ai].name]; if(!hm)continue; var d=Math.abs(hm.gx-gx)+Math.abs(hm.gy-gy); if(d<bd){bd=d;near=officeAgents[ai];} }
-    if(near && bd<=1){ isoTileDiamond(ctx,gx,gy); ctx.globalAlpha=0.16; ctx.fillStyle=roleColor(near.type); ctx.fill(); ctx.globalAlpha=1; }
+    if(near && bd<=1){ isoTileDiamond(ctx,gx,gy); ctx.globalAlpha=0.14; ctx.fillStyle=roleColor(near.type); ctx.fill(); ctx.globalAlpha=1; }
   } }
   // meeting rug (3x3 tiles around MEET) + iso table
   for(var dy=-1;dy<=1;dy++){ for(var dx=-1;dx<=1;dx++){ var rgx=MEET_TILE[0]+dx, rgy=MEET_TILE[1]+dy; if(rgx<0||rgy<0||rgx>=GRIDW||rgy>=GRIDH)continue;
@@ -1099,6 +1118,10 @@ function drawOffice(){
   // agent-interaction layer: orchestrator → each working agent (animated link + data packet)
   drawAgentLinks(ctx);
   ctx.restore();
+  // ambient vignette — darkens the edges for depth/mood (screen-space, gradient cached)
+  if(!officeVig||officeVig.w!==W||officeVig.h!==H){ var vg=ctx.createRadialGradient(W/2,H*0.40,Math.min(W,H)*0.18,W/2,H*0.52,Math.max(W,H)*0.74);
+    vg.addColorStop(0,'rgba(0,0,0,0)'); vg.addColorStop(0.7,'rgba(6,9,14,0.16)'); vg.addColorStop(1,'rgba(4,7,12,0.55)'); officeVig={w:W,h:H,g:vg}; }
+  ctx.fillStyle=officeVig.g; ctx.fillRect(0,0,W,H);
   // HUD: title chip + camera hint (fixed, unaffected by the camera)
   ctx.fillStyle='rgba(13,17,23,.55)'; roundRect(ctx,10,8,210,20,5); ctx.fill();
   ctx.fillStyle='#dfe6ee'; ctx.font='bold 12px system-ui,Segoe UI,sans-serif'; ctx.textAlign='left'; ctx.fillText('🏢 Офис команды agent-os',16,22);
