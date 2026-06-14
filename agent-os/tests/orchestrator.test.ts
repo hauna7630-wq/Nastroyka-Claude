@@ -26,10 +26,14 @@ const ORG: Org = { id: 'org_1', name: 'Acme' };
 
 function parentOut(run: { output?: unknown } | null): {
   summary: unknown;
-  contributions: { subtaskId: string }[];
+  contributions: { subtaskId: string; failed?: boolean }[];
   report: string;
 } {
-  return run?.output as { summary: unknown; contributions: { subtaskId: string }[]; report: string };
+  return run?.output as {
+    summary: unknown;
+    contributions: { subtaskId: string; failed?: boolean }[];
+    report: string;
+  };
 }
 function agent(id: string, type: AgentType): Agent {
   return { id, orgId: 'org_1', name: id, type, systemPrompt: `${type} prompt` };
@@ -413,7 +417,7 @@ describe('orchestrator (end-to-end)', () => {
     expect(out.contributions.map((c) => c.subtaskId)).toEqual(['r', 'w', 'rev1']);
   });
 
-  it('retries the orchestration without re-billing already-succeeded subtasks', async () => {
+  it('ships a partial result when one subtask fails, without losing the others', async () => {
     const plan = {
       subtasks: [
         { id: 'r', agentType: 'researcher' as AgentType, prompt: 'research', dependsOn: [] },
@@ -421,7 +425,9 @@ describe('orchestrator (end-to-end)', () => {
         { id: 'w', agentType: 'writer' as AgentType, prompt: 'write', dependsOn: ['a'] },
       ],
     };
-    // Fail on the 3rd model call (the writer subtask) the first time it runs.
+    // Fail on the 3rd model call (the writer subtask). Partial-failure tolerance:
+    // the run must NOT be thrown away — it ships what r + a produced, with the
+    // writer recorded as failed, so the user always sees a real result.
     const { repo, queue } = await setup({
       model: new FailOnceAtNthModel(3),
       planner: new StaticPlanner(plan),
@@ -437,13 +443,17 @@ describe('orchestrator (end-to-end)', () => {
     await queue.enqueue({ runId: 'parent_1' });
 
     const parent = await repo.getRun('parent_1');
-    expect(parent?.status).toBe('succeeded');
-    expect(parent?.attempts).toBe(2); // failed once at the writer, then recovered
+    expect(parent?.status).toBe('succeeded'); // partial result still ships
+    expect(parent?.attempts).toBe(1); // no whole-run retry — shipped on the first pass
 
-    // Already-succeeded subtasks are not re-run on retry (terminal -> no-op).
+    // Upstream agents succeeded and are preserved; the writer is marked failed,
+    // not silently dropped.
     expect((await repo.getRun('parent_1::r'))?.status).toBe('succeeded');
     expect((await repo.getRun('parent_1::a'))?.status).toBe('succeeded');
-    expect((await repo.getRun('parent_1::w'))?.status).toBe('succeeded');
+    expect((await repo.getRun('parent_1::w'))?.status).not.toBe('succeeded');
+    const out = parentOut(await repo.getRun('parent_1'));
+    expect(out.contributions.find((c) => c.subtaskId === 'w')?.failed).toBe(true);
+    expect(out.contributions.some((c) => !c.failed)).toBe(true);
   });
 
   it('dispatches children via the queue + event bus when asyncChildren is set', async () => {

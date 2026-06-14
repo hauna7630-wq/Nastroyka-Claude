@@ -118,15 +118,30 @@ export async function executeOrchestration(
     // report (Doc-2 "structured team responses") rather than raw nested JSON.
     const contributions: TeamContribution[] = [];
 
+    // Partial-failure tolerance: a single subtask that times out or errors must
+    // NOT throw the whole task away (the user would see only a half-finished
+    // discussion and no result). We record the failure as an attributed
+    // contribution, skip dependents that lost their input, and still aggregate a
+    // partial deliverable from whoever finished. Only a total wipe-out throws.
+    const failedIds = new Set<string>();
     for (const subtask of order) {
       const childAgent = await repo.findAgentByType(parent.orgId, subtask.agentType);
       if (!childAgent) {
-        throw new Error(
-          `No agent of type "${subtask.agentType}" available in org ${parent.orgId}`,
-        );
+        failedIds.add(subtask.id);
+        contributions.push({
+          subtaskId: subtask.id,
+          agentType: subtask.agentType,
+          agentName: subtask.agentType,
+          output: `В команде нет агента типа "${subtask.agentType}" — подзадача пропущена.`,
+          failed: true,
+        });
+        continue;
       }
 
       const childRunId = `${parentRunId}::${subtask.id}`;
+      // No upstream output → can't do meaningful work; mark skipped, don't run.
+      const depFailed = subtask.dependsOn.some((d) => failedIds.has(d));
+
       await repo.createRun({
         id: childRunId,
         orgId: parent.orgId,
@@ -150,44 +165,61 @@ export async function executeOrchestration(
         status: 'running',
       });
 
-      // Child agents are never orchestrators. Either run inline, or (production)
-      // dispatch onto the queue and await completion via the event bus.
-      try {
-        await runChild(deps, childRunId, {
-          parentRunId,
+      let ok = false;
+      if (!depFailed) {
+        try {
+          await runChild(deps, childRunId, {
+            parentRunId,
+            subtaskId: subtask.id,
+            agentType: subtask.agentType,
+            agentName: childAgent.name,
+          });
+          const child = await repo.getRun(childRunId);
+          if (child && child.status === 'succeeded') {
+            outputs[subtask.id] = child.output;
+            contributions.push({
+              subtaskId: subtask.id,
+              agentType: subtask.agentType,
+              agentName: childAgent.name,
+              output: child.output,
+            });
+            emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
+              subtaskId: subtask.id,
+              agentType: subtask.agentType,
+              agentName: childAgent.name,
+              status: 'succeeded',
+            });
+            ok = true;
+          }
+        } catch {
+          // non-fatal: fall through to the failed branch below
+        }
+      }
+      if (!ok) {
+        failedIds.add(subtask.id);
+        contributions.push({
           subtaskId: subtask.id,
           agentType: subtask.agentType,
           agentName: childAgent.name,
+          output: depFailed
+            ? 'Пропущено: не выполнилась подзадача, от которой это зависело.'
+            : 'Подзадача не выполнилась (таймаут или ошибка модели).',
+          failed: true,
         });
-      } catch (err) {
         emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
           subtaskId: subtask.id,
           agentType: subtask.agentType,
           agentName: childAgent.name,
           status: 'failed',
         });
-        throw err;
       }
+    }
 
-      const child = await repo.getRun(childRunId);
-      if (!child || child.status !== 'succeeded') {
-        throw new Error(
-          `Subtask "${subtask.id}" did not succeed (status=${child?.status ?? 'missing'})`,
-        );
-      }
-      outputs[subtask.id] = child.output;
-      contributions.push({
-        subtaskId: subtask.id,
-        agentType: subtask.agentType,
-        agentName: childAgent.name,
-        output: child.output,
-      });
-      emit(deps.events, 'orchestration.subtask', parentRunId, parent.orgId, {
-        subtaskId: subtask.id,
-        agentType: subtask.agentType,
-        agentName: childAgent.name,
-        status: 'succeeded',
-      });
+    // Total failure only when NOTHING succeeded — then surface the honest error
+    // (the worker turns it into a retryable DLQ entry). Otherwise we ship partial.
+    const okContribs = contributions.filter((c) => !c.failed);
+    if (okContribs.length === 0) {
+      throw new Error('Ни одна подзадача команды не выполнилась');
     }
 
     // Collective-thinking debate (Doc-2): the reviewer (Revisa) critiques the
@@ -195,15 +227,16 @@ export async function executeOrchestration(
     // agent revises and the reviewer re-reviews — up to DEBATE_ROUNDS times or
     // until "Готово к выпуску". All rounds are attributed; deterministic ids
     // (::review / ::review2… and ::rev1 / ::rev2…); every round is non-fatal.
-    const lastId = order[order.length - 1].id;
-    let summary = outputs[lastId];
+    // Synthesis = the last agent that actually SUCCEEDED (a failed tail subtask
+    // must not become the summary or the thing the reviewer critiques).
+    const lastOk = okContribs[okContribs.length - 1];
+    let summary = lastOk.output;
     let review: TeamContribution | undefined;
     const planHasReviewer = plan.subtasks.some((s) => s.agentType === 'reviewer');
-    const debate = orchestrated && contributions.length > 1 && !planHasReviewer;
+    const debate = orchestrated && okContribs.length > 1 && !planHasReviewer;
     if (debate) {
       const reviewer = await repo.findAgentByType(parent.orgId, 'reviewer');
-      const synthSubtask = order[order.length - 1];
-      const synthAgent = await repo.findAgentByType(parent.orgId, synthSubtask.agentType);
+      const synthAgent = await repo.findAgentByType(parent.orgId, lastOk.agentType);
       if (reviewer) {
         for (let round = 1; round <= DEBATE_ROUNDS; round++) {
           const reviewId = round === 1 ? 'review' : `review${round}`;
@@ -221,7 +254,7 @@ export async function executeOrchestration(
           const revId = `rev${round}`;
           const rev = await runChildContribution(deps, parent.orgId, parentRunId, revId, synthAgent, {
             prompt: revisionPrompt(task, summary, r.output),
-            agentType: synthSubtask.agentType,
+            agentType: lastOk.agentType,
           });
           if (!rev) break;
           summary = rev.output;
@@ -407,6 +440,9 @@ export interface TeamContribution {
   agentType: AgentType;
   agentName: string;
   output: unknown;
+  // Set when the subtask didn't succeed: the run still delivers a partial result
+  // from the agents that did finish, instead of throwing the whole task away.
+  failed?: boolean;
 }
 
 // Role labels for the attributed team report (Russian UI).
@@ -429,9 +465,16 @@ export function buildTeamReport(
   review?: TeamContribution,
 ): string {
   if (contributions.length === 0) return '';
-  const synthesis = contributions[contributions.length - 1];
+  // Synthesis is the last agent that actually succeeded — never a failed subtask.
+  const succeeded = contributions.filter((c) => !c.failed);
+  const synthesis = succeeded[succeeded.length - 1] ?? contributions[contributions.length - 1];
+  const anyFailed = contributions.some((c) => c.failed);
   const lines: string[] = [];
   lines.push('## Ответ команды');
+  if (anyFailed) {
+    lines.push('');
+    lines.push('> ⚠️ Частичный результат: часть подзадач не выполнилась — собрано из того, что успели агенты.');
+  }
   lines.push('');
   lines.push(stringify(synthesis.output).trim());
   if (contributions.length > 1) {
@@ -441,7 +484,7 @@ export function buildTeamReport(
     for (const c of contributions) {
       const label = ROLE_LABEL[c.agentType] ?? c.agentType;
       lines.push('');
-      lines.push(`**${c.agentName} · ${label}**`);
+      lines.push(`**${c.agentName} · ${label}**${c.failed ? ' — ⚠️ не выполнено' : ''}`);
       lines.push(stringify(c.output).trim());
     }
   }
