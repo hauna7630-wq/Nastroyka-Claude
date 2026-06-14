@@ -122,6 +122,15 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .hcard .hired { color:var(--ok); font-size:12px; font-weight:600; }
   .recbadge { font-size:10px; color:var(--ok); background:rgba(46,160,67,.16); border-radius:999px; padding:2px 8px; margin-left:8px; vertical-align:middle; }
   .phasebar { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .taskbar { display:flex; gap:7px; flex-wrap:wrap; margin-bottom:10px; }
+  .tchip { display:inline-flex; align-items:center; gap:6px; padding:5px 9px; border:1px solid var(--border); border-radius:999px; background:#1b232c; color:var(--muted); font-size:12px; cursor:pointer; }
+  .tchip.active { border-color:var(--accent); color:var(--fg); background:#15202c; }
+  .tchip.unseen { box-shadow:0 0 0 2px rgba(46,160,67,.55); }
+  .tchip .tdot { width:8px; height:8px; border-radius:50%; flex:none; }
+  .tchip .tlabel { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:130px; }
+  .tchip .tphase { font-size:10px; letter-spacing:.04em; opacity:.75; }
+  .tchip .tx { margin-left:2px; opacity:.5; font-size:11px; }
+  .tchip .tx:hover { opacity:1; color:var(--fail); }
   /* Office tab: canvas in its own full-height column, text panels in a side column */
   .coord-body { display:flex; gap:14px; flex:1; min-height:0; }
   .office-col { flex:1; min-width:0; display:flex; flex-direction:column; min-height:0; }
@@ -146,7 +155,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v46 · чат без петли</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v47 · многозадачность</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -168,7 +177,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   <!-- Координатор -->
   <section class="tab active" id="tab-coord">
     <form id="f">
-      <textarea id="task" placeholder="Поставьте задачу команде агентов, например: Подготовь обзор рынка CRM и рекомендации"></textarea>
+      <textarea id="task" placeholder="Поставьте задачу команде агентов — можно несколько подряд, они пойдут в работу параллельно. Например: Подготовь обзор рынка CRM и рекомендации"></textarea>
       <button id="go" class="primary" type="submit">Запустить</button>
     </form>
     <div class="coord-body">
@@ -176,6 +185,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
         <div id="officeWrap"><canvas id="office" width="900" height="520"></canvas><div class="office-legend" id="olegend"></div></div>
       </div>
       <div class="coord-side">
+        <div id="taskBar" class="taskbar" style="display:none"></div>
         <div class="status" id="cstatus"></div>
         <div id="phaseWrap" style="display:none"><div class="section-title">Жизненный цикл задачи</div><div id="phaseBar" class="phasebar"></div></div>
         <div id="discussWrap" style="display:none"><div class="section-title">Обсуждение команды</div><div id="discussFeed" class="dfeed" style="max-height:42vh"></div></div>
@@ -284,8 +294,7 @@ document.querySelectorAll('nav button').forEach((b) => b.addEventListener('click
 function openTab(name){ var btn=document.querySelector('nav.snav button[data-tab="'+name+'"]'); if(btn) btn.click(); }
 $('sideNew').addEventListener('click', function(){ openTab('coord'); var t=$('task'); if(t) t.focus(); });
 
-// --- Coordinator ---
-let es = null;
+// --- Coordinator (MULTI-TASK) ---
 const LABEL = { queued:'в очереди', running:'работает…', succeeded:'готово', failed:'ошибка' };
 function node(sub){ const el=document.createElement('div'); el.className='node'; el.id='n_'+sub.id;
   el.innerHTML='<div class="role">'+sub.agentType+'</div><div class="name">'+(sub.agentName||sub.id)+'</div><span class="badge queued" id="b_'+sub.id+'">в очереди</span>'; return el; }
@@ -294,10 +303,14 @@ function render(out){ if(!out)return '(пусто)'; if(typeof out==='string')re
 // --- Task lifecycle: phase chips + team discussion (server-derived, survives reload)
 var PHASE_SEQ=['new','analyzing','working','reviewing','revising','completed'];
 var PHASE_RU={new:'НОВАЯ',analyzing:'АНАЛИЗ',working:'В РАБОТЕ',reviewing:'РЕВЬЮ',revising:'ДОРАБОТКА',completed:'ГОТОВО',failed:'ОШИБКА',needs_human:'НУЖЕН ЧЕЛОВЕК'};
-var teamPollTimer=null;
-function renderTeam(t){
+// Multi-task store: several tasks run at once. tasks[runId] holds each one's own
+// lifecycle/discussion/result + live SSE; the detail panel shows the SELECTED
+// task, the rest keep updating their chip in the background.
+var tasks={}; var selectedTask=null;
+function taskLabel(text){ return String(text||'задача').replace(/\\s+/g,' ').trim().slice(0,42); }
+function renderPhaseBar(t){
   $('phaseWrap').style.display='block'; var bar=$('phaseBar'); bar.innerHTML='';
-  var cur=t.phase; var failed=(cur==='failed'||cur==='needs_human');
+  var cur=t.phase||'new'; var failed=(cur==='failed'||cur==='needs_human');
   var idx=PHASE_SEQ.indexOf(failed?'completed':cur); if(idx<0) idx=PHASE_SEQ.length-1;
   PHASE_SEQ.forEach(function(p,i){
     var el=document.createElement('span'); el.className='phase'; el.textContent=PHASE_RU[p];
@@ -307,18 +320,18 @@ function renderTeam(t){
     bar.appendChild(el);
     if(i<PHASE_SEQ.length-1){ var a=document.createElement('span'); a.textContent='›'; a.style.color='#39424c'; bar.appendChild(a); }
   });
-  lastTeam=t; renderDiscuss();
 }
-// Live per-agent token streaming in «Обсуждение команды»: child runs bridge their
-// tokens onto the parent stream tagged with subtaskId. discussLive holds the
-// in-progress text per subtask; finalized contributions come from pollTeam's
-// authoritative t.discussion. A subtask's live entry is dropped once its
-// orchestration.subtask event reports 'succeeded' (the poll then shows the final).
-var discussLive={}; var lastTeam=null;
-function renderDiscuss(){
-  var auth=(lastTeam&&lastTeam.discussion)?lastTeam.discussion:[];
-  var liveIds=Object.keys(discussLive);
-  if(!auth.length && !liveIds.length) return;
+function renderGraph(t){
+  if(!t.planSubtasks||!t.planSubtasks.length){ $('graphWrap').style.display='none'; return; }
+  $('graphWrap').style.display='block'; var g=$('graph'); g.innerHTML='';
+  t.planSubtasks.forEach(function(s,i){ if(i>0){ var a=document.createElement('div'); a.className='arrow'; a.textContent='→'; g.appendChild(a); } g.appendChild(node(s)); });
+  var ss=t.subStatus||{}; Object.keys(ss).forEach(function(sid){ setStatus(sid, ss[sid]); });
+}
+function renderDiscuss(t){
+  var auth=(t&&t.lastTeam&&t.lastTeam.discussion)?t.lastTeam.discussion:[];
+  var live=(t&&t.discussLive)?t.discussLive:{};
+  var liveIds=Object.keys(live);
+  if(!auth.length && !liveIds.length){ $('discussWrap').style.display='none'; return; }
   $('discussWrap').style.display='block'; var feed=$('discussFeed'); feed.innerHTML='';
   auth.forEach(function(d){
     var el=document.createElement('div'); el.className='dmsg '+d.kind;
@@ -327,53 +340,107 @@ function renderDiscuss(){
     el.innerHTML='<span class="dwho" style="color:'+roleColor(d.agentType)+'">'+ic+' '+escapeHtml(shortName(d.author))+label+'</span><div class="dbody">'+mdLite(d.text.slice(0,2000))+'</div>';
     feed.appendChild(el); });
   liveIds.forEach(function(sid){
-    var d=discussLive[sid]; if(!d||!d.text) return;
+    var d=live[sid]; if(!d||!d.text) return;
     var el=document.createElement('div'); el.className='dmsg contribution live';
     el.innerHTML='<span class="dwho" style="color:'+roleColor(d.agentType)+'">'+roleIcon(d.agentType)+' '+escapeHtml(shortName(d.agentName))+' · печатает…</span><div class="dbody">'+mdLite(d.text.slice(-1400))+'<span class="tcursor">▍</span></div>';
     feed.appendChild(el); });
   feed.scrollTop=feed.scrollHeight;
 }
-function pollTeam(runId){
-  if(teamPollTimer) clearTimeout(teamPollTimer);
-  api('/runs/'+runId+'/team').then(function(t){
-    if(!t||!t.phase) return;
-    renderTeam(t);
-    var terminal=(t.phase==='completed'||t.phase==='failed'||t.phase==='needs_human');
-    if(terminal){
-      if($('resultWrap').style.display==='none' && t.run && t.run.output!==undefined){
-        $('resultWrap').style.display='block'; $('result').innerHTML=mdLite(render(t.run.output)); }
-      return;
-    }
-    teamPollTimer=setTimeout(function(){ pollTeam(runId); },3000);
-  }).catch(function(){ teamPollTimer=setTimeout(function(){ pollTeam(runId); },4000); });
+function renderResult(t){
+  if(t.output!==undefined && t.output!==null){ $('resultWrap').style.display='block'; $('result').innerHTML=mdLite(render(t.output)); }
+  else { $('resultWrap').style.display='none'; }
 }
-$('f').addEventListener('submit', async (e) => {
-  e.preventDefault(); const task=$('task').value.trim(); if(!task)return;
-  $('go').disabled=true; $('graph').innerHTML=''; $('graphWrap').style.display='none'; $('resultWrap').style.display='none';
-  $('phaseWrap').style.display='none'; $('discussWrap').style.display='none'; $('discussFeed').innerHTML='';
-  discussLive={}; lastTeam=null;
-  $('cstatus').textContent='Координатор анализирует задачу…'; if(es)es.close();
-  officeResetIdle(); officeSet(null,'orchestrator','running');
-  const { runId, error } = await api('/tasks',{method:'POST',body:JSON.stringify({orgId:ORG,task})});
-  if(!runId){ $('cstatus').textContent='Ошибка: '+(error||'нет orchestrator-агента — создайте его во вкладке «Команда»'); $('go').disabled=false; return; }
-  try { localStorage.setItem('agentos_last_task', runId); } catch(e2){}
-  pollTeam(runId);
-  es = new EventSource('/runs/'+runId+'/events');
-  es.addEventListener('orchestration.planned',(ev)=>{ const d=JSON.parse(ev.data).data; $('graphWrap').style.display='block';
-    const g=$('graph'); g.innerHTML=''; d.subtasks.forEach((s,i)=>{ if(i>0){const a=document.createElement('div');a.className='arrow';a.textContent='→';g.appendChild(a);} g.appendChild(node(s)); });
-    $('cstatus').textContent='Команда собрана: '+d.subtasks.map(s=>s.agentType).join(' → ');
-    pushOfficeCard('🧩','План готов',d.subtasks.length+' подзадач · '+d.subtasks.map(s=>roleIcon(s.agentType)).join(''),'#d29922'); });
-  es.addEventListener('orchestration.subtask',(ev)=>{ const d=JSON.parse(ev.data).data; setStatus(d.subtaskId,d.status,d.agentName); officeSet(d.agentName,d.agentType,d.status);
-    if(d.status==='succeeded'||d.status==='failed'){ delete discussLive[d.subtaskId]; renderDiscuss(); } });
-  es.addEventListener('run.token',(ev)=>{ var d; try{ d=JSON.parse(ev.data).data; }catch(e){ return; }
+function statusLine(t){
+  if(t.status==='succeeded') return 'Готово ✓';
+  if(t.status==='failed') return 'Задача завершилась с ошибкой.';
+  if(t.status==='needs_human') return 'Требуется человек (лимит итераций).';
+  return t.statusText||'В работе…';
+}
+function renderTaskDetail(rid){
+  var t=tasks[rid]; if(!t) return; var n=Object.keys(tasks).length;
+  $('cstatus').textContent=statusLine(t)+(n>1?('   ·   задач в работе: '+n):'');
+  renderPhaseBar(t); renderGraph(t); renderDiscuss(t); renderResult(t);
+}
+function clearTaskDetail(){
+  $('cstatus').textContent=''; $('phaseWrap').style.display='none'; $('discussWrap').style.display='none';
+  $('graphWrap').style.display='none'; $('resultWrap').style.display='none';
+}
+function renderTaskBar(){
+  var bar=$('taskBar'); if(!bar) return; var ids=Object.keys(tasks);
+  if(!ids.length){ bar.style.display='none'; bar.innerHTML=''; return; }
+  bar.style.display='flex'; bar.innerHTML='';
+  ids.forEach(function(rid){ var t=tasks[rid];
+    var chip=document.createElement('button'); chip.type='button';
+    chip.className='tchip'+(rid===selectedTask?' active':'')+(t.done&&!t.seen?' unseen':'');
+    var dc=t.status==='succeeded'?'#2ea043':(t.status==='failed'||t.status==='needs_human')?'#f85149':'#d29922';
+    chip.innerHTML='<span class="tdot" style="background:'+dc+'"></span><span class="tlabel">'+escapeHtml(t.label)+'</span><span class="tphase">'+(PHASE_RU[t.phase]||'')+'</span>';
+    chip.addEventListener('click',(function(id){ return function(){ selectTask(id); }; })(rid));
+    var x=document.createElement('span'); x.className='tx'; x.textContent='✕'; x.title='Убрать из списка';
+    x.addEventListener('click',(function(id){ return function(ev){ ev.stopPropagation(); closeTask(id); }; })(rid));
+    chip.appendChild(x); bar.appendChild(chip);
+  });
+}
+function selectTask(rid){ if(!tasks[rid]) return; selectedTask=rid; tasks[rid].seen=true; renderTaskDetail(rid); renderTaskBar(); }
+function closeTask(rid){ var t=tasks[rid]; if(!t) return;
+  if(t.es){ try{ t.es.close(); }catch(e){} } if(t.pollTimer) clearTimeout(t.pollTimer);
+  delete tasks[rid]; saveActiveTasks();
+  if(selectedTask===rid){ selectedTask=Object.keys(tasks)[0]||null; if(selectedTask) renderTaskDetail(selectedTask); else clearTaskDetail(); }
+  renderTaskBar();
+}
+function saveActiveTasks(){ try{ var a=Object.keys(tasks).map(function(id){ return {id:id,label:tasks[id].label}; }); localStorage.setItem('agentos_active_tasks', JSON.stringify(a)); }catch(e){} }
+function pollTeam(rid){ var t=tasks[rid]; if(!t) return;
+  if(t.pollTimer) clearTimeout(t.pollTimer);
+  api('/runs/'+rid+'/team').then(function(tm){
+    if(!tm||!tm.phase){ t.pollTimer=setTimeout(function(){ pollTeam(rid); },3500); return; }
+    t.phase=tm.phase; t.lastTeam=tm;
+    var terminal=(tm.phase==='completed'||tm.phase==='failed'||tm.phase==='needs_human');
+    if(terminal){ t.done=true; t.status=tm.phase==='completed'?'succeeded':(tm.phase==='failed'?'failed':'needs_human');
+      if(tm.run && tm.run.output!==undefined) t.output=tm.run.output; }
+    if(rid===selectedTask) renderTaskDetail(rid);
+    renderTaskBar();
+    if(!terminal) t.pollTimer=setTimeout(function(){ pollTeam(rid); },3000);
+  }).catch(function(){ t.pollTimer=setTimeout(function(){ pollTeam(rid); },4000); });
+}
+function startTaskStream(rid){ var t=tasks[rid]; if(!t || typeof EventSource==='undefined') return;
+  var es=new EventSource('/runs/'+rid+'/events'); t.es=es;
+  es.addEventListener('orchestration.planned',function(ev){ var d; try{ d=JSON.parse(ev.data).data; }catch(e){ return; }
+    t.planSubtasks=d.subtasks||[]; t.statusText='Команда собрана: '+t.planSubtasks.map(function(s){ return s.agentType; }).join(' → ');
+    if(rid===selectedTask) renderTaskDetail(rid);
+    pushOfficeCard('🧩','План готов',t.planSubtasks.length+' подзадач · '+t.planSubtasks.map(function(s){ return roleIcon(s.agentType); }).join(''),'#d29922'); });
+  es.addEventListener('orchestration.subtask',function(ev){ var d; try{ d=JSON.parse(ev.data).data; }catch(e){ return; }
+    if(!t.subStatus) t.subStatus={}; t.subStatus[d.subtaskId]=d.status;
+    officeSet(d.agentName,d.agentType,d.status);
+    if(rid===selectedTask) setStatus(d.subtaskId,d.status,d.agentName);
+    if(d.status==='succeeded'||d.status==='failed'){ if(t.discussLive) delete t.discussLive[d.subtaskId]; if(rid===selectedTask) renderDiscuss(t); } });
+  es.addEventListener('run.token',function(ev){ var d; try{ d=JSON.parse(ev.data).data; }catch(e){ return; }
     if(!d||!d.subtaskId||typeof d.text!=='string') return;
-    var cur=discussLive[d.subtaskId]||{agentName:d.agentName,agentType:d.agentType,text:''};
-    cur.text=(cur.text||'')+d.text; discussLive[d.subtaskId]=cur; renderDiscuss(); });
-  es.addEventListener('run.succeeded', async (ev)=>{ const e2=JSON.parse(ev.data); if(e2.runId!==runId)return;
-    const r=await api('/runs/'+runId); $('resultWrap').style.display='block'; $('result').innerHTML=mdLite(render(r.run&&r.run.output));
-    $('cstatus').textContent='Готово ✓'; officeSet(null,'orchestrator','succeeded'); $('go').disabled=false; es.close(); });
-  ['run.failed','run.needs_human'].forEach((t)=>es.addEventListener(t,(ev)=>{ const e2=JSON.parse(ev.data); if(e2.runId!==runId)return;
-    $('cstatus').textContent = t==='run.needs_human'?'Требуется человек (лимит итераций).':'Задача завершилась с ошибкой.'; $('go').disabled=false; es.close(); }));
+    if(!t.discussLive) t.discussLive={};
+    var cur=t.discussLive[d.subtaskId]||{agentName:d.agentName,agentType:d.agentType,text:''};
+    cur.text=(cur.text||'')+d.text; t.discussLive[d.subtaskId]=cur;
+    if(rid===selectedTask) renderDiscuss(t); });
+  es.addEventListener('run.succeeded',function(ev){ var e2; try{ e2=JSON.parse(ev.data); }catch(e){ return; } if(e2.runId!==rid) return;
+    t.done=true; t.status='succeeded'; if(rid!==selectedTask) t.seen=false;
+    api('/runs/'+rid).then(function(r){ t.output=r.run&&r.run.output; if(rid===selectedTask) renderTaskDetail(rid); renderTaskBar(); });
+    officeSet(null,'orchestrator','succeeded'); try{ es.close(); }catch(e){} });
+  ['run.failed','run.needs_human'].forEach(function(tp){ es.addEventListener(tp,function(ev){ var e2; try{ e2=JSON.parse(ev.data); }catch(e){ return; } if(e2.runId!==rid) return;
+    t.done=true; t.status=(tp==='run.needs_human')?'needs_human':'failed'; if(rid!==selectedTask) t.seen=false;
+    if(rid===selectedTask) renderTaskDetail(rid); renderTaskBar(); try{ es.close(); }catch(e){} }); });
+}
+function startTask(rid, label, select){
+  tasks[rid]={ runId:rid, label:taskLabel(label), phase:'new', status:'running', statusText:'Координатор анализирует задачу…', planSubtasks:[], subStatus:{}, discussLive:{}, lastTeam:null, output:undefined, es:null, pollTimer:null, done:false, seen:true };
+  if(select!==false) selectedTask=rid;
+  saveActiveTasks(); renderTaskBar();
+  if(rid===selectedTask) renderTaskDetail(rid);
+  startTaskStream(rid); pollTeam(rid);
+}
+$('f').addEventListener('submit', async function(e){
+  e.preventDefault(); var task=$('task').value.trim(); if(!task) return;
+  $('go').disabled=true; officeSet(null,'orchestrator','running');
+  var resp=await api('/tasks',{method:'POST',body:JSON.stringify({orgId:ORG,task:task})});
+  $('go').disabled=false;
+  if(!resp||!resp.runId){ $('cstatus').textContent='Ошибка: '+((resp&&resp.error)||'нет orchestrator-агента — создайте его во вкладке «Команда»'); return; }
+  $('task').value=''; $('task').focus();
+  startTask(resp.runId, task, true);
 });
 
 // --- Team Builder ---
@@ -1612,10 +1679,9 @@ async function loadTasks(){
     row.innerHTML=html;
     if(!t.chat){ var b=document.createElement('button'); b.className='primary'; b.textContent='Открыть';
       b.style.cssText='margin-left:8px;padding:2px 10px;font-size:11.5px';
-      b.addEventListener('click', (function(rid){ return function(){
-        try{ localStorage.setItem('agentos_last_task',rid); }catch(e){}
-        openTab('coord'); pollTeam(rid);
-      }; })(t.runId)); row.appendChild(b); }
+      b.addEventListener('click', (function(rid,label){ return function(){
+        openTab('coord'); if(tasks[rid]){ selectTask(rid); } else { startTask(rid,label,true); }
+      }; })(t.runId, t.prompt||'')); row.appendChild(b); }
     el.appendChild(row);
   });
 }
@@ -1682,7 +1748,10 @@ async function loadOffice(){
 loadOffice();
 // Restore the last team task after a reload: phases, discussion and result come
 // back from the server (Postgres) — closing the tab loses nothing.
-try { var lastTask=localStorage.getItem('agentos_last_task'); if(lastTask) pollTeam(lastTask); } catch(e){}
+try { var savedTasks=JSON.parse(localStorage.getItem('agentos_active_tasks')||'[]');
+  if(savedTasks&&savedTasks.length){ savedTasks.forEach(function(it,i){ if(it&&it.id) startTask(it.id, it.label||'', i===0); }); }
+  else { var legacy=localStorage.getItem('agentos_last_task'); if(legacy) startTask(legacy,'',true); }
+} catch(e){}
 </script>
 </body>
 </html>`;
