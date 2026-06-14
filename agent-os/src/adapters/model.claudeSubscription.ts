@@ -33,12 +33,19 @@ function runCli(bin: string, args: string[], timeoutMs: number): Promise<string>
     const child = spawn(bin, args, { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      reject(new Error('claude CLI timed out'));
-    }, timeoutMs);
-    child.stdout.on('data', (d) => (out += d.toString()));
-    child.stderr.on('data', (d) => (err += d.toString()));
+    // Inactivity timeout: the CLI can legitimately think for a while, so we only
+    // abort after `timeoutMs` of total silence — any stdout/stderr byte re-arms it.
+    let timer: NodeJS.Timeout;
+    const arm = (): void => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new Error('claude CLI timed out'));
+      }, timeoutMs);
+    };
+    arm();
+    child.stdout.on('data', (d) => { out += d.toString(); arm(); });
+    child.stderr.on('data', (d) => { err += d.toString(); arm(); });
     child.on('error', (e) => {
       clearTimeout(timer);
       reject(e);
@@ -78,10 +85,19 @@ function runCliStreaming(
     let streamedText = '';
     let tokensIn = 0;
     let tokensOut = 0;
-    const timer = setTimeout(() => {
-      child.kill('SIGKILL');
-      reject(new Error('claude CLI (stream) timed out'));
-    }, timeoutMs);
+    // Inactivity timeout (NOT wall-clock): as long as the model keeps streaming
+    // bytes the timer is re-armed, so a long-but-progressing answer is never
+    // killed mid-stream. Only `timeoutMs` of true silence aborts the call.
+    // Message kept matching the buffered one so humanizeRunError maps it cleanly.
+    let timer: NodeJS.Timeout;
+    const arm = (): void => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        reject(new Error('claude CLI timed out (stream idle)'));
+      }, timeoutMs);
+    };
+    arm();
 
     const handleEvent = (ev: any): void => {
       if (!ev || typeof ev !== 'object') return;
@@ -144,6 +160,7 @@ function runCliStreaming(
     };
 
     child.stdout.on('data', (d) => {
+      arm(); // re-arm the inactivity timeout on every chunk of streamed output
       buf += d.toString();
       let nl = buf.indexOf('\n');
       while (nl >= 0) {

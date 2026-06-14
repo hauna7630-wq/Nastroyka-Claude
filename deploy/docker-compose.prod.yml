@@ -59,6 +59,8 @@ services:
       # Allow the Claude CLI's built-in WebSearch/WebFetch for search-capable
       # agents on the subscription path. Set to 0 to disable fleet-wide.
       CLAUDE_CLI_WEB_SEARCH: ${CLAUDE_CLI_WEB_SEARCH:-1}
+      # Claude CLI timeout (ms): streaming = inactivity timeout, buffered = total.
+      CLAUDE_CLI_TIMEOUT_MS: ${CLAUDE_CLI_TIMEOUT_MS:-300000}
       ALLOWLIST_DOMAINS: ${ALLOWLIST_DOMAINS:-}
       PORT: "3000"
     depends_on:

@@ -142,7 +142,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v44 · персонажи под эталон</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v45 · фикс таймаута LLM</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>

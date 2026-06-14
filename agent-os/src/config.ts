@@ -12,6 +12,10 @@ export interface Config {
   // Max-subscription OAuth token (from `claude setup-token`). When set, agents run
   // on the subscription via the Claude CLI instead of a per-token API key.
   claudeOauthToken: string;
+  // Claude CLI timeout. For the streaming path this is an INACTIVITY timeout
+  // (reset on every token) so a long-but-progressing answer is never killed; for
+  // the buffered path it is the total wall-clock budget. Tunable without redeploy.
+  claudeCliTimeoutMs: number;
   allowlistDomains: string[];
   toolCpuMs: number;
   toolMemMb: number;
@@ -39,6 +43,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     anthropicModel: env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-6',
     anthropicBaseUrl: env.ANTHROPIC_BASE_URL ?? '',
     claudeOauthToken: env.CLAUDE_CODE_OAUTH_TOKEN ?? '',
+    claudeCliTimeoutMs: Number(env.CLAUDE_CLI_TIMEOUT_MS ?? 300000),
     allowlistDomains: csv(env.ALLOWLIST_DOMAINS),
     toolCpuMs: Number(env.TOOL_CPU_MS ?? 5000),
     toolMemMb: Number(env.TOOL_MEM_MB ?? 256),

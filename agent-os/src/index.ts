@@ -60,7 +60,10 @@ export function buildApp(): App {
   // Brain selection: Max subscription (OAuth token) → API key → offline fallback.
   let model: ModelProvider;
   if (config.claudeOauthToken) {
-    model = new ClaudeSubscriptionModelProvider({ model: config.anthropicModel });
+    model = new ClaudeSubscriptionModelProvider({
+      model: config.anthropicModel,
+      timeoutMs: config.claudeCliTimeoutMs,
+    });
   } else if (config.anthropicApiKey) {
     model = new AnthropicModelProvider({
       apiKey: config.anthropicApiKey,

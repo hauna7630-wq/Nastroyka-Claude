@@ -26,7 +26,7 @@ export function humanizeRunError(error?: string | null, status?: RunStatus): str
   const lower = e.toLowerCase();
 
   if (lower.includes('claude cli timed out')) {
-    return 'Модель не ответила вовремя (таймаут LLM, 3 мин). Нажмите «Повторить».';
+    return 'Модель не ответила вовремя (таймаут ожидания LLM). Нажмите «Повторить».';
   }
   const exited = /claude CLI exited (\d+)/i.exec(e);
   if (exited) {
