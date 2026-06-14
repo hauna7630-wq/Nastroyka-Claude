@@ -117,6 +117,10 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .chat-inbox .ibtn { font:inherit; font-size:11.5px; font-weight:600; border:0; border-radius:7px; padding:4px 10px; cursor:pointer; background:var(--accent); color:#fff; white-space:nowrap; }
   .chat-inbox .ibtn.ghost { background:#1b232c; color:var(--fg); border:1px solid var(--border); }
   .chat-inbox .ibadge { font-size:11px; white-space:nowrap; padding:2px 7px; border-radius:6px; }
+  .modebtn { font:inherit; font-size:12px; font-weight:600; border:1px solid var(--border); border-radius:8px; padding:0 12px; cursor:pointer; background:#1b232c; white-space:nowrap; }
+  .modebtn.auto { color:var(--run); border-color:rgba(210,153,34,.55); }
+  .modebtn.confirm { color:var(--accent); border-color:rgba(47,129,247,.55); }
+  form#f .modebtn { padding:10px 12px; }
   .dlbtn { float:right; font:inherit; font-size:11.5px; font-weight:600; border:1px solid var(--border); border-radius:7px; padding:3px 9px; margin:0 0 6px 8px; cursor:pointer; background:#1b232c; color:var(--fg); }
   .dlbtn:hover { border-color:var(--accent); color:var(--accent); }
   .msg.them.pending { opacity:.85; }
@@ -169,7 +173,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v55 · агенты честны о прогрессе</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v56 · режимы Авто/Подтверждение</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -192,6 +196,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   <section class="tab active" id="tab-coord">
     <form id="f">
       <textarea id="task" placeholder="Поставьте задачу команде агентов — можно несколько подряд, они пойдут в работу параллельно. Например: Подготовь обзор рынка CRM и рекомендации"></textarea>
+      <button id="modeOffice" class="modebtn" type="button" title="Режим работы агентов: Автомат — выполняют сами; Подтверждение — только предлагают">⚡ Автомат</button>
       <button id="go" class="primary" type="submit">Запустить</button>
     </form>
     <div class="coord-body">
@@ -226,6 +231,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
           <button type="button" id="chatClip" title="Прикрепить файл (txt/md/csv/json/docx/pdf/xlsx)" disabled style="min-width:38px">📎</button>
           <button type="button" id="chatMic" title="Голосовой ввод (надиктовать задачу)" disabled style="min-width:38px">🎤</button>
           <textarea id="chatInput" rows="1" placeholder="Напишите задачу или вопрос…  (Enter — отправить, Shift+Enter — новая строка)" autocomplete="off" disabled></textarea>
+          <button id="modeChat" class="modebtn" type="button" title="Режим работы: Автомат — агент выполняет сам; Подтверждение — только предлагает">⚡ Автомат</button>
           <button class="primary" id="chatSend" type="submit" disabled>Отправить</button>
         </form>
       </div>
@@ -456,6 +462,12 @@ function startTaskStream(rid){ var t=tasks[rid]; if(!t || typeof EventSource==='
     t.done=true; t.status=(tp==='run.needs_human')?'needs_human':'failed'; if(rid!==selectedTask) t.seen=false;
     if(rid===selectedTask) renderTaskDetail(rid); renderTaskBar(); try{ es.close(); }catch(e){} }); });
 }
+// Work mode (глобальный, localStorage): Автомат — агенты реально выполняют код/
+// инструменты; Подтверждение — только предлагают (исполнение придержано).
+function autoMode(){ try{ return localStorage.getItem('agentos_auto')!=='0'; }catch(e){ return true; } }
+function renderModeBtns(){ var on=autoMode(); ['modeOffice','modeChat'].forEach(function(id){ var b=$(id); if(!b) return; b.textContent=on?'⚡ Автомат':'🔒 Подтверждение'; b.className='modebtn '+(on?'auto':'confirm'); }); }
+function toggleAutoMode(){ try{ localStorage.setItem('agentos_auto', autoMode()?'0':'1'); }catch(e){} renderModeBtns(); }
+(function(){ ['modeOffice','modeChat'].forEach(function(id){ var b=document.getElementById(id); if(b) b.addEventListener('click', toggleAutoMode); }); renderModeBtns(); })();
 function startTask(rid, label, select){
   tasks[rid]={ runId:rid, label:taskLabel(label), phase:'new', status:'running', statusText:'Координатор анализирует задачу…', planSubtasks:[], subStatus:{}, discussLive:{}, lastTeam:null, output:undefined, es:null, pollTimer:null, done:false, seen:true };
   if(select!==false) selectedTask=rid;
@@ -466,7 +478,7 @@ function startTask(rid, label, select){
 $('f').addEventListener('submit', async function(e){
   e.preventDefault(); var task=$('task').value.trim(); if(!task) return;
   $('go').disabled=true; officeSet(null,'orchestrator','running');
-  var resp=await api('/tasks',{method:'POST',body:JSON.stringify({orgId:ORG,task:task})});
+  var resp=await api('/tasks',{method:'POST',body:JSON.stringify({orgId:ORG,task:task,autoRun:autoMode()})});
   $('go').disabled=false;
   if(!resp||!resp.runId){ $('cstatus').textContent='Ошибка: '+((resp&&resp.error)||'нет orchestrator-агента — создайте его во вкладке «Команда»'); return; }
   $('task').value=''; $('task').focus();
@@ -950,7 +962,7 @@ $('chatForm').addEventListener('submit', async function(e){
   if(!chatThreads[aid]) chatThreads[aid]=[];
   chatThreads[aid].push({role:'them', status:'в очереди', pending:true}); var idx=chatThreads[aid].length-1; saveChat(); renderChat();
   // Server-side chat: persists the message + assembles dialog context.
-  var body={ text:text };
+  var body={ text:text, autoRun:autoMode() };
   if(attachForServer) body.attachment=attachForServer;
   if(replyForServer) body.replyTo=replyForServer;
   var resp = await api('/orgs/'+ORG+'/agents/'+aid+'/chat',{method:'POST',body:JSON.stringify(body)});

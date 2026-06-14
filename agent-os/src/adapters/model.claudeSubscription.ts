@@ -234,7 +234,14 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
   private codeToolsArgs(capabilities?: { codeExec?: boolean }): string[] {
     if (!capabilities?.codeExec) return [];
     if (process.env.CLAUDE_CLI_CODE_TOOLS !== '1') return [];
-    return ['--allowedTools', 'Bash', '--allowedTools', 'Write', '--allowedTools', 'Read'];
+    // bypassPermissions is REQUIRED in headless -p mode: otherwise the CLI blocks
+    // on an interactive "Allow?" prompt the user can never answer (it stalls / the
+    // model invents a fake «нажми Allow»). This is the «full auto» execution path;
+    // the «confirmation» mode never reaches here (codeExec capability is withheld).
+    return [
+      '--allowedTools', 'Bash', '--allowedTools', 'Write', '--allowedTools', 'Read',
+      '--permission-mode', 'bypassPermissions',
+    ];
   }
 
   private async completeStreaming(

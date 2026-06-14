@@ -109,6 +109,7 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
               text: body.text,
               attachment: body.attachment,
               replyTo: body.replyTo,
+              autoRun: body.autoRun,
             }),
           );
         }

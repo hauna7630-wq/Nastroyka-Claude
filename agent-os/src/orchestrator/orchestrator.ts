@@ -69,6 +69,8 @@ export async function executeOrchestration(
   }
 
   const task = toPrompt(parent.input);
+  // Propagate the work mode (Авто/Подтверждение) to every child run.
+  const parentAutoRun = (parent.input as { autoRun?: boolean } | null)?.autoRun;
 
   try {
     let orchestrated = shouldOrchestrate(task, threshold);
@@ -150,6 +152,7 @@ export async function executeOrchestration(
         input: {
           prompt: composePrompt(subtask, outputs),
           parentRunId,
+          autoRun: parentAutoRun,
           subtaskId: subtask.id,
           stream: true,
         },
@@ -246,6 +249,7 @@ export async function executeOrchestration(
           const r = await runChildContribution(deps, parent.orgId, parentRunId, reviewId, reviewer, {
             prompt: reviewPrompt(task, contributions),
             agentType: 'reviewer',
+            autoRun: parentAutoRun,
           });
           if (!r) break; // failed review is non-fatal; keep what we have
           review = r;
@@ -255,6 +259,7 @@ export async function executeOrchestration(
           const rev = await runChildContribution(deps, parent.orgId, parentRunId, revId, synthAgent, {
             prompt: revisionPrompt(task, summary, r.output),
             agentType: lastOk.agentType,
+            autoRun: parentAutoRun,
           });
           if (!rev) break;
           summary = rev.output;
@@ -317,7 +322,7 @@ async function runChildContribution(
   parentRunId: string,
   subtaskId: string,
   agent: { id: string; name: string },
-  spec: { prompt: string; agentType: AgentType },
+  spec: { prompt: string; agentType: AgentType; autoRun?: boolean },
 ): Promise<TeamContribution | undefined> {
   const childRunId = `${parentRunId}::${subtaskId}`;
   await deps.repo.createRun({
@@ -325,7 +330,7 @@ async function runChildContribution(
     orgId,
     agentId: agent.id,
     status: 'queued',
-    input: { prompt: spec.prompt, parentRunId, subtaskId, stream: true },
+    input: { prompt: spec.prompt, parentRunId, subtaskId, stream: true, autoRun: spec.autoRun },
     attempts: 0,
     parentRunId,
   });

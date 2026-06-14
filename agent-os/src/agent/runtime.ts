@@ -110,6 +110,10 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
 
   // F5: recall relevant long-term/episodic memory into the system prompt.
   const task = toPrompt(run.input);
+  // Work mode: «Автомат» (default) lets code-capable agents actually execute via
+  // the CLI tools; «Подтверждение» (autoRun === false) withholds execution so the
+  // agent only proposes code/commands for the user to run themselves.
+  const autoRun = (run.input as { autoRun?: boolean } | null)?.autoRun !== false;
   let system = agent.systemPrompt;
   // Personal-chat runs are a 1:1 CONVERSATION. Prepend a strong chat-mode
   // directive to the SYSTEM prompt (the authoritative slot) so it overrides
@@ -196,7 +200,7 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
         onText,
         capabilities: {
           webSearch: !!agent.allowedTools?.includes('web_search'),
-          codeExec: !!agent.allowedTools?.includes('code_exec'),
+          codeExec: autoRun && !!agent.allowedTools?.includes('code_exec'),
         },
       });
       flushTokens(true);
