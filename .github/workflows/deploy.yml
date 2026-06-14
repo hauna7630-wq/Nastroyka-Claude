@@ -1,6 +1,6 @@
 name: Deploy
 
-# Deploy marker: v47 — многозадачность: несколько задач команды одновременно.
+# Deploy marker: v48 — Shift+Enter в чате + пузыри агентов из живого вывода.
 # Builds both app images, pushes them to GHCR, then SSHes to the host and brings
 # the stack up. Each app applies its own migrations on startup.
 # Trigger manually, or on push to a release branch. Configure the secrets listed

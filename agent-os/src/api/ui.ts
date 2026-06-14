@@ -103,8 +103,9 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   #chatReply .rchip { display:flex; align-items:center; gap:8px; border-left:3px solid var(--accent); background:#0d1117; border-radius:6px; padding:5px 9px; font-size:12px; color:var(--muted); }
   #chatReply .rchip b { color:var(--fg); font-weight:600; margin-right:4px; }
   #chatReply .rchip a { margin-left:auto; color:var(--muted); text-decoration:none; }
-  .chat-form { display:flex; gap:8px; padding:10px; border-top:1px solid var(--border); }
+  .chat-form { display:flex; gap:8px; padding:10px; border-top:1px solid var(--border); align-items:flex-end; }
   .chat-form input { flex:1; }
+  .chat-form textarea { flex:1; resize:none; min-height:0; height:40px; max-height:140px; line-height:1.35; overflow-y:auto; }
   .msg.them.pending { opacity:.85; }
   .msg .typing { color:var(--muted); font-style:italic; }
   .msg .typing .tdots { display:inline-block; animation:tdots 1.1s steps(4,end) infinite; overflow:hidden; vertical-align:bottom; }
@@ -155,7 +156,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v47 · многозадачность</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v48 · Shift+Enter + живые пузыри</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -209,7 +210,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
         <form class="chat-form" id="chatForm">
           <input type="file" id="chatFile" style="display:none" />
           <button type="button" id="chatClip" title="Прикрепить файл (txt/md/csv/json/docx/pdf/xlsx)" disabled style="min-width:38px">📎</button>
-          <input id="chatInput" placeholder="Напишите задачу или вопрос…" autocomplete="off" disabled />
+          <textarea id="chatInput" rows="1" placeholder="Напишите задачу или вопрос…  (Enter — отправить, Shift+Enter — новая строка)" autocomplete="off" disabled></textarea>
           <button class="primary" id="chatSend" type="submit" disabled>Отправить</button>
         </form>
       </div>
@@ -308,6 +309,15 @@ var PHASE_RU={new:'НОВАЯ',analyzing:'АНАЛИЗ',working:'В РАБОТЕ
 // task, the rest keep updating their chip in the background.
 var tasks={}; var selectedTask=null;
 function taskLabel(text){ return String(text||'задача').replace(/\\s+/g,' ').trim().slice(0,42); }
+// Office speech bubble fed by an agent's REAL streamed output (throttled) — so the
+// office shows actual work, not canned chatter. Resolves the office agent by name.
+var _liveBubbleAt={};
+function officeSayLive(name,type,text){
+  var a=matchAgent(name,type); if(!a||!text) return;
+  var now=Date.now(); if(_liveBubbleAt[a.name] && now-_liveBubbleAt[a.name]<700) return; _liveBubbleAt[a.name]=now;
+  var s=String(text).replace(/\\s+/g,' ').trim(); if(!s) return;
+  setBubble(a.name, s.slice(-46), 110);
+}
 function renderPhaseBar(t){
   $('phaseWrap').style.display='block'; var bar=$('phaseBar'); bar.innerHTML='';
   var cur=t.phase||'new'; var failed=(cur==='failed'||cur==='needs_human');
@@ -347,7 +357,8 @@ function renderDiscuss(t){
   feed.scrollTop=feed.scrollHeight;
 }
 function renderResult(t){
-  if(t.output!==undefined && t.output!==null){ $('resultWrap').style.display='block'; $('result').innerHTML=mdLite(render(t.output)); }
+  if(t.output!==undefined && t.output!==null){ $('resultWrap').style.display='block'; $('result').innerHTML=mdLite(render(t.output));
+    if(!t._scrolled){ t._scrolled=true; try{ $('resultWrap').scrollIntoView({behavior:'smooth',block:'nearest'}); }catch(e){} } }
   else { $('resultWrap').style.display='none'; }
 }
 function statusLine(t){
@@ -417,6 +428,7 @@ function startTaskStream(rid){ var t=tasks[rid]; if(!t || typeof EventSource==='
     if(!t.discussLive) t.discussLive={};
     var cur=t.discussLive[d.subtaskId]||{agentName:d.agentName,agentType:d.agentType,text:''};
     cur.text=(cur.text||'')+d.text; t.discussLive[d.subtaskId]=cur;
+    officeSayLive(d.agentName,d.agentType,cur.text);
     if(rid===selectedTask) renderDiscuss(t); });
   es.addEventListener('run.succeeded',function(ev){ var e2; try{ e2=JSON.parse(ev.data); }catch(e){ return; } if(e2.runId!==rid) return;
     t.done=true; t.status='succeeded'; if(rid!==selectedTask) t.seen=false;
@@ -795,6 +807,14 @@ $('chatFile').addEventListener('change', function(){
   };
   rd.readAsDataURL(f);
 });
+// Chat input: Enter sends, Shift+Enter inserts a newline; the textarea auto-grows.
+function chatAutoGrow(){ var ta=$('chatInput'); if(!ta) return; ta.style.height='auto'; ta.style.height=Math.min(140, ta.scrollHeight)+'px'; }
+$('chatInput').addEventListener('input', chatAutoGrow);
+$('chatInput').addEventListener('keydown', function(e){
+  if(e.key==='Enter' && !e.shiftKey){ e.preventDefault();
+    if(typeof $('chatForm').requestSubmit==='function') $('chatForm').requestSubmit();
+    else $('chatForm').dispatchEvent(new Event('submit',{cancelable:true})); }
+});
 $('chatForm').addEventListener('submit', async function(e){
   e.preventDefault(); if(!currentAgent) return; var text=$('chatInput').value.trim();
   if(!text && !chatAttachment) return;
@@ -811,7 +831,7 @@ $('chatForm').addEventListener('submit', async function(e){
     shown='↪ '+chatReplyTo.text.replace(/\\s+/g,' ').slice(0,120)+'\\n'+shown;
     chatReplyTo=null; renderReplyChip();
   }
-  pushMsg(aid,'me',shown); $('chatInput').value='';
+  pushMsg(aid,'me',shown); $('chatInput').value=''; chatAutoGrow();
   if(!chatThreads[aid]) chatThreads[aid]=[];
   chatThreads[aid].push({role:'them', status:'в очереди', pending:true}); var idx=chatThreads[aid].length-1; saveChat(); renderChat();
   // Server-side chat: persists the message + assembles dialog context.
