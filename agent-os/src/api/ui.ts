@@ -178,7 +178,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v61 · папки и пакеты файлов</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v62 · выделить всё в папке</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -915,7 +915,7 @@ function addAttachments(files){
   if(!currentAgent){ renderAttach('err','Сначала выберите сотрудника слева.'); return; }
   var list=Array.prototype.slice.call(files||[]).filter(function(f){ return f && f.size>0 && f.size<=20*1024*1024; });
   if(!list.length){ renderAttach('err','Нет подходящих файлов (пусто или все больше 20МБ).'); return; }
-  if(list.length>40) list=list.slice(0,40);
+  if(list.length>300) list=list.slice(0,300);
   var i=0, ok=0, fail=0, chars=0;
   function next(){
     if(i>=list.length){ renderAttach(fail?'err':'ok', 'добавлено '+fmtCount(ok)+(fail?(', пропущено '+fail):'')); return; }
@@ -924,7 +924,7 @@ function addAttachments(files){
     rd.onerror=function(){ fail++; next(); };
     rd.onload=function(){ var b64=String(rd.result).split(',')[1]||'';
       api('/documents/extract',{method:'POST',body:JSON.stringify({mime:f.type,filename:f.name,content:b64,base64:true})})
-        .then(function(r){ if(r&&typeof r.text==='string'&&(chars+r.text.length<=400000)){ chatAttachments.push({filename:(f.relpath||f.name),text:r.text}); chars+=r.text.length; ok++; } else { fail++; } next(); })
+        .then(function(r){ if(r&&typeof r.text==='string'&&(chars+r.text.length<=800000)){ chatAttachments.push({filename:(f.relpath||f.name),text:r.text}); chars+=r.text.length; ok++; } else { fail++; } next(); })
         .catch(function(){ fail++; next(); });
     };
     rd.readAsDataURL(f);
