@@ -37,6 +37,10 @@ export interface ModelProvider {
     // built-in WebSearch/WebFetch tools only for agents permitted to search.
     // Providers that don't support a capability simply ignore it.
     capabilities?: { webSearch?: boolean; codeExec?: boolean };
+    // Persistent working directory for tool execution (the CLI runs with this as
+    // cwd). Gives a code-capable agent a stable workspace whose files survive
+    // across turns. Providers without local tool execution ignore it.
+    workspace?: string;
   }): Promise<ModelTurn>;
 }
 

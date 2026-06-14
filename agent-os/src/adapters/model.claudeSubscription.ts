@@ -11,6 +11,7 @@
 // egress). It is wired in index.ts only when CLAUDE_CODE_OAUTH_TOKEN is set.
 
 import { spawn } from 'child_process';
+import { mkdirSync } from 'fs';
 import { ModelMessage, ModelProvider, ToolSchema } from '../ports/model';
 import { ModelTurn } from '../domain/types';
 
@@ -26,11 +27,12 @@ function flatten(system: string, messages: ModelMessage[]): string {
   return lines.join('\n\n');
 }
 
-function runCli(bin: string, args: string[], timeoutMs: number): Promise<string> {
+function runCli(bin: string, args: string[], timeoutMs: number, cwd?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     // stdin must be closed (not an open pipe): in -p mode the CLI otherwise
     // waits for stdin and stalls. We pass the prompt via argv, so ignore stdin.
-    const child = spawn(bin, args, { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    if (cwd) { try { mkdirSync(cwd, { recursive: true }); } catch { /* best-effort */ } }
+    const child = spawn(bin, args, { env: process.env, stdio: ['ignore', 'pipe', 'pipe'], cwd });
     let out = '';
     let err = '';
     // Inactivity timeout: the CLI can legitimately think for a while, so we only
@@ -75,9 +77,11 @@ function runCliStreaming(
   args: string[],
   timeoutMs: number,
   onText: (delta: string) => void,
+  cwd?: string,
 ): Promise<StreamResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    if (cwd) { try { mkdirSync(cwd, { recursive: true }); } catch { /* best-effort */ } }
+    const child = spawn(bin, args, { env: process.env, stdio: ['ignore', 'pipe', 'pipe'], cwd });
     let err = '';
     let buf = '';
     let resultText = '';
@@ -203,6 +207,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     tools: ToolSchema[];
     onText?: (delta: string) => void;
     capabilities?: { webSearch?: boolean; codeExec?: boolean };
+    workspace?: string;
   }): Promise<ModelTurn> {
     // Streaming is strictly best-effort: only attempted when a live-token sink
     // is supplied, and ANY failure falls back to the proven buffered path so a
@@ -250,6 +255,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
       messages: ModelMessage[];
       tools: ToolSchema[];
       capabilities?: { webSearch?: boolean; codeExec?: boolean };
+      workspace?: string;
     },
     onText: (delta: string) => void,
   ): Promise<ModelTurn> {
@@ -270,7 +276,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     if (this.opts.model) cliArgs.push('--model', this.opts.model);
     if (args.system) cliArgs.push('--append-system-prompt', args.system);
 
-    const r = await runCliStreaming(bin, cliArgs, this.opts.timeoutMs ?? 180000, onText);
+    const r = await runCliStreaming(bin, cliArgs, this.opts.timeoutMs ?? 180000, onText, args.workspace);
     return {
       text: r.text,
       toolCalls: [],
@@ -285,6 +291,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     messages: ModelMessage[];
     tools: ToolSchema[];
     capabilities?: { webSearch?: boolean; codeExec?: boolean };
+    workspace?: string;
   }): Promise<ModelTurn> {
     const bin = this.opts.bin ?? 'claude';
     const prompt = flatten(args.system, args.messages);
@@ -296,7 +303,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     if (this.opts.model) cliArgs.push('--model', this.opts.model);
     if (args.system) cliArgs.push('--append-system-prompt', args.system);
 
-    const raw = await runCli(bin, cliArgs, this.opts.timeoutMs ?? 180000);
+    const raw = await runCli(bin, cliArgs, this.opts.timeoutMs ?? 180000, args.workspace);
 
     let text = raw.trim();
     let tokensIn = 0;

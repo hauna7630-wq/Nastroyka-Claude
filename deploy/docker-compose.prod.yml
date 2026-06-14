@@ -65,7 +65,12 @@ services:
       # Claude CLI timeout (ms): streaming = inactivity timeout, buffered = total.
       CLAUDE_CLI_TIMEOUT_MS: ${CLAUDE_CLI_TIMEOUT_MS:-300000}
       ALLOWLIST_DOMAINS: ${ALLOWLIST_DOMAINS:-}
+      # Persistent per-agent workspace root (mounted volume → survives redeploys),
+      # so a code-capable agent's files persist across turns (real projects).
+      AGENT_WORKSPACE_DIR: /workspace
       PORT: "3000"
+    volumes:
+      - agent_workspace:/workspace
     depends_on:
       postgres:
         condition: service_healthy
@@ -116,3 +121,4 @@ volumes:
   caddydata:
   caddyconfig:
   pgbackups:
+  agent_workspace:
