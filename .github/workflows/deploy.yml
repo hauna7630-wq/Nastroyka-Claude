@@ -1,6 +1,6 @@
 name: Deploy
 
-# Deploy marker: v62 — лимиты вложений до 300 файлов / 800k символов (Ctrl+A в папке).
+# Deploy marker: v63 — надёжный pull (только app-образы + ретраи) против TLS-таймаутов Docker Hub.
 # Builds both app images, pushes them to GHCR, then SSHes to the host and brings
 # the stack up. Each app applies its own migrations on startup.
 # Trigger manually, or on push to a release branch. Configure the secrets listed
@@ -89,7 +89,11 @@ jobs:
             ACME_EMAIL=${{ secrets.ACME_EMAIL }}
             EOF
             echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-            docker compose -f docker-compose.prod.yml pull
+            # Pull ONLY the app images (GHCR, reliable) with retries. Base images
+            # (postgres/redis/caddy on Docker Hub) are already cached on the host —
+            # re-pulling them every deploy caused transient "TLS handshake timeout"
+            # failures that aborted the whole deploy.
+            for i in 1 2 3 4 5; do docker compose -f docker-compose.prod.yml pull agentos teamly && break || { echo "pull retry $i"; sleep 8; }; done
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
             docker image prune -f
             set +e
