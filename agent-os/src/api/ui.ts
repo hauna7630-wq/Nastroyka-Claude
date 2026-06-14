@@ -106,6 +106,8 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .chat-form { display:flex; gap:8px; padding:10px; border-top:1px solid var(--border); align-items:flex-end; }
   .chat-form input { flex:1; }
   .chat-form textarea { flex:1; resize:none; min-height:0; height:40px; max-height:140px; line-height:1.35; overflow-y:auto; }
+  #chatMic.rec { background:#f85149; color:#fff; border-color:#f85149; animation:micpulse 1s ease-in-out infinite; }
+  @keyframes micpulse { 0%,100%{ box-shadow:0 0 0 0 rgba(248,81,73,.5); } 50%{ box-shadow:0 0 0 5px rgba(248,81,73,0); } }
   .chat-inbox { border-bottom:1px solid var(--border); padding:8px 11px; max-height:30vh; overflow:auto; background:rgba(210,153,34,.06); }
   .chat-inbox .ititle { font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--run); margin-bottom:6px; }
   .chat-inbox .irow { display:flex; align-items:center; gap:8px; padding:6px 0; border-top:1px solid var(--border); }
@@ -165,7 +167,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v52 · делегирование поручений</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v53 · копирование + голосовой ввод</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -220,6 +222,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
         <form class="chat-form" id="chatForm">
           <input type="file" id="chatFile" style="display:none" />
           <button type="button" id="chatClip" title="Прикрепить файл (txt/md/csv/json/docx/pdf/xlsx)" disabled style="min-width:38px">📎</button>
+          <button type="button" id="chatMic" title="Голосовой ввод (надиктовать задачу)" disabled style="min-width:38px">🎤</button>
           <textarea id="chatInput" rows="1" placeholder="Напишите задачу или вопрос…  (Enter — отправить, Shift+Enter — новая строка)" autocomplete="off" disabled></textarea>
           <button class="primary" id="chatSend" type="submit" disabled>Отправить</button>
         </form>
@@ -583,7 +586,7 @@ function selectAgent(id){
   var c=$('st_'+id); if(c) c.classList.add('active');
   $('chatHead').innerHTML='<span>'+escapeHtml(shortName(currentAgent.name)+' — '+roleOf(currentAgent))+'</span><button id="chatClear" type="button" title="Удалить всю историю переписки с этим сотрудником" style="float:right;font:inherit;font-size:12px;font-weight:600;color:var(--muted);background:#1b232c;border:1px solid var(--border);border-radius:7px;padding:3px 9px;cursor:pointer">🗑 Очистить чат</button>';
   var cb=$('chatClear'); if(cb) cb.addEventListener('click', clearChatThread);
-  $('chatInput').disabled=false; $('chatSend').disabled=false; $('chatClip').disabled=false; $('chatInput').focus();
+  $('chatInput').disabled=false; $('chatSend').disabled=false; $('chatClip').disabled=false; var mic=$('chatMic'); if(mic) mic.disabled=false; $('chatInput').focus();
   chatReplyTo=null; renderReplyChip();
   renderChat();
   loadChatHistory(id);
@@ -719,6 +722,14 @@ function toggleReaction(msg, emoji){
     .then(function(r){ if(r && r.id){ msg.reactions=r.reactions||[]; saveChat(); if(currentAgent&&currentAgent.id===aid) renderChat(); } })
     .catch(function(){});
 }
+// Copy a message's body text (без строки-цитаты) в буфер обмена.
+function fallbackCopy(t){ try{ var ta=document.createElement('textarea'); ta.value=t; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); }catch(e){} }
+function copyMsgText(m, btn){
+  var t=(splitQuote(m.text).body)||m.text||'';
+  var done=function(){ var o=btn.textContent; btn.textContent='✓ скопировано'; setTimeout(function(){ btn.textContent=o; },1200); };
+  if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(done).catch(function(){ fallbackCopy(t); done(); }); }
+  else { fallbackCopy(t); done(); }
+}
 function renderChat(){
   if(!currentAgent) return; var log=$('chatLog');
   // Stick-to-bottom: only auto-scroll if the user is already near the bottom, so
@@ -741,7 +752,9 @@ function renderChat(){
     inner+=mdLite(parts.body);
     el.innerHTML=inner;
     if(!m.pending){ var rb=document.createElement('button'); rb.className='rbtn reply'; rb.textContent='↩ ответить';
-      rb.addEventListener('click', (function(msg){ return function(){ setReplyTarget(msg); }; })(m)); el.appendChild(rb); }
+      rb.addEventListener('click', (function(msg){ return function(){ setReplyTarget(msg); }; })(m)); el.appendChild(rb);
+      var cpb=document.createElement('button'); cpb.className='rbtn copy'; cpb.textContent='⧉ копировать';
+      cpb.addEventListener('click', (function(msg,btn){ return function(){ copyMsgText(msg,btn); }; })(m,cpb)); el.appendChild(cpb); }
     // reaction button (only for persisted messages with a server id)
     if(!m.pending && m.id){ var eb=document.createElement('button'); eb.className='rbtn react'; eb.textContent='☺ реакция';
       eb.addEventListener('click', (function(msg,btn){ return function(ev){ ev.stopPropagation(); openEmojiPop(btn,msg); }; })(m,eb)); el.appendChild(eb); }
@@ -880,6 +893,25 @@ $('chatInput').addEventListener('keydown', function(e){
     if(typeof $('chatForm').requestSubmit==='function') $('chatForm').requestSubmit();
     else $('chatForm').dispatchEvent(new Event('submit',{cancelable:true})); }
 });
+// Voice input (Web Speech API): надиктовать задачу в поле. Если браузер не
+// поддерживает распознавание — кнопка прячется (грациозная деградация).
+var chatRec=null, chatRecOn=false;
+(function(){
+  var SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  var mic=$('chatMic'); if(!mic) return;
+  if(!SR){ mic.style.display='none'; return; }
+  mic.addEventListener('click', function(){
+    if(chatRecOn){ try{ chatRec.stop(); }catch(e){} return; }
+    chatRec=new SR(); chatRec.lang='ru-RU'; chatRec.interimResults=true; chatRec.continuous=false;
+    var base=$('chatInput').value;
+    chatRec.onstart=function(){ chatRecOn=true; mic.classList.add('rec'); mic.textContent='⏺'; };
+    chatRec.onresult=function(e){ var txt=''; for(var i=0;i<e.results.length;i++){ txt+=e.results[i][0].transcript; }
+      $('chatInput').value=(base?base.replace(/\\s+$/,'')+' ':'')+txt; chatAutoGrow(); };
+    chatRec.onerror=function(){ };
+    chatRec.onend=function(){ chatRecOn=false; mic.classList.remove('rec'); mic.textContent='🎤'; $('chatInput').focus(); };
+    try{ chatRec.start(); }catch(e){ chatRecOn=false; }
+  });
+})();
 $('chatForm').addEventListener('submit', async function(e){
   e.preventDefault(); if(!currentAgent) return; var text=$('chatInput').value.trim();
   if(!text && !chatAttachment) return;
