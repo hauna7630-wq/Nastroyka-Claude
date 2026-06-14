@@ -178,7 +178,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v63 · надёжный деплой</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v64 · файлы в воркспейс (микс)</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -610,6 +610,7 @@ function selectAgent(id){
   var cb=$('chatClear'); if(cb) cb.addEventListener('click', clearChatThread);
   $('chatInput').disabled=false; $('chatSend').disabled=false; $('chatClip').disabled=false; var mic=$('chatMic'); if(mic) mic.disabled=false; $('chatInput').focus();
   chatReplyTo=null; renderReplyChip();
+  chatAttachments=[]; workspaceFiles=[]; renderAttach(null);
   renderChat();
   loadChatHistory(id);
   loadAssignments(id);
@@ -911,18 +912,23 @@ function renderAttach(state, msg){
 }
 $('chatClip').addEventListener('click', function(){ $('chatFile').click(); });
 // Extract text from MANY files (sequentially) and add them all as attachments.
+// Files saved into the agent's workspace this turn (uploads/…). Sent with the
+// next message so a code-agent can read them with tools (no prompt-size limit).
+var workspaceFiles=[];
 function addAttachments(files){
   if(!currentAgent){ renderAttach('err','Сначала выберите сотрудника слева.'); return; }
+  var fcap=currentAgent.id;
   var list=Array.prototype.slice.call(files||[]).filter(function(f){ return f && f.size>0 && f.size<=20*1024*1024; });
   if(!list.length){ renderAttach('err','Нет подходящих файлов (пусто или все больше 20МБ).'); return; }
   if(list.length>300) list=list.slice(0,300);
-  var i=0, ok=0, fail=0, chars=0;
+  var i=0, ok=0, fail=0, chars=0, upq=[];
   function next(){
-    if(i>=list.length){ renderAttach(fail?'err':'ok', 'добавлено '+fmtCount(ok)+(fail?(', пропущено '+fail):'')); return; }
+    if(i>=list.length){ renderAttach(fail?'err':'ok', 'добавлено '+fmtCount(ok)+(fail?(', пропущено '+fail):'')); uploadWorkspace(fcap, upq); return; }
     var f=list[i++]; renderAttach('busy','Читаю '+(f.relpath||f.name)+' ('+i+'/'+list.length+')…');
     var rd=new FileReader();
     rd.onerror=function(){ fail++; next(); };
     rd.onload=function(){ var b64=String(rd.result).split(',')[1]||'';
+      upq.push({path:(f.relpath||f.name), content:b64}); // raw → workspace (mix)
       api('/documents/extract',{method:'POST',body:JSON.stringify({mime:f.type,filename:f.name,content:b64,base64:true})})
         .then(function(r){ if(r&&typeof r.text==='string'&&(chars+r.text.length<=800000)){ chatAttachments.push({filename:(f.relpath||f.name),text:r.text}); chars+=r.text.length; ok++; } else { fail++; } next(); })
         .catch(function(){ fail++; next(); });
@@ -930,6 +936,20 @@ function addAttachments(files){
     rd.readAsDataURL(f);
   }
   next();
+}
+// MIX: also drop the RAW files into the agent's workspace (uploads/…), batched by
+// ~8МБ, so a code-capable сотрудник may read them with tools beyond the prompt cap.
+function uploadWorkspace(aid, items){
+  if(!aid || !items || !items.length) return;
+  var batches=[], cur=[], sz=0;
+  items.forEach(function(it){ if(sz+it.content.length>8000000 && cur.length){ batches.push(cur); cur=[]; sz=0; } cur.push(it); sz+=it.content.length; });
+  if(cur.length) batches.push(cur);
+  function send(bi){ if(bi>=batches.length) return;
+    api('/orgs/'+ORG+'/agents/'+aid+'/workspace',{method:'POST',body:JSON.stringify({files:batches[bi]})})
+      .then(function(r){ if(r&&r.saved) workspaceFiles=workspaceFiles.concat(r.saved); send(bi+1); })
+      .catch(function(){ send(bi+1); });
+  }
+  send(0);
 }
 // Recursively collect File objects from a dropped FileSystemEntry (folders too).
 function entryFiles(entry, path){
@@ -1019,6 +1039,7 @@ $('chatForm').addEventListener('submit', async function(e){
   // Server-side chat: persists the message + assembles dialog context.
   var body={ text:text, autoRun:autoMode() };
   if(attachForServer) body.attachments=attachForServer;
+  if(workspaceFiles.length){ body.workspaceFiles=workspaceFiles.slice(); workspaceFiles=[]; }
   if(replyForServer) body.replyTo=replyForServer;
   var resp = await api('/orgs/'+ORG+'/agents/'+aid+'/chat',{method:'POST',body:JSON.stringify(body)});
   if(resp && resp.delegated){

@@ -109,6 +109,7 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
               text: body.text,
               attachment: body.attachment,
               attachments: body.attachments,
+              workspaceFiles: body.workspaceFiles,
               replyTo: body.replyTo,
               autoRun: body.autoRun,
             }),
@@ -117,6 +118,11 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
         if (method === 'DELETE') {
           return json(res, 200, await cp.clearChatHistory({ orgId: seg[1], agentId: seg[3] }));
         }
+      }
+      // Upload files into an agent's persistent workspace (uploads/…).
+      if (method === 'POST' && seg[0] === 'orgs' && seg[2] === 'agents' && seg[3] && seg[4] === 'workspace') {
+        const body = JSON.parse((await readBody(req)) || '{}');
+        return json(res, 200, await cp.uploadWorkspaceFiles({ orgId: seg[1], agentId: seg[3], files: body.files || [] }));
       }
       // Delegation: GET an agent's «Поручения» inbox, POST start one.
       if (method === 'GET' && seg[0] === 'orgs' && seg[2] === 'agents' && seg[3] && seg[4] === 'assignments') {

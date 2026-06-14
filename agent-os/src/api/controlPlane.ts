@@ -4,6 +4,8 @@
 // is a thin adapter over them.
 
 import { randomUUID } from 'crypto';
+import { mkdirSync, writeFileSync } from 'fs';
+import { join, dirname } from 'path';
 import { Repository } from '../ports/repository';
 import { Queue } from '../ports/queue';
 import { Observability } from '../observability/metrics';
@@ -311,6 +313,9 @@ export class ControlPlane {
     attachment?: { filename: string; text: string };
     // Many files / whole folders: each extracted file is inlined into the prompt.
     attachments?: Array<{ filename: string; text: string }>;
+    // Files also saved to the agent's workspace (uploads/…): for code-capable
+    // agents to read with tools on demand (no prompt-size limit).
+    workspaceFiles?: string[];
     // Reply-to: the user answers a specific earlier message; the quote goes
     // into the model prompt and is encoded into the stored display text
     // (leading "↪ …" line — no schema change, survives reload/devices).
@@ -386,6 +391,16 @@ export class ControlPlane {
         .map((a) => 'Файл "' + a.filename + '":\n"""\n' + a.text + '\n"""')
         .join('\n\n');
       promptPart = blocks + '\n\n' + text;
+    }
+    if (args.workspaceFiles && args.workspaceFiles.length) {
+      const flist = args.workspaceFiles.slice(0, 100).join(', ');
+      promptPart =
+        promptPart +
+        '\n\n[Файлы также сохранены в твоей рабочей папке (текущий каталог): ' +
+        flist +
+        (args.workspaceFiles.length > 100 ? ' …' : '') +
+        '. Если их много или они большие — читай их инструментами (ls/cat) по мере ' +
+        'необходимости, не полагаясь только на текст выше.]';
     }
     let displayText = text;
     if (atts.length === 1) displayText = text + ' 📎 ' + atts[0].filename;
@@ -526,6 +541,46 @@ export class ControlPlane {
     });
     await this.deps.queue.enqueue({ runId: args.runId });
     return { runId: args.runId, status: 'queued' };
+  }
+
+  private agentWorkspace(orgId: string, agentId: string): string {
+    const seg = (s: string): string => String(s).replace(/[^a-zA-Z0-9_-]/g, '_');
+    return join(process.env.AGENT_WORKSPACE_DIR || '/workspace', seg(orgId), seg(agentId));
+  }
+
+  // Save uploaded files into the agent's persistent workspace (under uploads/), so
+  // a code-capable agent can read them with tools on demand — no prompt-size limit.
+  // Paths are sanitized against traversal; content is base64.
+  async uploadWorkspaceFiles(args: {
+    orgId: string;
+    agentId: string;
+    files: Array<{ path: string; content: string }>;
+  }): Promise<{ dir: string; saved: string[] }> {
+    const org = await this.deps.repo.getOrg(args.orgId);
+    if (!org) throw new NotFoundError(`org ${args.orgId}`);
+    const agent = await this.deps.repo.getAgent(args.agentId);
+    if (!agent || agent.orgId !== args.orgId) throw new NotFoundError(`agent ${args.agentId}`);
+    const base = join(this.agentWorkspace(args.orgId, args.agentId), 'uploads');
+    mkdirSync(base, { recursive: true });
+    const saved: string[] = [];
+    let totalBytes = 0;
+    for (const f of (args.files || []).slice(0, 500)) {
+      const rel =
+        String(f.path || 'file')
+          .split(/[\\/]+/)
+          .filter((s) => s && s !== '.' && s !== '..')
+          .join('/') || 'file';
+      const dest = join(base, rel);
+      if (dest !== base && !dest.startsWith(base + '/')) continue; // traversal guard
+      const buf = Buffer.from(f.content || '', 'base64');
+      if (buf.length > 25 * 1024 * 1024) continue;
+      totalBytes += buf.length;
+      if (totalBytes > 120 * 1024 * 1024) break;
+      mkdirSync(dirname(dest), { recursive: true });
+      writeFileSync(dest, buf);
+      saved.push('uploads/' + rel);
+    }
+    return { dir: 'uploads', saved };
   }
 
   async clearChatHistory(args: { orgId: string; agentId: string }): Promise<{ cleared: number }> {
