@@ -173,7 +173,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v58 · скилы агентов</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v59 · кнопка режима у иконок</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -230,8 +230,8 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
           <input type="file" id="chatFile" style="display:none" />
           <button type="button" id="chatClip" title="Прикрепить файл (txt/md/csv/json/docx/pdf/xlsx)" disabled style="min-width:38px">📎</button>
           <button type="button" id="chatMic" title="Голосовой ввод (надиктовать задачу)" disabled style="min-width:38px">🎤</button>
-          <textarea id="chatInput" rows="1" placeholder="Напишите задачу или вопрос…  (Enter — отправить, Shift+Enter — новая строка)" autocomplete="off" disabled></textarea>
           <button id="modeChat" class="modebtn" type="button" title="Режим работы: Автомат — агент выполняет сам; Подтверждение — только предлагает">⚡ Автомат</button>
+          <textarea id="chatInput" rows="1" placeholder="Напишите задачу или вопрос…  (Enter — отправить, Shift+Enter — новая строка)" autocomplete="off" disabled></textarea>
           <button class="primary" id="chatSend" type="submit" disabled>Отправить</button>
         </form>
       </div>
