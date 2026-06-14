@@ -105,6 +105,10 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   #chatReply .rchip a { margin-left:auto; color:var(--muted); text-decoration:none; }
   .chat-form { display:flex; gap:8px; padding:10px; border-top:1px solid var(--border); }
   .chat-form input { flex:1; }
+  .msg.them.pending { opacity:.85; }
+  .msg .typing { color:var(--muted); font-style:italic; }
+  .msg .typing .tdots { display:inline-block; animation:tdots 1.1s steps(4,end) infinite; overflow:hidden; vertical-align:bottom; }
+  @keyframes tdots { 0%{width:0} 100%{width:1.1em} }
   .hire-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(290px, 1fr)); gap:14px; }
   .hcard { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 15px; display:flex; flex-direction:column; gap:8px; }
   .hcard.rec { border-color:rgba(46,160,67,.6); background:linear-gradient(180deg, rgba(46,160,67,.07), var(--card)); }
@@ -142,7 +146,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v45 · фикс таймаута LLM</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v46 · чат без петли</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -506,10 +510,10 @@ function loadChatHistory(aid){
     if(currentAgent && currentAgent.id===aid) renderChat();
     // Resume any unfinished runs with honest live status.
     (r.pending||[]).forEach(function(p){
-      th.push({role:'them', text: p.errorHuman || 'в очереди…', pending:true, runId:p.runId});
+      th.push({role:'them', status: p.errorHuman || 'в очереди', pending:true, runId:p.runId});
       var idx=th.length-1;
       if(p.status==='failed'||p.status==='canceled'){ th[idx].pending=false; th[idx].failedRunId=p.runId; th[idx].text=p.errorHuman||'(не удалось выполнить задачу)'; }
-      else { chatPending[aid]={runId:p.runId, idx:idx}; streamChatTokens(aid,p.runId,idx); pollRun(aid,p.runId,idx); }
+      else if(!activeRuns[p.runId]){ chatPending[aid]={runId:p.runId, idx:idx}; streamChatTokens(aid,p.runId,idx); pollRun(aid,p.runId,idx); }
     });
     chatThreads[aid]=th; saveChat();
     if(currentAgent && currentAgent.id===aid) renderChat();
@@ -578,8 +582,17 @@ function renderChat(){
   var stick=(log.scrollHeight-log.scrollTop-log.clientHeight)<70;
   log.innerHTML=''; var th=chatThreads[currentAgent.id]||[];
   th.forEach(function(m,i){ var el=document.createElement('div'); el.className='msg '+(m.role==='me'?'me':'them');
+    var who=(m.role==='me'?'':'<div class="who">'+escapeHtml(shortName(currentAgent.name))+'</div>');
+    // A reply that's still queued/thinking and hasn't streamed any real token yet
+    // renders a SEPARATE typing indicator from m.status — never as message text, so
+    // a status tick ("думает…") can't get glued onto the streamed answer.
+    if(m.role==='them' && m.pending && !m.streamed){
+      el.className='msg them pending';
+      el.innerHTML=who+'<div class="typing">'+escapeHtml(m.status||'думает')+'<span class="tdots">…</span></div>';
+      log.appendChild(el); return;
+    }
     var parts=splitQuote(m.text);
-    var inner=(m.role==='me'?'':'<div class="who">'+escapeHtml(shortName(currentAgent.name))+'</div>');
+    var inner=who;
     if(parts.quote) inner+='<div class="quote">'+escapeHtml(parts.quote)+'</div>';
     inner+=mdLite(parts.body);
     el.innerHTML=inner;
@@ -597,16 +610,20 @@ function renderChat(){
     log.appendChild(el); });
   if(stick) log.scrollTop=log.scrollHeight;
 }
-function setBubbleText(aid,idx,text){
-  if(!(chatThreads[aid]&&chatThreads[aid][idx])) return;
-  chatThreads[aid][idx].text=text;
+// Live status of a pending reply (queued/thinking). Lives in m.status, NOT m.text,
+// and never overwrites a bubble that has already started streaming real tokens.
+function setBubbleStatus(aid,idx,status){
+  var m=chatThreads[aid]&&chatThreads[aid][idx]; if(!m) return;
+  if(m.streamed) return; // streaming owns the bubble now — don't clobber the answer
+  m.pending=true; m.status=status;
   if(currentAgent&&currentAgent.id===aid) renderChat();
 }
 function retryChat(aid,idx,runId){
   if(!(chatThreads[aid]&&chatThreads[aid][idx])) return;
-  chatThreads[aid][idx]={role:'them', text:'в очереди…', pending:true, runId:runId};
+  chatThreads[aid][idx]={role:'them', status:'в очереди', pending:true, runId:runId};
   chatPending[aid]={runId:runId, idx:idx}; saveChat();
   if(currentAgent&&currentAgent.id===aid) renderChat();
+  delete activeRuns[runId]; // allow a fresh poll for the re-run
   api('/runs/'+runId+'/retry',{method:'POST',body:'{}'}).then(function(){ streamChatTokens(aid,runId,idx); pollRun(aid,runId,idx); })
     .catch(function(){ setReplyFailed(aid,idx,runId,'Сеть: не удалось повторить'); });
 }
@@ -665,19 +682,18 @@ function setReplyFailed(aid,idx,runId,reason){
 }
 // pollRun NEVER gives up while a run is non-terminal (runs live server-side);
 // the bubble shows a live status; backoff grows but is capped.
+// One authoritative poll per run. activeRuns dedupes so a second poll (e.g. from
+// loadChatHistory resuming the same pending run) can't stack and ping-pong.
+var activeRuns={};
 function pollRun(aid, runId, idx, tries){
   tries = tries||0;
+  if(tries===0){ if(activeRuns[runId]) return; activeRuns[runId]=true; }
   api('/runs/'+runId).then(function(r){
     var run = r && r.run; var st = run && run.status;
-    if(st==='succeeded'){
-      setReply(aid,idx, replyText(run.output));
-      // persist the agent reply into the server thread for other devices
-      if(currentAgent && currentAgent.id===aid) loadChatHistory(aid);
-      return;
-    }
-    if(st==='failed'||st==='canceled'){ setReplyFailed(aid,idx,runId, (r&&r.errorHuman)||'Не удалось выполнить задачу.'); return; }
-    if(st==='paused'){ setBubbleText(aid,idx, (r&&r.errorHuman)||'нужно ваше решение'); }
-    else { setBubbleText(aid,idx, tries<2?'в очереди…':('думает…'+(tries>30?' ('+Math.floor(tries*3/60)+' мин)':''))); }
+    if(st==='succeeded'){ delete activeRuns[runId]; setReply(aid,idx, replyText(run.output)); return; }
+    if(st==='failed'||st==='canceled'){ delete activeRuns[runId]; setReplyFailed(aid,idx,runId, (r&&r.errorHuman)||'Не удалось выполнить задачу.'); return; }
+    if(st==='paused'){ setBubbleStatus(aid,idx, (r&&r.errorHuman)||'нужно ваше решение'); }
+    else { setBubbleStatus(aid,idx, tries<2?'в очереди':('думает'+(tries>30?' ('+Math.floor(tries*3/60)+' мин)':''))); }
     var delay=Math.min(10000, 2000 + tries*250);
     setTimeout(function(){ pollRun(aid,runId,idx,tries+1); }, delay);
   }).catch(function(){ setTimeout(function(){ pollRun(aid,runId,idx,tries+1); }, Math.min(10000, 2500 + tries*250)); });
@@ -730,7 +746,7 @@ $('chatForm').addEventListener('submit', async function(e){
   }
   pushMsg(aid,'me',shown); $('chatInput').value='';
   if(!chatThreads[aid]) chatThreads[aid]=[];
-  chatThreads[aid].push({role:'them', text:'в очереди…', pending:true}); var idx=chatThreads[aid].length-1; saveChat(); renderChat();
+  chatThreads[aid].push({role:'them', status:'в очереди', pending:true}); var idx=chatThreads[aid].length-1; saveChat(); renderChat();
   // Server-side chat: persists the message + assembles dialog context.
   var body={ text:text };
   if(attachForServer) body.attachment=attachForServer;
@@ -1542,18 +1558,22 @@ function officeSet(name,type,status){
   else if(st==='failed'){ setBubble(a.name,'Ошибка!',180); pushActivity('⚠️ <b>'+shortName(a.name)+'</b> — ошибка в задаче'); pushOfficeCard('⚠️',shortName(a.name),'ошибка · '+roleOf(a),'#f85149'); }
 }
 function officeResetIdle(){ officeAgents.forEach(function(a){ officeState[a.name]='idle'; }); officeCards=[]; pushActivity('🧭 — Координатор получил новую задачу —'); pushOfficeCard('🧭','Координатор','новая задача принята','#d29922'); }
+var lastMeetTs=0;
 function startMeeting(){
   var idle=officeAgents.filter(function(a){ return (officeState[a.name]||'idle')==='idle'; });
   if(idle.length<2) return; idle.sort(function(){return Math.random()-0.5;}); var crew=idle.slice(0,Math.min(3,idle.length));
   var dur=420; var slots=[[MEET_TILE[0]-1,MEET_TILE[1]],[MEET_TILE[0]+1,MEET_TILE[1]],[MEET_TILE[0],MEET_TILE[1]+1]];
   crew.forEach(function(a,i){ var s=slots[i%slots.length]; officeTgt[a.name]={gx:s[0],gy:s[1]}; officeDwell[a.name]=dur; officeMeetUntil[a.name]=officeFrame+dur; });
-  pushActivity('☕ <b>'+crew.map(function(a){return shortName(a.name);}).join(', ')+'</b> собрались обсудить задачи');
+  // The gathering still plays out visually every time, but the feed line is
+  // rate-limited so idle ambient meetings don't spam «собрались обсудить задачи».
+  if(Date.now()-lastMeetTs>60000){ lastMeetTs=Date.now();
+    pushActivity('☕ <b>'+crew.map(function(a){return shortName(a.name);}).join(', ')+'</b> собрались обсудить задачи'); }
   // One speaker at a time (turn-taking) — avoids 3 bubbles stacking over the table.
   var ticks=0; var iv=setInterval(function(){ ticks++; var sp=crew[ticks%crew.length]; if(sp) setBubble(sp.name, pick(SMALLTALK), 80); if(ticks>=6){ clearInterval(iv); } }, 1500);
 }
 function ambient(){
   if(!officeAgents.length) return;
-  if(Math.random()<0.25){ startMeeting(); return; }
+  if(Math.random()<0.1){ startMeeting(); return; }
   var idle=officeAgents.filter(function(a){ return (officeState[a.name]||'idle')==='idle'; });
   if(idle.length){ var a=pick(idle); setBubble(a.name, pick(SMALLTALK), 90); }
 }
