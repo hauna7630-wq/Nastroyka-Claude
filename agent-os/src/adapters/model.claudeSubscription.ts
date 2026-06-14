@@ -249,6 +249,14 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     ];
   }
 
+  // Let agents actually USE their installed skills (~/.claude/skills): the Skill
+  // tool must be in the allowlist, otherwise the CLI can't invoke it in headless
+  // -p mode and the agent reports «скилл не отработал». Toggle: CLAUDE_CLI_SKILLS=0.
+  private skillArgs(): string[] {
+    if (process.env.CLAUDE_CLI_SKILLS === '0') return [];
+    return ['--allowedTools', 'Skill'];
+  }
+
   private async completeStreaming(
     args: {
       system: string;
@@ -270,6 +278,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
       '--include-partial-messages',
       '--max-turns',
       '8',
+      ...this.skillArgs(),
       ...this.webSearchArgs(args.capabilities),
       ...this.codeToolsArgs(args.capabilities),
     ];
@@ -299,7 +308,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     // server-side web search, which routes via the same relay) and still reach a
     // final answer — with --max-turns 1 any tool_use ends in error_max_turns.
     const cliArgs = ['-p', prompt, '--output-format', 'json', '--max-turns', '8',
-      ...this.webSearchArgs(args.capabilities), ...this.codeToolsArgs(args.capabilities)];
+      ...this.skillArgs(), ...this.webSearchArgs(args.capabilities), ...this.codeToolsArgs(args.capabilities)];
     if (this.opts.model) cliArgs.push('--model', this.opts.model);
     if (args.system) cliArgs.push('--append-system-prompt', args.system);
 
