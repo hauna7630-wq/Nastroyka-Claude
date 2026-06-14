@@ -106,6 +106,15 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .chat-form { display:flex; gap:8px; padding:10px; border-top:1px solid var(--border); align-items:flex-end; }
   .chat-form input { flex:1; }
   .chat-form textarea { flex:1; resize:none; min-height:0; height:40px; max-height:140px; line-height:1.35; overflow-y:auto; }
+  .chat-inbox { border-bottom:1px solid var(--border); padding:8px 11px; max-height:30vh; overflow:auto; background:rgba(210,153,34,.06); }
+  .chat-inbox .ititle { font-size:11px; font-weight:700; letter-spacing:.04em; color:var(--run); margin-bottom:6px; }
+  .chat-inbox .irow { display:flex; align-items:center; gap:8px; padding:6px 0; border-top:1px solid var(--border); }
+  .chat-inbox .irow:first-of-type { border-top:0; }
+  .chat-inbox .itask { flex:1; font-size:12.5px; }
+  .chat-inbox .ifrom { color:var(--muted); font-size:11px; }
+  .chat-inbox .ibtn { font:inherit; font-size:11.5px; font-weight:600; border:0; border-radius:7px; padding:4px 10px; cursor:pointer; background:var(--accent); color:#fff; white-space:nowrap; }
+  .chat-inbox .ibtn.ghost { background:#1b232c; color:var(--fg); border:1px solid var(--border); }
+  .chat-inbox .ibadge { font-size:11px; white-space:nowrap; padding:2px 7px; border-radius:6px; }
   .msg.them.pending { opacity:.85; }
   .msg .typing { color:var(--muted); font-style:italic; }
   .msg .typing .tdots { display:inline-block; animation:tdots 1.1s steps(4,end) infinite; overflow:hidden; vertical-align:bottom; }
@@ -156,7 +165,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v51 · Python в образе кодера</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v52 · делегирование поручений</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -204,6 +213,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
       <div class="staff-list" id="staffList"></div>
       <div class="chat">
         <div class="chat-head" id="chatHead">Выберите сотрудника слева</div>
+        <div id="chatInbox" class="chat-inbox" style="display:none"></div>
         <div class="chat-log" id="chatLog"></div>
         <div id="chatReply" style="display:none;padding:4px 10px"></div>
         <div id="chatAttach" style="display:none;padding:4px 10px;font-size:12px"></div>
@@ -577,6 +587,61 @@ function selectAgent(id){
   chatReplyTo=null; renderReplyChip();
   renderChat();
   loadChatHistory(id);
+  loadAssignments(id);
+}
+// «Поручения» inbox: tasks delegated to THIS employee (assignment runs). «Приступить»
+// enqueues the assignment and streams the result straight into the chat thread.
+function loadAssignments(aid){
+  api('/orgs/'+ORG+'/agents/'+aid+'/assignments').then(function(items){
+    if(currentAgent && currentAgent.id===aid) renderInbox(aid, items||[]);
+  }).catch(function(){});
+}
+function renderInbox(aid, items){
+  var box=$('chatInbox'); if(!box) return;
+  if(!items || !items.length){ box.style.display='none'; box.innerHTML=''; return; }
+  box.style.display='block';
+  box.innerHTML='<div class="ititle">📥 Поручения ('+items.length+')</div>';
+  items.forEach(function(it){
+    var row=document.createElement('div'); row.className='irow';
+    var task=document.createElement('div'); task.className='itask';
+    task.innerHTML='<div>'+escapeHtml(it.task)+'</div><div class="ifrom">от '+escapeHtml(it.from)+'</div>';
+    row.appendChild(task);
+    if(it.status==='succeeded'){
+      var bdone=document.createElement('span'); bdone.className='ibadge'; bdone.style.color='#2ea043'; bdone.textContent='✓ готово'; row.appendChild(bdone);
+      var br=document.createElement('button'); br.className='ibtn ghost'; br.textContent='Результат';
+      br.addEventListener('click',(function(id){ return function(){ showAssignmentResult(aid,id); }; })(it.id)); row.appendChild(br);
+    } else if(it.status==='failed'){
+      var bf=document.createElement('span'); bf.className='ibadge'; bf.style.color='#f85149'; bf.textContent='⚠ ошибка'; row.appendChild(bf);
+      var brf=document.createElement('button'); brf.className='ibtn'; brf.textContent='Повторить';
+      brf.addEventListener('click',(function(id){ return function(){ startAssignment(aid,id); }; })(it.id)); row.appendChild(brf);
+    } else if(it.started || it.status==='running'){
+      var ba=document.createElement('span'); ba.className='ibadge'; ba.style.color='#d29922'; ba.textContent='⏳ выполняется'; row.appendChild(ba);
+    } else {
+      var bs=document.createElement('button'); bs.className='ibtn'; bs.textContent='Приступить';
+      bs.addEventListener('click',(function(id,btn){ return function(){ btn.disabled=true; btn.textContent='…'; startAssignment(aid,id); }; })(it.id,bs)); row.appendChild(bs);
+    }
+    box.appendChild(row);
+  });
+}
+function startAssignment(aid, id){
+  api('/orgs/'+ORG+'/assignments/'+id+'/start',{method:'POST',body:'{}'}).then(function(r){
+    if(r && r.runId){
+      if(!chatThreads[aid]) chatThreads[aid]=[];
+      chatThreads[aid].push({role:'them', status:'приступаю', pending:true, runId:r.runId});
+      var idx=chatThreads[aid].length-1; saveChat();
+      if(currentAgent && currentAgent.id===aid) renderChat();
+      streamChatTokens(aid, r.runId, idx); pollRun(aid, r.runId, idx);
+    }
+    loadAssignments(aid);
+  }).catch(function(){ loadAssignments(aid); });
+}
+function showAssignmentResult(aid, id){
+  api('/runs/'+id).then(function(r){
+    var out=r && r.run && r.run.output; if(out===undefined||out===null) return;
+    if(!chatThreads[aid]) chatThreads[aid]=[];
+    chatThreads[aid].push({role:'them', text: replyText(out)}); saveChat();
+    if(currentAgent && currentAgent.id===aid) renderChat();
+  }).catch(function(){});
 }
 // Dialog memory: the server thread is the source of truth (survives reload /
 // other devices). localStorage stays only as an offline cache.
@@ -839,6 +904,11 @@ $('chatForm').addEventListener('submit', async function(e){
   if(attachForServer) body.attachment=attachForServer;
   if(replyForServer) body.replyTo=replyForServer;
   var resp = await api('/orgs/'+ORG+'/agents/'+aid+'/chat',{method:'POST',body:JSON.stringify(body)});
+  if(resp && resp.delegated){
+    setReply(aid, idx, resp.reply || ('Поручение передано'+(resp.to?(' '+resp.to):'')));
+    if(resp.message && resp.message.id && chatThreads[aid][idx-1]){ chatThreads[aid][idx-1].id=resp.message.id; saveChat(); }
+    loadAssignments(aid); return;
+  }
   if(!resp||!resp.runId){ setReplyFailed(aid,idx,null,'Ошибка: '+((resp&&resp.error)||'не удалось запустить')); return; }
   // give the just-sent user message its server id so it can be reacted to
   if(resp.message && resp.message.id && chatThreads[aid][idx-1]){ chatThreads[aid][idx-1].id=resp.message.id; saveChat(); }

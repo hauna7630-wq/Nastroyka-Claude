@@ -15,6 +15,7 @@ import { deriveTeamPhase, isReviewId, isRevisionId, PHASE_LABEL, subtaskIdOf, Te
 import { verdictNeedsRework } from '../orchestrator/orchestrator';
 import { findTemplate, TEAM_TEMPLATES } from '../teams/templates';
 import {
+  Agent,
   AgentType,
   ChatMessageRecord,
   DeadLetterRecord,
@@ -308,7 +309,7 @@ export class ControlPlane {
     // into the model prompt and is encoded into the stored display text
     // (leading "↪ …" line — no schema change, survives reload/devices).
     replyTo?: { role: 'user' | 'agent'; text: string };
-  }): Promise<{ runId: string; status: string; message: ChatMessageRecord }> {
+  }): Promise<{ runId: string; status: string; message: ChatMessageRecord; delegated?: boolean; reply?: string; to?: string }> {
     const { repo } = this.deps;
     if (!args.text?.trim() && !args.attachment) {
       throw new ValidationError('текст сообщения пуст');
@@ -321,6 +322,41 @@ export class ControlPlane {
     }
 
     const text = args.text?.trim() || 'Изучи приложенный файл и дай краткие выводы.';
+
+    // Delegation: "поручи <Имя>: <задача>" routes the task to that employee's
+    // inbox (a dormant assignment run) instead of running the current agent. The
+    // current agent just confirms — no LLM call needed.
+    if (!args.attachment) {
+      const roster = await repo.listAgents(args.orgId);
+      const deleg = this.parseDelegation(text, roster);
+      if (deleg && deleg.agent.id !== args.agentId) {
+        const userMsg = await repo.appendChatMessage({
+          orgId: args.orgId,
+          agentId: args.agentId,
+          role: 'user',
+          text,
+          runId: randomUUID(),
+        });
+        await this.createAssignment({
+          orgId: args.orgId,
+          toAgentId: deleg.agent.id,
+          from: this.shortNameOf(agent.name),
+          task: deleg.task,
+        });
+        const to = this.shortNameOf(deleg.agent.name);
+        const reply =
+          'Передал(а) поручение: ' + to + ' — «' + deleg.task + '». Оно появилось у него в разделе ' +
+          '«📥 Поручения» — открой его чат и нажми «Приступить».';
+        await repo.appendChatMessage({
+          orgId: args.orgId,
+          agentId: args.agentId,
+          role: 'agent',
+          text: reply,
+          runId: randomUUID(),
+        });
+        return { runId: '', status: 'delegated', message: userMsg, delegated: true, reply, to };
+      }
+    }
 
     // Context: the persisted thread (with any completed replies backfilled
     // first, so the prompt sees them).
@@ -360,6 +396,116 @@ export class ControlPlane {
       input: { prompt, chat: true, message: text },
     });
     return { runId, status, message };
+  }
+
+  // --- Delegation: a coordinator hands a task to a specific employee. Modeled as
+  // a dormant Run (input.assignment) sitting in the employee's «Поручения» inbox
+  // until «Приступить» enqueues it for real execution — reusing the run pipeline,
+  // streaming and polling (no new table). ---
+  private shortNameOf(name: string): string {
+    return name.split(' — ')[0];
+  }
+
+  // Detect "поручи/делегируй/передай <Имя> [:,-] <задача>" or "@<Имя> <задача>".
+  parseDelegation(text: string, agents: Agent[]): { agent: Agent; task: string } | null {
+    const t = (text || '').trim();
+    let namePart: string | undefined;
+    let taskPart: string | undefined;
+    let m = /^@(\S+)\s+([\s\S]+)/.exec(t);
+    if (m) {
+      namePart = m[1];
+      taskPart = m[2];
+    } else {
+      m = /^(?:поручи(?:те)?|делегируй(?:те)?|передай(?:те)?)\s+([A-Za-zА-Яа-яЁё]+)\s*[:,\-—]?\s*([\s\S]+)/i.exec(t);
+      if (m) {
+        namePart = m[1];
+        taskPart = m[2];
+      }
+    }
+    if (!namePart || !taskPart) return null;
+    const lc = namePart.toLowerCase();
+    const agent = agents.find((a) => this.shortNameOf(a.name).toLowerCase() === lc);
+    if (!agent) return null;
+    const task = taskPart.replace(/^(?:сделать|сделай|выполни(?:ть)?)\s+/i, '').trim();
+    if (!task) return null;
+    return { agent, task };
+  }
+
+  async createAssignment(args: {
+    orgId: string;
+    toAgentId: string;
+    from: string;
+    task: string;
+  }): Promise<{ runId: string; agentName: string }> {
+    const { repo } = this.deps;
+    const org = await repo.getOrg(args.orgId);
+    if (!org) throw new NotFoundError(`org ${args.orgId}`);
+    const agent = await repo.getAgent(args.toAgentId);
+    if (!agent || agent.orgId !== args.orgId) throw new NotFoundError(`agent ${args.toAgentId}`);
+    if (!args.task.trim()) throw new ValidationError('task is required');
+    const runId = randomUUID();
+    const prompt =
+      'Тебе поручение от ' + args.from + ' (координатор команды). Выполни его полностью и дай ' +
+      'готовый результат.\n\nЗадача:\n' + args.task;
+    await repo.createRun({
+      id: runId,
+      orgId: args.orgId,
+      agentId: args.toAgentId,
+      status: 'queued', // dormant: NOT enqueued until «Приступить»
+      input: { prompt, assignment: true, from: args.from, task: args.task, chat: true },
+      attempts: 0,
+    });
+    await repo.audit({
+      orgId: args.orgId,
+      runId,
+      actor: 'control-plane',
+      action: 'assignment.created',
+      meta: { from: args.from, to: agent.name },
+    });
+    return { runId, agentName: agent.name };
+  }
+
+  async listAssignments(
+    orgId: string,
+    agentId: string,
+  ): Promise<Array<{ id: string; from: string; task: string; status: string; started: boolean; output?: unknown }>> {
+    const runs = await this.deps.repo.listRunsByOrg(orgId, { agentId, limit: 50 });
+    return runs
+      .filter((r) => (r.input as { assignment?: boolean } | null)?.assignment === true)
+      .map((r) => {
+        const inp = (r.input as { from?: string; task?: string }) || {};
+        return {
+          id: r.id,
+          from: inp.from ?? 'Координатор',
+          task: inp.task ?? '',
+          status: r.status,
+          started: (r.input as { started?: boolean } | null)?.started === true,
+          output: r.output,
+        };
+      })
+      .reverse(); // newest first
+  }
+
+  async startAssignment(args: { orgId: string; runId: string }): Promise<{ runId: string; status: string }> {
+    const run = await this.deps.repo.getRun(args.runId);
+    if (!run || run.orgId !== args.orgId) throw new NotFoundError(`assignment ${args.runId}`);
+    const inp = (run.input as Record<string, unknown> | null) || {};
+    if (inp.assignment !== true) {
+      throw new ValidationError('run is not an assignment');
+    }
+    // Mark started so the inbox stops offering «Приступить» (status alone is
+    // ambiguous: a freshly-enqueued run is still 'queued' for a moment).
+    await this.deps.repo.updateRunStatus(args.runId, run.status, {
+      input: { ...inp, started: true },
+    });
+    await this.deps.repo.audit({
+      orgId: args.orgId,
+      runId: args.runId,
+      actor: 'control-plane',
+      action: 'assignment.started',
+    });
+    await this.deps.queue.enqueue({ runId: args.runId });
+    return { runId: args.runId, status: 'queued' };
   }
 
   async clearChatHistory(args: { orgId: string; agentId: string }): Promise<{ cleared: number }> {

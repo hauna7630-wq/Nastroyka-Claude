@@ -116,6 +116,13 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
           return json(res, 200, await cp.clearChatHistory({ orgId: seg[1], agentId: seg[3] }));
         }
       }
+      // Delegation: GET an agent's «Поручения» inbox, POST start one.
+      if (method === 'GET' && seg[0] === 'orgs' && seg[2] === 'agents' && seg[3] && seg[4] === 'assignments') {
+        return json(res, 200, await cp.listAssignments(seg[1], seg[3]));
+      }
+      if (method === 'POST' && seg[0] === 'orgs' && seg[2] === 'assignments' && seg[3] && seg[4] === 'start') {
+        return json(res, 200, await cp.startAssignment({ orgId: seg[1], runId: seg[3] }));
+      }
       // POST /agents  (Agent Factory)
       if (method === 'POST' && path === '/agents') {
         const body = JSON.parse((await readBody(req)) || '{}');
