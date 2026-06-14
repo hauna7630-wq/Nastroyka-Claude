@@ -1,6 +1,6 @@
 name: Deploy
 
-# Deploy marker: v59 — кнопка режима перенесена к иконкам (слева от поля ввода).
+# Deploy marker: v60 — drag-and-drop документов в чат сотрудника.
 # Builds both app images, pushes them to GHCR, then SSHes to the host and brings
 # the stack up. Each app applies its own migrations on startup.
 # Trigger manually, or on push to a release branch. Configure the secrets listed

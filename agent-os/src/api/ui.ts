@@ -76,7 +76,9 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .staff-item:hover { border-color:var(--accent); }
   .staff-item.active { border-color:var(--accent); background:#11202f; }
   .staff-item .role { font-size:11px; color:var(--muted); margin-top:2px; }
-  .chat { display:flex; flex-direction:column; height:100%; min-height:0; border:1px solid var(--border); border-radius:10px; background:var(--card); }
+  .chat { display:flex; flex-direction:column; height:100%; min-height:0; border:1px solid var(--border); border-radius:10px; background:var(--card); position:relative; }
+  .chat.dragover { box-shadow:inset 0 0 0 2px var(--accent); }
+  .chat.dragover::after { content:'Отпустите файл — приложу к сообщению'; position:absolute; inset:6px; display:flex; align-items:center; justify-content:center; border:2px dashed var(--accent); border-radius:8px; background:rgba(47,129,247,.10); color:var(--accent); font-weight:600; font-size:14px; pointer-events:none; z-index:5; }
   .chat-head { padding:11px 13px; border-bottom:1px solid var(--border); font-weight:600; }
   .chat-log { flex:1; overflow:auto; padding:13px; display:flex; flex-direction:column; gap:9px; }
   .msg { max-width:min(82%,680px); padding:8px 11px; border-radius:10px; white-space:pre-wrap; word-break:break-word; font-size:14px; line-height:1.45; position:relative; }
@@ -173,7 +175,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v59 · кнопка режима у иконок</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v60 · drag-and-drop файлов</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -897,8 +899,10 @@ function renderAttach(state, msg){
     var d=document.getElementById('attachDrop'); if(d) d.addEventListener('click',function(ev){ ev.preventDefault(); chatAttachment=null; renderAttach(null); }); }
 }
 $('chatClip').addEventListener('click', function(){ $('chatFile').click(); });
-$('chatFile').addEventListener('change', function(){
-  var f=$('chatFile').files && $('chatFile').files[0]; $('chatFile').value=''; if(!f) return;
+// Shared file→attachment pipeline (used by the 📎 picker AND drag-and-drop).
+function handleChatFile(f){
+  if(!f) return;
+  if(!currentAgent){ renderAttach('err','Сначала выберите сотрудника слева.'); return; }
   if(f.size > 20*1024*1024){ renderAttach('err','Файл больше 20МБ — разбейте его на части и пришлите частями.'); return; }
   renderAttach('busy','Читаю файл '+f.name+'…');
   var rd=new FileReader();
@@ -914,7 +918,22 @@ $('chatFile').addEventListener('change', function(){
       .catch(function(){ renderAttach('err','Сеть: не удалось отправить файл на разбор.'); });
   };
   rd.readAsDataURL(f);
+}
+$('chatFile').addEventListener('change', function(){
+  var f=$('chatFile').files && $('chatFile').files[0]; $('chatFile').value=''; handleChatFile(f);
 });
+// Drag-and-drop: бросьте документ в любое место панели чата — приложу его.
+(function(){
+  var pane=document.querySelector('.chat'); if(!pane) return;
+  var depth=0;
+  function show(on){ if(on) pane.classList.add('dragover'); else pane.classList.remove('dragover'); }
+  function hasFiles(e){ var dt=e.dataTransfer; return dt && dt.types && Array.prototype.indexOf.call(dt.types,'Files')>=0; }
+  pane.addEventListener('dragenter', function(e){ if(!currentAgent||!hasFiles(e)) return; e.preventDefault(); depth++; show(true); });
+  pane.addEventListener('dragover', function(e){ if(!currentAgent||!hasFiles(e)) return; e.preventDefault(); try{ e.dataTransfer.dropEffect='copy'; }catch(_){} });
+  pane.addEventListener('dragleave', function(e){ if(!hasFiles(e)) return; e.preventDefault(); depth=Math.max(0,depth-1); if(depth===0) show(false); });
+  pane.addEventListener('drop', function(e){ e.preventDefault(); e.stopPropagation(); depth=0; show(false);
+    if(!currentAgent) return; var f=e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if(f) handleChatFile(f); });
+})();
 // Chat input: Enter sends, Shift+Enter inserts a newline; the textarea auto-grows.
 function chatAutoGrow(){ var ta=$('chatInput'); if(!ta) return; ta.style.height='auto'; ta.style.height=Math.min(140, ta.scrollHeight)+'px'; }
 $('chatInput').addEventListener('input', chatAutoGrow);
