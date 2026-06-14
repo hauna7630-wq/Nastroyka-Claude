@@ -117,6 +117,8 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .chat-inbox .ibtn { font:inherit; font-size:11.5px; font-weight:600; border:0; border-radius:7px; padding:4px 10px; cursor:pointer; background:var(--accent); color:#fff; white-space:nowrap; }
   .chat-inbox .ibtn.ghost { background:#1b232c; color:var(--fg); border:1px solid var(--border); }
   .chat-inbox .ibadge { font-size:11px; white-space:nowrap; padding:2px 7px; border-radius:6px; }
+  .dlbtn { float:right; font:inherit; font-size:11.5px; font-weight:600; border:1px solid var(--border); border-radius:7px; padding:3px 9px; margin:0 0 6px 8px; cursor:pointer; background:#1b232c; color:var(--fg); }
+  .dlbtn:hover { border-color:var(--accent); color:var(--accent); }
   .msg.them.pending { opacity:.85; }
   .msg .typing { color:var(--muted); font-style:italic; }
   .msg .typing .tdots { display:inline-block; animation:tdots 1.1s steps(4,end) infinite; overflow:hidden; vertical-align:bottom; }
@@ -167,7 +169,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v53 · копирование + голосовой ввод</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v54 · скачивание документов</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -370,7 +372,10 @@ function renderDiscuss(t){
   feed.scrollTop=feed.scrollHeight;
 }
 function renderResult(t){
-  if(t.output!==undefined && t.output!==null){ $('resultWrap').style.display='block'; $('result').innerHTML=mdLite(render(t.output));
+  if(t.output!==undefined && t.output!==null){ $('resultWrap').style.display='block';
+    var raw=render(t.output);
+    $('result').innerHTML='<button class="dlbtn" id="dlResult">⬇ Скачать .md</button>'+mdLite(raw);
+    var db=$('dlResult'); if(db) db.onclick=function(){ downloadText(slugFile('результат_'+(t.label||'задача')), raw); };
     if(!t._scrolled){ t._scrolled=true; try{ $('resultWrap').scrollIntoView({behavior:'smooth',block:'nearest'}); }catch(e){} } }
   else { $('resultWrap').style.display='none'; }
 }
@@ -730,6 +735,17 @@ function copyMsgText(m, btn){
   if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(done).catch(function(){ fallbackCopy(t); done(); }); }
   else { fallbackCopy(t); done(); }
 }
+// Download arbitrary text as a file (deliverable → документ). Client-side Blob,
+// no backend needed; works for the team «Результат» and any chat message.
+function slugFile(s, ext){ var base=String(s||'document').replace(/\\s+/g,'_').replace(/[\\/:*?"<>|]+/g,'').slice(0,40)||'document'; return base+'.'+(ext||'md'); }
+function downloadText(filename, text){
+  try{
+    var blob=new Blob([String(text==null?'':text)], {type:'text/markdown;charset=utf-8'});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a'); a.href=url; a.download=filename; document.body.appendChild(a); a.click();
+    setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 120);
+  }catch(e){}
+}
 function renderChat(){
   if(!currentAgent) return; var log=$('chatLog');
   // Stick-to-bottom: only auto-scroll if the user is already near the bottom, so
@@ -754,7 +770,9 @@ function renderChat(){
     if(!m.pending){ var rb=document.createElement('button'); rb.className='rbtn reply'; rb.textContent='↩ ответить';
       rb.addEventListener('click', (function(msg){ return function(){ setReplyTarget(msg); }; })(m)); el.appendChild(rb);
       var cpb=document.createElement('button'); cpb.className='rbtn copy'; cpb.textContent='⧉ копировать';
-      cpb.addEventListener('click', (function(msg,btn){ return function(){ copyMsgText(msg,btn); }; })(m,cpb)); el.appendChild(cpb); }
+      cpb.addEventListener('click', (function(msg,btn){ return function(){ copyMsgText(msg,btn); }; })(m,cpb)); el.appendChild(cpb);
+      if(m.role!=='me'){ var dlb=document.createElement('button'); dlb.className='rbtn copy'; dlb.textContent='⬇ скачать';
+        dlb.addEventListener('click', (function(msg){ return function(){ downloadText(slugFile(currentAgent?shortName(currentAgent.name):'ответ'), (splitQuote(msg.text).body)||msg.text||''); }; })(m)); el.appendChild(dlb); } }
     // reaction button (only for persisted messages with a server id)
     if(!m.pending && m.id){ var eb=document.createElement('button'); eb.className='rbtn react'; eb.textContent='☺ реакция';
       eb.addEventListener('click', (function(msg,btn){ return function(ev){ ev.stopPropagation(); openEmojiPop(btn,msg); }; })(m,eb)); el.appendChild(eb); }
