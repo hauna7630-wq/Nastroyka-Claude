@@ -419,11 +419,11 @@ export class ControlPlane {
       orgId: args.orgId,
       agentId: args.agentId,
       role: 'user',
-      text: displayText,
+      text: this.sanitizeText(displayText),
       runId,
     });
 
-    const prompt = assembleChatPrompt(fresh, promptPart);
+    const prompt = this.sanitizeText(assembleChatPrompt(fresh, promptPart));
     const { status } = await this.createRun({
       orgId: args.orgId,
       agentId: args.agentId,
@@ -714,6 +714,12 @@ export class ControlPlane {
   // Extract text from an uploaded file so the chat can inline it into the
   // prompt. Unreadable files surface their honest, actionable message (the
   // parser proposes a concrete fix) as a ValidationError, not a 500.
+  // Postgres text/jsonb rejects the NUL byte ( → error 22P05). Extracted
+  // file text (binary/PDF) can contain it, so strip it before it reaches the DB.
+  private sanitizeText(s: string): string {
+    return typeof s === 'string' ? s.replace(/\u0000/g, '') : s;
+  }
+
   async extractDocument(args: {
     mime?: string;
     filename?: string;
@@ -729,7 +735,7 @@ export class ControlPlane {
         content: args.content,
         base64: args.base64 !== false,
       });
-      return { text, filename: args.filename };
+      return { text: this.sanitizeText(text), filename: args.filename };
     } catch (err) {
       throw new ValidationError(err instanceof Error ? err.message : 'не удалось прочитать файл');
     }
