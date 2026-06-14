@@ -202,7 +202,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     messages: ModelMessage[];
     tools: ToolSchema[];
     onText?: (delta: string) => void;
-    capabilities?: { webSearch?: boolean };
+    capabilities?: { webSearch?: boolean; codeExec?: boolean };
   }): Promise<ModelTurn> {
     // Streaming is strictly best-effort: only attempted when a live-token sink
     // is supplied, and ANY failure falls back to the proven buffered path so a
@@ -226,12 +226,23 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     return ['--allowedTools', 'WebSearch', '--allowedTools', 'WebFetch'];
   }
 
+  // Let the coder actually RUN code / write files via the CLI's Bash/Write/Read
+  // tools — but only for agents whose allowlist includes code_exec AND only when
+  // explicitly enabled fleet-wide with CLAUDE_CLI_CODE_TOOLS=1. Default OFF: these
+  // tools execute arbitrary commands in the worker container (which holds DB creds
+  // and the OAuth token), so turning them on is a conscious, opt-in decision.
+  private codeToolsArgs(capabilities?: { codeExec?: boolean }): string[] {
+    if (!capabilities?.codeExec) return [];
+    if (process.env.CLAUDE_CLI_CODE_TOOLS !== '1') return [];
+    return ['--allowedTools', 'Bash', '--allowedTools', 'Write', '--allowedTools', 'Read'];
+  }
+
   private async completeStreaming(
     args: {
       system: string;
       messages: ModelMessage[];
       tools: ToolSchema[];
-      capabilities?: { webSearch?: boolean };
+      capabilities?: { webSearch?: boolean; codeExec?: boolean };
     },
     onText: (delta: string) => void,
   ): Promise<ModelTurn> {
@@ -247,6 +258,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
       '--max-turns',
       '8',
       ...this.webSearchArgs(args.capabilities),
+      ...this.codeToolsArgs(args.capabilities),
     ];
     if (this.opts.model) cliArgs.push('--model', this.opts.model);
     if (args.system) cliArgs.push('--append-system-prompt', args.system);
@@ -265,7 +277,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     system: string;
     messages: ModelMessage[];
     tools: ToolSchema[];
-    capabilities?: { webSearch?: boolean };
+    capabilities?: { webSearch?: boolean; codeExec?: boolean };
   }): Promise<ModelTurn> {
     const bin = this.opts.bin ?? 'claude';
     const prompt = flatten(args.system, args.messages);
@@ -273,7 +285,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     // server-side web search, which routes via the same relay) and still reach a
     // final answer — with --max-turns 1 any tool_use ends in error_max_turns.
     const cliArgs = ['-p', prompt, '--output-format', 'json', '--max-turns', '8',
-      ...this.webSearchArgs(args.capabilities)];
+      ...this.webSearchArgs(args.capabilities), ...this.codeToolsArgs(args.capabilities)];
     if (this.opts.model) cliArgs.push('--model', this.opts.model);
     if (args.system) cliArgs.push('--append-system-prompt', args.system);
 

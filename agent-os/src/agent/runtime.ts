@@ -194,7 +194,10 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
         messages: outMessages,
         tools: tools.schemas(),
         onText,
-        capabilities: { webSearch: !!agent.allowedTools?.includes('web_search') },
+        capabilities: {
+          webSearch: !!agent.allowedTools?.includes('web_search'),
+          codeExec: !!agent.allowedTools?.includes('code_exec'),
+        },
       });
       flushTokens(true);
       // Un-mask the model's text back into real values for storage/use.

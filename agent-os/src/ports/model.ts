@@ -36,7 +36,7 @@ export interface ModelProvider {
     // The subscription provider uses `webSearch` to allow the Claude CLI's
     // built-in WebSearch/WebFetch tools only for agents permitted to search.
     // Providers that don't support a capability simply ignore it.
-    capabilities?: { webSearch?: boolean };
+    capabilities?: { webSearch?: boolean; codeExec?: boolean };
   }): Promise<ModelTurn>;
 }
 
