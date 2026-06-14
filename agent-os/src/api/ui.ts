@@ -78,6 +78,9 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .staff-item .role { font-size:11px; color:var(--muted); margin-top:2px; }
   .chat { display:flex; flex-direction:column; height:100%; min-height:0; border:1px solid var(--border); border-radius:10px; background:var(--card); position:relative; }
   .chat.dragover { box-shadow:inset 0 0 0 2px var(--accent); }
+  .attchip { display:inline-block; background:#1b232c; border:1px solid var(--border); border-radius:6px; padding:1px 6px; margin:1px 0; font-size:11.5px; }
+  .attchip a { color:var(--muted); text-decoration:none; margin-left:3px; }
+  .attchip a:hover { color:var(--fail); }
   .chat.dragover::after { content:'Отпустите файл — приложу к сообщению'; position:absolute; inset:6px; display:flex; align-items:center; justify-content:center; border:2px dashed var(--accent); border-radius:8px; background:rgba(47,129,247,.10); color:var(--accent); font-weight:600; font-size:14px; pointer-events:none; z-index:5; }
   .chat-head { padding:11px 13px; border-bottom:1px solid var(--border); font-weight:600; }
   .chat-log { flex:1; overflow:auto; padding:13px; display:flex; flex-direction:column; gap:9px; }
@@ -175,7 +178,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v60 · drag-and-drop файлов</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v61 · папки и пакеты файлов</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -229,7 +232,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
         <div id="chatReply" style="display:none;padding:4px 10px"></div>
         <div id="chatAttach" style="display:none;padding:4px 10px;font-size:12px"></div>
         <form class="chat-form" id="chatForm">
-          <input type="file" id="chatFile" style="display:none" />
+          <input type="file" id="chatFile" multiple style="display:none" />
           <button type="button" id="chatClip" title="Прикрепить файл (txt/md/csv/json/docx/pdf/xlsx)" disabled style="min-width:38px">📎</button>
           <button type="button" id="chatMic" title="Голосовой ввод (надиктовать задачу)" disabled style="min-width:38px">🎤</button>
           <button id="modeChat" class="modebtn" type="button" title="Режим работы: Автомат — агент выполняет сам; Подтверждение — только предлагает">⚡ Автомат</button>
@@ -887,42 +890,75 @@ function pollRun(aid, runId, idx, tries){
     setTimeout(function(){ pollRun(aid,runId,idx,tries+1); }, delay);
   }).catch(function(){ setTimeout(function(){ pollRun(aid,runId,idx,tries+1); }, Math.min(10000, 2500 + tries*250)); });
 }
-// --- file attachment (Doc-1): extract text server-side, inline into the prompt
-var chatAttachment=null; // {filename, text}
+// --- file attachments (Doc-1): extract text server-side, inline into the prompt.
+// Supports MANY files and whole FOLDERS (drag-drop traverses directories).
+var chatAttachments=[]; // [{filename, text}]
+function fmtCount(n){ var t=(n%10===1&&n%100!==11)?'файл':(((n%10>=2&&n%10<=4)&&(n%100<10||n%100>=20))?'файла':'файлов'); return n+' '+t; }
 function renderAttach(state, msg){
-  var el=$('chatAttach');
-  if(!state){ el.style.display='none'; el.innerHTML=''; return; }
-  el.style.display='block';
-  if(state==='busy'){ el.innerHTML='<span style="color:#8b949e">⏳ '+msg+'</span>'; }
-  else if(state==='err'){ el.innerHTML='<span style="color:#f85149">⚠️ '+msg+'</span>'; }
-  else { el.innerHTML='<span style="color:#2ea043">📄 '+msg+'</span> <a href="#" id="attachDrop" style="color:#8b949e">✕ убрать</a>';
-    var d=document.getElementById('attachDrop'); if(d) d.addEventListener('click',function(ev){ ev.preventDefault(); chatAttachment=null; renderAttach(null); }); }
+  var el=$('chatAttach'); var has=chatAttachments.length;
+  if(!state && !has){ el.style.display='none'; el.innerHTML=''; return; }
+  el.style.display='block'; var html='';
+  if(state==='busy'){ html+='<div style="color:#8b949e">⏳ '+escapeHtml(msg||'')+'</div>'; }
+  else if(state==='err'){ html+='<div style="color:#f85149">⚠️ '+escapeHtml(msg||'')+'</div>'; }
+  else if(state==='ok' && msg){ html+='<div style="color:#2ea043">✓ '+escapeHtml(msg)+'</div>'; }
+  if(has){
+    var chips=chatAttachments.map(function(a,i){ return '<span class="attchip">📄 '+escapeHtml(a.filename)+' <a href="#" data-ai="'+i+'" title="убрать">✕</a></span>'; }).join(' ');
+    html+='<div style="margin-top:3px">📎 <b>'+fmtCount(has)+'</b> приложено: '+chips+' <a href="#" id="attClear" style="color:#8b949e">убрать всё</a></div>';
+  }
+  el.innerHTML=html;
+  var clr=document.getElementById('attClear'); if(clr) clr.addEventListener('click', function(ev){ ev.preventDefault(); chatAttachments=[]; renderAttach(null); });
+  var rms=el.querySelectorAll('a[data-ai]'); for(var k=0;k<rms.length;k++){ rms[k].addEventListener('click', (function(node){ return function(ev){ ev.preventDefault(); chatAttachments.splice(parseInt(node.getAttribute('data-ai'),10),1); renderAttach(null); }; })(rms[k])); }
 }
 $('chatClip').addEventListener('click', function(){ $('chatFile').click(); });
-// Shared file→attachment pipeline (used by the 📎 picker AND drag-and-drop).
-function handleChatFile(f){
-  if(!f) return;
+// Extract text from MANY files (sequentially) and add them all as attachments.
+function addAttachments(files){
   if(!currentAgent){ renderAttach('err','Сначала выберите сотрудника слева.'); return; }
-  if(f.size > 20*1024*1024){ renderAttach('err','Файл больше 20МБ — разбейте его на части и пришлите частями.'); return; }
-  renderAttach('busy','Читаю файл '+f.name+'…');
-  var rd=new FileReader();
-  rd.onerror=function(){ renderAttach('err','Не удалось прочитать файл из браузера.'); };
-  rd.onload=function(){
-    var b64=String(rd.result).split(',')[1]||'';
-    api('/documents/extract',{method:'POST',body:JSON.stringify({mime:f.type,filename:f.name,content:b64,base64:true})})
-      .then(function(r){
-        if(r && typeof r.text==='string'){ chatAttachment={filename:f.name,text:r.text};
-          renderAttach('ok', f.name+' — прочитано, '+r.text.length+' симв. Будет приложен к сообщению.'); }
-        else { renderAttach('err',(r&&r.error)||'не удалось прочитать файл'); }
-      })
-      .catch(function(){ renderAttach('err','Сеть: не удалось отправить файл на разбор.'); });
-  };
-  rd.readAsDataURL(f);
+  var list=Array.prototype.slice.call(files||[]).filter(function(f){ return f && f.size>0 && f.size<=20*1024*1024; });
+  if(!list.length){ renderAttach('err','Нет подходящих файлов (пусто или все больше 20МБ).'); return; }
+  if(list.length>40) list=list.slice(0,40);
+  var i=0, ok=0, fail=0, chars=0;
+  function next(){
+    if(i>=list.length){ renderAttach(fail?'err':'ok', 'добавлено '+fmtCount(ok)+(fail?(', пропущено '+fail):'')); return; }
+    var f=list[i++]; renderAttach('busy','Читаю '+(f.relpath||f.name)+' ('+i+'/'+list.length+')…');
+    var rd=new FileReader();
+    rd.onerror=function(){ fail++; next(); };
+    rd.onload=function(){ var b64=String(rd.result).split(',')[1]||'';
+      api('/documents/extract',{method:'POST',body:JSON.stringify({mime:f.type,filename:f.name,content:b64,base64:true})})
+        .then(function(r){ if(r&&typeof r.text==='string'&&(chars+r.text.length<=400000)){ chatAttachments.push({filename:(f.relpath||f.name),text:r.text}); chars+=r.text.length; ok++; } else { fail++; } next(); })
+        .catch(function(){ fail++; next(); });
+    };
+    rd.readAsDataURL(f);
+  }
+  next();
+}
+// Recursively collect File objects from a dropped FileSystemEntry (folders too).
+function entryFiles(entry, path){
+  return new Promise(function(resolve){
+    if(!entry){ resolve([]); return; }
+    if(entry.isFile){ entry.file(function(f){ try{ f.relpath=path+entry.name; }catch(e){} resolve([f]); }, function(){ resolve([]); }); return; }
+    if(entry.isDirectory){ var reader=entry.createReader(); var acc=[];
+      var read=function(){ reader.readEntries(function(ents){
+        if(!ents.length){ Promise.all(acc).then(function(a){ resolve([].concat.apply([],a)); }); return; }
+        for(var j=0;j<ents.length;j++) acc.push(entryFiles(ents[j], path+entry.name+'/'));
+        read();
+      }, function(){ resolve([]); }); };
+      read(); return; }
+    resolve([]);
+  });
+}
+// Gather all files from a drop (synchronously grabbing entries, then async-reading).
+function gatherDropped(dt){
+  var its=dt.items;
+  if(its && its.length && its[0] && its[0].webkitGetAsEntry){
+    var ps=[]; for(var i=0;i<its.length;i++){ var en=its[i].webkitGetAsEntry?its[i].webkitGetAsEntry():null; ps.push(entryFiles(en,'')); }
+    return Promise.all(ps).then(function(a){ return [].concat.apply([],a); });
+  }
+  return Promise.resolve(Array.prototype.slice.call(dt.files||[]));
 }
 $('chatFile').addEventListener('change', function(){
-  var f=$('chatFile').files && $('chatFile').files[0]; $('chatFile').value=''; handleChatFile(f);
+  var arr=Array.prototype.slice.call($('chatFile').files||[]); $('chatFile').value=''; if(arr.length) addAttachments(arr);
 });
-// Drag-and-drop: бросьте документ в любое место панели чата — приложу его.
+// Drag-and-drop: бросьте файлы И ПАПКИ в панель чата — приложу всё содержимое.
 (function(){
   var pane=document.querySelector('.chat'); if(!pane) return;
   var depth=0;
@@ -932,7 +968,7 @@ $('chatFile').addEventListener('change', function(){
   pane.addEventListener('dragover', function(e){ if(!currentAgent||!hasFiles(e)) return; e.preventDefault(); try{ e.dataTransfer.dropEffect='copy'; }catch(_){} });
   pane.addEventListener('dragleave', function(e){ if(!hasFiles(e)) return; e.preventDefault(); depth=Math.max(0,depth-1); if(depth===0) show(false); });
   pane.addEventListener('drop', function(e){ e.preventDefault(); e.stopPropagation(); depth=0; show(false);
-    if(!currentAgent) return; var f=e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if(f) handleChatFile(f); });
+    if(!currentAgent) return; gatherDropped(e.dataTransfer).then(function(files){ if(files&&files.length) addAttachments(files); }); });
 })();
 // Chat input: Enter sends, Shift+Enter inserts a newline; the textarea auto-grows.
 function chatAutoGrow(){ var ta=$('chatInput'); if(!ta) return; ta.style.height='auto'; ta.style.height=Math.min(140, ta.scrollHeight)+'px'; }
@@ -963,14 +999,14 @@ var chatRec=null, chatRecOn=false;
 })();
 $('chatForm').addEventListener('submit', async function(e){
   e.preventDefault(); if(!currentAgent) return; var text=$('chatInput').value.trim();
-  if(!text && !chatAttachment) return;
-  if(!text) text='Изучи приложенный файл и дай краткие выводы.';
+  if(!text && !chatAttachments.length) return;
+  if(!text) text='Изучи приложенные файлы и дай краткие выводы.';
   var aid=currentAgent.id;
   var shown=text; var attachForServer=null; var replyForServer=null;
-  if(chatAttachment){
-    attachForServer={ filename:chatAttachment.filename, text:chatAttachment.text };
-    shown=text+' 📎 '+chatAttachment.filename;
-    chatAttachment=null; renderAttach(null);
+  if(chatAttachments.length){
+    attachForServer=chatAttachments.slice();
+    shown=text+' 📎 '+(attachForServer.length===1?attachForServer[0].filename:fmtCount(attachForServer.length));
+    chatAttachments=[]; renderAttach(null);
   }
   if(chatReplyTo){
     replyForServer={ role:chatReplyTo.role, text:chatReplyTo.text };
@@ -982,7 +1018,7 @@ $('chatForm').addEventListener('submit', async function(e){
   chatThreads[aid].push({role:'them', status:'в очереди', pending:true}); var idx=chatThreads[aid].length-1; saveChat(); renderChat();
   // Server-side chat: persists the message + assembles dialog context.
   var body={ text:text, autoRun:autoMode() };
-  if(attachForServer) body.attachment=attachForServer;
+  if(attachForServer) body.attachments=attachForServer;
   if(replyForServer) body.replyTo=replyForServer;
   var resp = await api('/orgs/'+ORG+'/agents/'+aid+'/chat',{method:'POST',body:JSON.stringify(body)});
   if(resp && resp.delegated){

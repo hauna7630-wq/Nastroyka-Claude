@@ -108,6 +108,7 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
               agentId: seg[3],
               text: body.text,
               attachment: body.attachment,
+              attachments: body.attachments,
               replyTo: body.replyTo,
               autoRun: body.autoRun,
             }),

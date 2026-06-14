@@ -309,6 +309,8 @@ export class ControlPlane {
     agentId: string;
     text: string;
     attachment?: { filename: string; text: string };
+    // Many files / whole folders: each extracted file is inlined into the prompt.
+    attachments?: Array<{ filename: string; text: string }>;
     // Reply-to: the user answers a specific earlier message; the quote goes
     // into the model prompt and is encoded into the stored display text
     // (leading "↪ …" line — no schema change, survives reload/devices).
@@ -317,7 +319,13 @@ export class ControlPlane {
     autoRun?: boolean;
   }): Promise<{ runId: string; status: string; message: ChatMessageRecord; delegated?: boolean; reply?: string; to?: string }> {
     const { repo } = this.deps;
-    if (!args.text?.trim() && !args.attachment) {
+    const atts =
+      args.attachments && args.attachments.length
+        ? args.attachments
+        : args.attachment
+          ? [args.attachment]
+          : [];
+    if (!args.text?.trim() && !atts.length) {
       throw new ValidationError('текст сообщения пуст');
     }
     const org = await repo.getOrg(args.orgId);
@@ -327,12 +335,12 @@ export class ControlPlane {
       throw new NotFoundError(`agent ${args.agentId}`);
     }
 
-    const text = args.text?.trim() || 'Изучи приложенный файл и дай краткие выводы.';
+    const text = args.text?.trim() || 'Изучи приложенные файлы и дай краткие выводы.';
 
     // Delegation: "поручи <Имя>: <задача>" routes the task to that employee's
     // inbox (a dormant assignment run) instead of running the current agent. The
     // current agent just confirms — no LLM call needed.
-    if (!args.attachment) {
+    if (!atts.length) {
       const roster = await repo.listAgents(args.orgId);
       const deleg = this.parseDelegation(text, roster);
       if (deleg && deleg.agent.id !== args.agentId) {
@@ -372,10 +380,16 @@ export class ControlPlane {
 
     // The new user turn: inline the attachment for the model, keep the thread
     // display text short.
-    let promptPart = args.attachment
-      ? 'Файл "' + args.attachment.filename + '":\n"""\n' + args.attachment.text + '\n"""\n\n' + text
-      : text;
-    let displayText = args.attachment ? text + ' 📎 ' + args.attachment.filename : text;
+    let promptPart = text;
+    if (atts.length) {
+      const blocks = atts
+        .map((a) => 'Файл "' + a.filename + '":\n"""\n' + a.text + '\n"""')
+        .join('\n\n');
+      promptPart = blocks + '\n\n' + text;
+    }
+    let displayText = text;
+    if (atts.length === 1) displayText = text + ' 📎 ' + atts[0].filename;
+    else if (atts.length > 1) displayText = text + ' 📎 ' + atts.length + ' файлов';
     if (args.replyTo && typeof args.replyTo.text === 'string' && args.replyTo.text.trim()) {
       const quote = args.replyTo.text.trim();
       const whose = args.replyTo.role === 'agent' ? 'твоё сообщение' : 'своё более раннее сообщение';
