@@ -156,7 +156,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v50 · кодер исполняет код</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v51 · Python в образе кодера</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>

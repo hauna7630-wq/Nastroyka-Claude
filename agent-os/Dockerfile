@@ -14,7 +14,14 @@ RUN npx prisma generate && npm run build
 FROM node:22-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates git && rm -rf /var/lib/apt/lists/*
+# Runtime deps + a Python toolchain so the coder agent can actually RUN code it
+# writes (python/python3 + pip + venv). python-is-python3 makes `python` resolve.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      openssl ca-certificates git python3 python3-pip python3-venv python-is-python3 \
+    && rm -rf /var/lib/apt/lists/*
+# Let the coder `pip install` into the system env without the PEP 668 dance —
+# acceptable in this ephemeral, single-tenant worker container.
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
 # Claude Code CLI — drives Claude on a Max subscription (CLAUDE_CODE_OAUTH_TOKEN).
 # Inert unless the token is provided at runtime; the offline brain is used otherwise.
 RUN npm install -g @anthropic-ai/claude-code && npm cache clean --force
