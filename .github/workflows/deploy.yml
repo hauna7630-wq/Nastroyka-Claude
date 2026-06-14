@@ -1,6 +1,6 @@
 name: Deploy
 
-# Deploy marker: v54 — скачивание результата/сообщений как .md (документы-деливераблы).
+# Deploy marker: v55 — анти-галлюцинация в чате: агенты не выдумывают прогресс/файлы/«статусы».
 # Builds both app images, pushes them to GHCR, then SSHes to the host and brings
 # the stack up. Each app applies its own migrations on startup.
 # Trigger manually, or on push to a release branch. Configure the secrets listed
