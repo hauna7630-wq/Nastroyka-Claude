@@ -64,6 +64,10 @@ services:
       CLAUDE_CLI_CODE_TOOLS: ${CLAUDE_CLI_CODE_TOOLS:-1}
       # Claude CLI timeout (ms): streaming = inactivity timeout, buffered = total.
       CLAUDE_CLI_TIMEOUT_MS: ${CLAUDE_CLI_TIMEOUT_MS:-300000}
+      # Max CLI turns per run: heavy tasks need many tool-use rounds (old hardcoded
+      # 8 hit error_max_turns mid-work). On a turn-limit stop the agent returns its
+      # partial work with a «продолжай» nudge instead of failing.
+      CLAUDE_CLI_MAX_TURNS: ${CLAUDE_CLI_MAX_TURNS:-40}
       ALLOWLIST_DOMAINS: ${ALLOWLIST_DOMAINS:-}
       # Persistent per-agent workspace root (mounted volume → survives redeploys),
       # so a code-capable agent's files persist across turns (real projects).

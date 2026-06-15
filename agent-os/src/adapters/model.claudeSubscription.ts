@@ -27,6 +27,29 @@ function flatten(system: string, messages: ModelMessage[]): string {
   return lines.join('\n\n');
 }
 
+// Marker appended to a partial answer rescued from a turn-limit stop, so the
+// user sees the (almost-finished) work plus a clear nudge instead of «CLI код 1».
+export const TURN_LIMIT_MARKER =
+  '\n\n— — —\n[Ответ остановлен на лимите шагов. Напишите «продолжай», чтобы я довёл задачу до конца.]';
+
+// When the CLI exits non-zero, try to salvage a partial answer from its JSON
+// `result` envelope: a turn-limit stop (`error_max_turns`) still carries the work
+// done so far. Returns the rescued text (+ marker) or null if nothing usable.
+export function rescuePartialFromJson(out: string): string | null {
+  const s = out.trim();
+  if (!s) return null;
+  try {
+    const parsed = JSON.parse(s);
+    if (parsed && parsed.subtype === 'error_max_turns') {
+      const text = typeof parsed.result === 'string' ? parsed.result.trim() : '';
+      if (text) return text + TURN_LIMIT_MARKER;
+    }
+  } catch {
+    // not JSON / not parseable — nothing to salvage
+  }
+  return null;
+}
+
 function runCli(bin: string, args: string[], timeoutMs: number, cwd?: string, input?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     // Large prompts (many inlined files) overflow argv (ARG_MAX → spawn E2BIG), so
@@ -56,8 +79,12 @@ function runCli(bin: string, args: string[], timeoutMs: number, cwd?: string, in
     });
     child.on('close', (code) => {
       clearTimeout(timer);
-      if (code === 0) resolve(out);
-      else reject(new Error('claude CLI exited ' + code + ': ' + (err || out).slice(0, 500)));
+      if (code === 0) { resolve(out); return; }
+      // Non-zero exit: rescue a partial answer from a turn-limit stop instead of
+      // losing all the work the agent already did.
+      const rescued = rescuePartialFromJson(out);
+      if (rescued) { resolve(rescued); return; }
+      reject(new Error('claude CLI exited ' + code + ': ' + (err || out).slice(0, 500)));
     });
   });
 }
@@ -92,6 +119,7 @@ function runCliStreaming(
     let resultText = '';
     let assistantText = '';
     let streamedText = '';
+    let resultSubtype = '';
     let tokensIn = 0;
     let tokensOut = 0;
     // Inactivity timeout (NOT wall-clock): as long as the model keeps streaming
@@ -160,6 +188,7 @@ function runCliStreaming(
         }
       } else if (obj.type === 'result') {
         if (typeof obj.result === 'string') resultText = obj.result;
+        if (typeof obj.subtype === 'string') resultSubtype = obj.subtype;
         const u = obj.usage;
         if (u) {
           if (typeof u.input_tokens === 'number') tokensIn = u.input_tokens;
@@ -186,12 +215,19 @@ function runCliStreaming(
     child.on('close', (code) => {
       clearTimeout(timer);
       if (buf.trim()) handleLine(buf);
+      // Authoritative final answer: result > full assistant message > streamed.
+      const text = (resultText || assistantText || streamedText).trim();
       if (code !== 0) {
+        // Rescue a partial answer from a turn-limit stop (or any non-zero exit
+        // that still streamed substantial text) instead of failing the run —
+        // the user gets the almost-finished work plus a «продолжай» nudge.
+        if (text && (resultSubtype === 'error_max_turns' || streamedText.trim())) {
+          resolve({ text: text + TURN_LIMIT_MARKER, tokensIn, tokensOut });
+          return;
+        }
         reject(new Error('claude CLI (stream) exited ' + code + ': ' + (err || '').slice(0, 500)));
         return;
       }
-      // Authoritative final answer: result > full assistant message > streamed.
-      const text = (resultText || assistantText || streamedText).trim();
       if (!text) {
         reject(new Error('claude CLI (stream) produced no text'));
         return;
@@ -225,6 +261,15 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
       }
     }
     return this.completeBuffered(args);
+  }
+
+  // Max CLI turns (tool-use rounds) before the run stops. Heavy tasks (web
+  // search + skills + reading files + generating big documents) need many more
+  // than the old hardcoded 8 — which made them hit error_max_turns mid-work.
+  // Configurable via CLAUDE_CLI_MAX_TURNS so it can be tuned without a redeploy.
+  private maxTurns(): string {
+    const n = Number(process.env.CLAUDE_CLI_MAX_TURNS);
+    return String(Number.isFinite(n) && n > 0 ? Math.floor(n) : 40);
   }
 
   // Allow the CLI's built-in WebSearch/WebFetch tools, but only for agents whose
@@ -291,7 +336,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
       '--verbose',
       '--include-partial-messages',
       '--max-turns',
-      '8',
+      this.maxTurns(),
       ...this.skillArgs(),
       ...this.readToolsArgs(),
       ...this.webSearchArgs(args.capabilities),
@@ -323,7 +368,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     // server-side web search, which routes via the same relay) and still reach a
     // final answer — with --max-turns 1 any tool_use ends in error_max_turns.
     // Prompt via STDIN (not argv) to avoid ARG_MAX / spawn E2BIG on big prompts.
-    const cliArgs = ['-p', '--output-format', 'json', '--max-turns', '8',
+    const cliArgs = ['-p', '--output-format', 'json', '--max-turns', this.maxTurns(),
       ...this.skillArgs(), ...this.readToolsArgs(), ...this.webSearchArgs(args.capabilities), ...this.codeToolsArgs(args.capabilities)];
     if (this.opts.model) cliArgs.push('--model', this.opts.model);
     if (args.system) cliArgs.push('--append-system-prompt', args.system);

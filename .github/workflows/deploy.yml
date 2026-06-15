@@ -1,6 +1,6 @@
 name: Deploy
 
-# Deploy marker: v68 — кнопки чата не наезжают, скачивание рабочей папки архивом, причина CLI-ошибки видна, IS_SANDBOX.
+# Deploy marker: v69 — тяжёлые задачи доходят до конца: лимит ходов CLI 40 (env CLAUDE_CLI_MAX_TURNS), при error_max_turns возвращается частичная работа с пометкой «продолжай», а не «CLI код 1».
 # Builds both app images, pushes them to GHCR, then SSHes to the host and brings
 # the stack up. Each app applies its own migrations on startup.
 # Trigger manually, or on push to a release branch. Configure the secrets listed
