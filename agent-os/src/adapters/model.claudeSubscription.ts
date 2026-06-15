@@ -262,6 +262,14 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     return ['--allowedTools', 'Skill'];
   }
 
+  // Read-only file tools for EVERY agent, so any employee can browse the directory
+  // the user dropped into their workspace (./uploads/) — open folders/subfolders
+  // and read documents. No writing/execution (that stays gated to code agents).
+  private readToolsArgs(): string[] {
+    if (process.env.CLAUDE_CLI_READ_TOOLS === '0') return [];
+    return ['--allowedTools', 'Read', '--allowedTools', 'Glob', '--allowedTools', 'Grep', '--allowedTools', 'LS'];
+  }
+
   private async completeStreaming(
     args: {
       system: string;
@@ -285,6 +293,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
       '--max-turns',
       '8',
       ...this.skillArgs(),
+      ...this.readToolsArgs(),
       ...this.webSearchArgs(args.capabilities),
       ...this.codeToolsArgs(args.capabilities),
     ];
@@ -315,7 +324,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     // final answer — with --max-turns 1 any tool_use ends in error_max_turns.
     // Prompt via STDIN (not argv) to avoid ARG_MAX / spawn E2BIG on big prompts.
     const cliArgs = ['-p', '--output-format', 'json', '--max-turns', '8',
-      ...this.skillArgs(), ...this.webSearchArgs(args.capabilities), ...this.codeToolsArgs(args.capabilities)];
+      ...this.skillArgs(), ...this.readToolsArgs(), ...this.webSearchArgs(args.capabilities), ...this.codeToolsArgs(args.capabilities)];
     if (this.opts.model) cliArgs.push('--model', this.opts.model);
     if (args.system) cliArgs.push('--append-system-prompt', args.system);
 

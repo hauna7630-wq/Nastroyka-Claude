@@ -114,14 +114,13 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
   // the CLI tools; «Подтверждение» (autoRun === false) withholds execution so the
   // agent only proposes code/commands for the user to run themselves.
   const autoRun = (run.input as { autoRun?: boolean } | null)?.autoRun !== false;
-  // Persistent per-agent workspace: a code-capable agent runs the CLI with this as
-  // cwd, so files it creates survive across turns (a real project, not one-shot).
-  // Lives on a mounted volume in prod (AGENT_WORKSPACE_DIR), so it outlives redeploys.
+  // Persistent per-agent workspace (cwd for EVERY agent, not just coders): the
+  // user can drop a whole directory into ./uploads/ and any employee browses it
+  // with read tools. Lives on a mounted volume in prod, so it outlives redeploys.
   const codeCapable = !!agent.allowedTools?.includes('code_exec');
   const seg = (s: string): string => String(s).replace(/[^a-zA-Z0-9_-]/g, '_');
-  const workspace = codeCapable
-    ? (process.env.AGENT_WORKSPACE_DIR || '/workspace') + '/' + seg(run.orgId) + '/' + seg(agent.id)
-    : undefined;
+  const workspace =
+    (process.env.AGENT_WORKSPACE_DIR || '/workspace') + '/' + seg(run.orgId) + '/' + seg(agent.id);
   let system = agent.systemPrompt;
   // Personal-chat runs are a 1:1 CONVERSATION. Prepend a strong chat-mode
   // directive to the SYSTEM prompt (the authoritative slot) so it overrides

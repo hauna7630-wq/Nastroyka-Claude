@@ -393,14 +393,14 @@ export class ControlPlane {
       promptPart = blocks + '\n\n' + text;
     }
     if (args.workspaceFiles && args.workspaceFiles.length) {
-      const flist = args.workspaceFiles.slice(0, 100).join(', ');
+      const flist = args.workspaceFiles.slice(0, 80).join(', ');
       promptPart =
         promptPart +
-        '\n\n[Файлы также сохранены в твоей рабочей папке (текущий каталог): ' +
-        flist +
-        (args.workspaceFiles.length > 100 ? ' …' : '') +
-        '. Если их много или они большие — читай их инструментами (ls/cat) по мере ' +
-        'необходимости, не полагаясь только на текст выше.]';
+        '\n\n[Файлы и папки, которые дал пользователь, сохранены в твоей рабочей папке в ' +
+        './uploads/ (структура папок сохранена, всего ' + args.workspaceFiles.length + '). ' +
+        'Открывай папки/подпапки и читай документы инструментами (LS, Read, Glob, Grep) ' +
+        'по мере необходимости — работай с ними напрямую, не полагаясь только на текст ' +
+        'выше. Файлы: ' + flist + (args.workspaceFiles.length > 80 ? ' …' : '') + ']';
     }
     let displayText = text;
     if (atts.length === 1) displayText = text + ' 📎 ' + atts[0].filename;
