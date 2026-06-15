@@ -27,12 +27,13 @@ function flatten(system: string, messages: ModelMessage[]): string {
   return lines.join('\n\n');
 }
 
-function runCli(bin: string, args: string[], timeoutMs: number, cwd?: string): Promise<string> {
+function runCli(bin: string, args: string[], timeoutMs: number, cwd?: string, input?: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    // stdin must be closed (not an open pipe): in -p mode the CLI otherwise
-    // waits for stdin and stalls. We pass the prompt via argv, so ignore stdin.
+    // Large prompts (many inlined files) overflow argv (ARG_MAX → spawn E2BIG), so
+    // the prompt is fed via STDIN: pipe it in, then end the stream so -p doesn't wait.
     if (cwd) { try { mkdirSync(cwd, { recursive: true }); } catch { /* best-effort */ } }
-    const child = spawn(bin, args, { env: process.env, stdio: ['ignore', 'pipe', 'pipe'], cwd });
+    const useStdin = typeof input === 'string';
+    const child = spawn(bin, args, { env: process.env, stdio: [useStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'], cwd });
     let out = '';
     let err = '';
     // Inactivity timeout: the CLI can legitimately think for a while, so we only
@@ -46,8 +47,9 @@ function runCli(bin: string, args: string[], timeoutMs: number, cwd?: string): P
       }, timeoutMs);
     };
     arm();
-    child.stdout.on('data', (d) => { out += d.toString(); arm(); });
-    child.stderr.on('data', (d) => { err += d.toString(); arm(); });
+    if (useStdin && child.stdin) { child.stdin.on('error', () => {}); try { child.stdin.write(input as string); child.stdin.end(); } catch { /* ignore */ } }
+    child.stdout!.on('data', (d) => { out += d.toString(); arm(); });
+    child.stderr!.on('data', (d) => { err += d.toString(); arm(); });
     child.on('error', (e) => {
       clearTimeout(timer);
       reject(e);
@@ -78,10 +80,13 @@ function runCliStreaming(
   timeoutMs: number,
   onText: (delta: string) => void,
   cwd?: string,
+  input?: string,
 ): Promise<StreamResult> {
   return new Promise((resolve, reject) => {
     if (cwd) { try { mkdirSync(cwd, { recursive: true }); } catch { /* best-effort */ } }
-    const child = spawn(bin, args, { env: process.env, stdio: ['ignore', 'pipe', 'pipe'], cwd });
+    const useStdin = typeof input === 'string';
+    const child = spawn(bin, args, { env: process.env, stdio: [useStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'], cwd });
+    if (useStdin && child.stdin) { child.stdin.on('error', () => {}); try { child.stdin.write(input as string); child.stdin.end(); } catch { /* ignore */ } }
     let err = '';
     let buf = '';
     let resultText = '';
@@ -163,7 +168,7 @@ function runCliStreaming(
       }
     };
 
-    child.stdout.on('data', (d) => {
+    child.stdout!.on('data', (d) => {
       arm(); // re-arm the inactivity timeout on every chunk of streamed output
       buf += d.toString();
       let nl = buf.indexOf('\n');
@@ -173,7 +178,7 @@ function runCliStreaming(
         nl = buf.indexOf('\n');
       }
     });
-    child.stderr.on('data', (d) => (err += d.toString()));
+    child.stderr!.on('data', (d) => (err += d.toString()));
     child.on('error', (e) => {
       clearTimeout(timer);
       reject(e);
@@ -269,9 +274,10 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
   ): Promise<ModelTurn> {
     const bin = this.opts.bin ?? 'claude';
     const prompt = flatten(args.system, args.messages);
+    // Prompt goes via STDIN (not argv) — large multi-file prompts would otherwise
+    // overflow ARG_MAX and fail with spawn E2BIG.
     const cliArgs = [
       '-p',
-      prompt,
       '--output-format',
       'stream-json',
       '--verbose',
@@ -285,7 +291,7 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     if (this.opts.model) cliArgs.push('--model', this.opts.model);
     if (args.system) cliArgs.push('--append-system-prompt', args.system);
 
-    const r = await runCliStreaming(bin, cliArgs, this.opts.timeoutMs ?? 180000, onText, args.workspace);
+    const r = await runCliStreaming(bin, cliArgs, this.opts.timeoutMs ?? 180000, onText, args.workspace, prompt);
     return {
       text: r.text,
       toolCalls: [],
@@ -307,12 +313,13 @@ export class ClaudeSubscriptionModelProvider implements ModelProvider {
     // Allow several turns so the agent can use the CLI's built-in tools (e.g.
     // server-side web search, which routes via the same relay) and still reach a
     // final answer — with --max-turns 1 any tool_use ends in error_max_turns.
-    const cliArgs = ['-p', prompt, '--output-format', 'json', '--max-turns', '8',
+    // Prompt via STDIN (not argv) to avoid ARG_MAX / spawn E2BIG on big prompts.
+    const cliArgs = ['-p', '--output-format', 'json', '--max-turns', '8',
       ...this.skillArgs(), ...this.webSearchArgs(args.capabilities), ...this.codeToolsArgs(args.capabilities)];
     if (this.opts.model) cliArgs.push('--model', this.opts.model);
     if (args.system) cliArgs.push('--append-system-prompt', args.system);
 
-    const raw = await runCli(bin, cliArgs, this.opts.timeoutMs ?? 180000, args.workspace);
+    const raw = await runCli(bin, cliArgs, this.opts.timeoutMs ?? 180000, args.workspace, prompt);
 
     let text = raw.trim();
     let tokensIn = 0;
