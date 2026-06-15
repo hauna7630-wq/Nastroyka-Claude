@@ -122,6 +122,30 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
   const workspace =
     (process.env.AGENT_WORKSPACE_DIR || '/workspace') + '/' + seg(run.orgId) + '/' + seg(agent.id);
   let system = agent.systemPrompt;
+  // Team awareness: every agent must know its colleagues (names + roles), so a
+  // 1:1 chat agent doesn't treat a teammate's name as an unknown entity. Built
+  // LIVE from the org roster, so it always reflects who is actually hired.
+  try {
+    const roster = await repo.listAgents(run.orgId);
+    if (roster.length > 1) {
+      const shortName = (n: string): string => n.split(' — ')[0];
+      const roleOf = (n: string): string => {
+        const parts = n.split(' — ');
+        return parts.length > 1 ? parts.slice(1).join(' — ') : '';
+      };
+      const lines = roster.map((c) => {
+        const role = roleOf(c.name);
+        const self = c.id === agent.id ? ' (это ты)' : '';
+        return '- ' + shortName(c.name) + (role ? ' — ' + role : '') + self;
+      });
+      system +=
+        '\n\n# Твоя команда (коллеги)\nТы работаешь в одной команде с этими сотрудниками — ' +
+        'знай, кто за что отвечает, и обращайся к ним по имени:\n' +
+        lines.join('\n');
+    }
+  } catch {
+    // roster is best-effort context; never block a run on it
+  }
   // Personal-chat runs are a 1:1 CONVERSATION. Prepend a strong chat-mode
   // directive to the SYSTEM prompt (the authoritative slot) so it overrides
   // task-oriented personas — especially the orchestrator, which otherwise
@@ -139,6 +163,11 @@ export async function executeRun(runId: string, deps: RuntimeDeps): Promise<void
       'ВАЖНО: даже если в истории этой переписки твои прошлые ответы были сухими/формальными ' +
       '(«Принято», «Ответ команды»), НЕ повторяй этот стиль — это был сбой, отвечай живо и по сути. ' +
       'Подключай команду или подзадачи ТОЛЬКО если пользователь явно просит запустить работу команды.\n\n' +
+      'Передача дела коллеге: если задача — явно профиль другого сотрудника (или пользователь просит ' +
+      'привлечь коллегу), ты можешь передать ему поручение. Для этого на ОТДЕЛЬНОЙ строке напиши ровно: ' +
+      'ПОРУЧЕНИЕ <Имя>: <что нужно сделать>. Оно появится у коллеги в разделе «📥 Поручения», и ' +
+      'пользователь запустит его кнопкой «Приступить». Используй это ТОЛЬКО для реальной передачи, ' +
+      'не упоминай эту команду в обычном ответе.\n\n' +
       system;
   }
   if (deps.memory) {

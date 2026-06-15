@@ -173,6 +173,48 @@ describe('Control Plane — DLQ requeue', () => {
   });
 });
 
+// Model whose reply hands a task off to a colleague via the directive.
+class HandoffModel implements ModelProvider {
+  async complete(): Promise<ModelTurn> {
+    return { ...finalTurn('Это профиль Kodrin, передаю ему.\nПОРУЧЕНИЕ Kodrin: сделай REST API') };
+  }
+}
+
+describe('Control Plane — team awareness & hand-off', () => {
+  it('parseHandoffs reads the strict directive and ignores conversational prose', () => {
+    const { cp } = build({ model: new FinalModel() });
+    const kodrin: Agent = { id: 'k', orgId: 'org_1', name: 'Kodrin — Разработчик', type: 'coder', systemPrompt: 'x' };
+    const roster: Agent[] = [{ ...AGENT }, kodrin];
+    const hits = cp.parseHandoffs('ПОРУЧЕНИЕ Kodrin: сделай API', roster);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].agent.id).toBe('k');
+    expect(hits[0].task).toBe('сделай API');
+    // a mention of the lowercase delegation phrase in prose must NOT fire
+    expect(cp.parseHandoffs('можешь написать «поручи Kodrin: …»', roster)).toEqual([]);
+  });
+
+  it('an agent reply with a directive creates a dormant assignment, cleans the text, and is idempotent', async () => {
+    const { cp } = build({ model: new HandoffModel() });
+    const kodrin = await cp.createAgent({ orgId: 'org_1', name: 'Kodrin — Разработчик', type: 'coder', systemPrompt: 'x' });
+
+    const { runId } = await cp.sendChatMessage({ orgId: 'org_1', agentId: 'agent_1', text: 'помоги kodrin' });
+    // Backfill materializes the reply AND creates the assignment.
+    const hist = await cp.getChatHistory({ orgId: 'org_1', agentId: 'agent_1' });
+    const reply = hist.messages.find((m) => m.role === 'agent' && m.runId === runId);
+    expect(reply?.text).toMatch(/Передал\(а\) поручение: Kodrin/);
+    expect(reply?.text).not.toMatch(/ПОРУЧЕНИЕ Kodrin:/);
+
+    const inbox = await cp.listAssignments('org_1', kodrin.id);
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0].task).toBe('сделай REST API');
+    expect(inbox[0].from).toBe('Researcher');
+
+    // A second history fetch must not double-create the assignment.
+    await cp.getChatHistory({ orgId: 'org_1', agentId: 'agent_1' });
+    expect(await cp.listAssignments('org_1', kodrin.id)).toHaveLength(1);
+  });
+});
+
 describe('Control Plane — document extraction (Doc-1)', () => {
   it('extracts text from an uploaded file for the chat', async () => {
     const { cp } = build({ model: new FinalModel() });

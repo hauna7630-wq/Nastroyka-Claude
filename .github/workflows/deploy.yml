@@ -1,6 +1,6 @@
 name: Deploy
 
-# Deploy marker: v70 — все сотрудники получают code_exec и создают файлы/PDF/скрипты прямо в своей рабочей папке (режим «Автомат»), guardrails безопасности перенесены в общую доктрину; конец галлюцинации «нажми Allow».
+# Deploy marker: v71 — каждый сотрудник знает всю команду (живой ростер в системном промпте) и может передать дело коллеге директивой «ПОРУЧЕНИЕ Имя: задача» — оно падает тому в «Поручения»; конец «не знаю, кто такой Kodrin».
 # Builds both app images, pushes them to GHCR, then SSHes to the host and brings
 # the stack up. Each app applies its own migrations on startup.
 # Trigger manually, or on push to a release branch. Configure the secrets listed

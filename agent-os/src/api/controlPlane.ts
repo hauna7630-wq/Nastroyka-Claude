@@ -466,11 +466,32 @@ export class ControlPlane {
     return { agent, task };
   }
 
+  // Agent-initiated hand-off: an agent that decides a task belongs to a colleague
+  // emits, on its own line, `ПОРУЧЕНИЕ <Имя>: <задача>`. We parse ONLY this exact
+  // capitalised directive (not the conversational `поручи Имя:`) so an agent
+  // mentioning delegation in prose never creates a spurious assignment.
+  parseHandoffs(
+    text: string,
+    agents: Agent[],
+  ): Array<{ agent: Agent; task: string; line: string }> {
+    const out: Array<{ agent: Agent; task: string; line: string }> = [];
+    const re = /^[\s>*-]*ПОРУЧЕНИЕ\s+([A-Za-zА-Яа-яЁё]+)\s*:\s*(.+?)\s*$/gm;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text || '')) !== null) {
+      const lc = m[1].toLowerCase();
+      const agent = agents.find((a) => this.shortNameOf(a.name).toLowerCase() === lc);
+      const task = (m[2] || '').trim();
+      if (agent && task) out.push({ agent, task, line: m[0] });
+    }
+    return out;
+  }
+
   async createAssignment(args: {
     orgId: string;
     toAgentId: string;
     from: string;
     task: string;
+    runId?: string;
   }): Promise<{ runId: string; agentName: string }> {
     const { repo } = this.deps;
     const org = await repo.getOrg(args.orgId);
@@ -478,7 +499,13 @@ export class ControlPlane {
     const agent = await repo.getAgent(args.toAgentId);
     if (!agent || agent.orgId !== args.orgId) throw new NotFoundError(`agent ${args.toAgentId}`);
     if (!args.task.trim()) throw new ValidationError('task is required');
-    const runId = randomUUID();
+    // A caller may pass a deterministic id to make creation idempotent (an
+    // agent-initiated hand-off must not double-create on a racing history fetch).
+    if (args.runId) {
+      const existing = await repo.getRun(args.runId);
+      if (existing) return { runId: args.runId, agentName: agent.name };
+    }
+    const runId = args.runId ?? randomUUID();
     const prompt =
       'Тебе поручение от ' + args.from + ' (координатор команды). Выполни его полностью и дай ' +
       'готовый результат.\n\nЗадача:\n' + args.task;
@@ -663,11 +690,12 @@ export class ControlPlane {
       const run = await repo.getRun(m.runId);
       if (!run) continue;
       if (run.status === 'succeeded') {
+        const text = await this.applyHandoffs(orgId, agentId, m.runId, outputToReplyText(run.output));
         await repo.appendChatReplyIfAbsent({
           orgId,
           agentId,
           role: 'agent',
-          text: outputToReplyText(run.output),
+          text,
           runId: m.runId,
         });
         replied.add(m.runId);
@@ -680,6 +708,46 @@ export class ControlPlane {
       }
     }
     return pending;
+  }
+
+  // When an agent's reply contains `ПОРУЧЕНИЕ <Имя>: <задача>` directives, create
+  // the assignment(s) for the named colleague(s) and replace each directive line
+  // with a human confirmation. Idempotent: the assignment runId is derived from the
+  // source run + colleague, so a racing history fetch can't double-create. Returns
+  // the cleaned reply text to persist.
+  private async applyHandoffs(
+    orgId: string,
+    fromAgentId: string,
+    sourceRunId: string,
+    text: string,
+  ): Promise<string> {
+    const { repo } = this.deps;
+    const handoffs = this.parseHandoffs(text, await repo.listAgents(orgId));
+    if (!handoffs.length) return text;
+    const fromAgent = await repo.getAgent(fromAgentId);
+    const fromName = fromAgent ? this.shortNameOf(fromAgent.name) : 'Коллега';
+    let out = text;
+    for (const h of handoffs) {
+      if (h.agent.id === fromAgentId) continue; // never delegate to self
+      const to = this.shortNameOf(h.agent.name);
+      try {
+        await this.createAssignment({
+          orgId,
+          toAgentId: h.agent.id,
+          from: fromName,
+          task: h.task,
+          runId: sourceRunId + '::deleg::' + h.agent.id,
+        });
+        const note =
+          '📥 Передал(а) поручение: ' + to + ' — «' + h.task + '». Оно появилось у него в ' +
+          'разделе «📥 Поручения» — открой его чат и нажми «Приступить».';
+        out = out.replace(h.line, note);
+      } catch {
+        // a failed hand-off must not lose the agent's reply; drop the directive line
+        out = out.replace(h.line, '');
+      }
+    }
+    return out.replace(/\n{3,}/g, '\n\n').trim();
   }
 
   // --- Observability ---
