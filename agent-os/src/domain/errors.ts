@@ -28,9 +28,13 @@ export function humanizeRunError(error?: string | null, status?: RunStatus): str
   if (lower.includes('claude cli timed out')) {
     return 'Модель не ответила вовремя (таймаут ожидания LLM). Нажмите «Повторить».';
   }
-  const exited = /claude CLI exited (\d+)/i.exec(e);
+  const exited = /claude CLI exited (\d+)\s*:?\s*([\s\S]*)/i.exec(e);
   if (exited) {
-    return 'Сбой провайдера модели (CLI завершился с кодом ' + exited[1] + '). Нажмите «Повторить».';
+    const detail = (exited[2] || '').replace(/\s+/g, ' ').trim().slice(0, 220);
+    return (
+      'Сбой провайдера модели (CLI код ' + exited[1] + ')' +
+      (detail ? ': ' + detail : '') + '. Нажмите «Повторить».'
+    );
   }
   if (lower.includes('enoent') || lower.includes('spawn claude')) {
     return 'Провайдер модели недоступен на сервере (Claude CLI не найден).';

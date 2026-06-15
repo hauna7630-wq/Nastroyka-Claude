@@ -33,7 +33,7 @@ function runCli(bin: string, args: string[], timeoutMs: number, cwd?: string, in
     // the prompt is fed via STDIN: pipe it in, then end the stream so -p doesn't wait.
     if (cwd) { try { mkdirSync(cwd, { recursive: true }); } catch { /* best-effort */ } }
     const useStdin = typeof input === 'string';
-    const child = spawn(bin, args, { env: process.env, stdio: [useStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'], cwd });
+    const child = spawn(bin, args, { env: { ...process.env, IS_SANDBOX: '1' }, stdio: [useStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'], cwd });
     let out = '';
     let err = '';
     // Inactivity timeout: the CLI can legitimately think for a while, so we only
@@ -85,7 +85,7 @@ function runCliStreaming(
   return new Promise((resolve, reject) => {
     if (cwd) { try { mkdirSync(cwd, { recursive: true }); } catch { /* best-effort */ } }
     const useStdin = typeof input === 'string';
-    const child = spawn(bin, args, { env: process.env, stdio: [useStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'], cwd });
+    const child = spawn(bin, args, { env: { ...process.env, IS_SANDBOX: '1' }, stdio: [useStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'], cwd });
     if (useStdin && child.stdin) { child.stdin.on('error', () => {}); try { child.stdin.write(input as string); child.stdin.end(); } catch { /* ignore */ } }
     let err = '';
     let buf = '';

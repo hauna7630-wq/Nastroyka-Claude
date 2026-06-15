@@ -3,6 +3,7 @@
 // over the framework-agnostic ControlPlane, which holds the logic and the tests.
 
 import { createServer, IncomingMessage, ServerResponse, Server } from 'http';
+import { spawn } from 'child_process';
 import { ControlPlane, NotFoundError, ValidationError } from './controlPlane';
 import { RunEvent } from '../events/bus';
 import { COORDINATOR_HTML } from './ui';
@@ -118,6 +119,19 @@ export function createControlPlaneServer(cp: ControlPlane): Server {
         if (method === 'DELETE') {
           return json(res, 200, await cp.clearChatHistory({ orgId: seg[1], agentId: seg[3] }));
         }
+      }
+      // Download an agent's whole workspace as a .tar.gz archive.
+      if (method === 'GET' && seg[0] === 'orgs' && seg[2] === 'agents' && seg[3] && seg[4] === 'workspace' && seg[5] === 'archive') {
+        const dir = await cp.resolveWorkspaceDir(seg[1], seg[3]);
+        res.writeHead(200, {
+          'content-type': 'application/gzip',
+          'content-disposition': 'attachment; filename="workspace.tar.gz"',
+        });
+        const tar = spawn('tar', ['-czf', '-', '-C', dir, '.']);
+        tar.stdout.pipe(res);
+        tar.stderr.on('data', () => {});
+        tar.on('error', () => { try { res.end(); } catch { /* ignore */ } });
+        return;
       }
       // Upload files into an agent's persistent workspace (uploads/…).
       if (method === 'POST' && seg[0] === 'orgs' && seg[2] === 'agents' && seg[3] && seg[4] === 'workspace') {

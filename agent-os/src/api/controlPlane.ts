@@ -548,6 +548,18 @@ export class ControlPlane {
     return join(process.env.AGENT_WORKSPACE_DIR || '/workspace', seg(orgId), seg(agentId));
   }
 
+  // Resolve (and ensure) the agent's workspace dir — used to stream it as an
+  // archive for download.
+  async resolveWorkspaceDir(orgId: string, agentId: string): Promise<string> {
+    const org = await this.deps.repo.getOrg(orgId);
+    if (!org) throw new NotFoundError(`org ${orgId}`);
+    const agent = await this.deps.repo.getAgent(agentId);
+    if (!agent || agent.orgId !== orgId) throw new NotFoundError(`agent ${agentId}`);
+    const dir = this.agentWorkspace(orgId, agentId);
+    mkdirSync(dir, { recursive: true });
+    return dir;
+  }
+
   // Save uploaded files into the agent's persistent workspace (under uploads/), so
   // a code-capable agent can read them with tools on demand — no prompt-size limit.
   // Paths are sanitized against traversal; content is base64.

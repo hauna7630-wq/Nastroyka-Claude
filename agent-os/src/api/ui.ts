@@ -93,9 +93,9 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
   .msg.me a { color:#e8f0ff; }
   .msg .quote { font-size:11.5px; opacity:.82; border-left:2px solid rgba(255,255,255,.5); padding:1px 0 1px 7px; margin-bottom:5px; white-space:pre-wrap; }
   .msg.them .quote { border-left-color:#4a5560; color:var(--muted); }
-  .msg .rbtn { display:none; position:absolute; top:-9px; background:#1b232c; color:var(--muted); border:1px solid var(--border); border-radius:6px; font-size:11px; padding:1px 7px; cursor:pointer; }
-  .msg .rbtn.reply { right:-7px; } .msg .rbtn.react { right:64px; }
-  .msg:hover .rbtn { display:block; }
+  .msg .macts { display:none; position:absolute; top:-12px; right:6px; gap:4px; z-index:2; }
+  .msg:hover .macts { display:flex; }
+  .msg .rbtn { background:#1b232c; color:var(--muted); border:1px solid var(--border); border-radius:6px; font-size:12px; line-height:1; padding:3px 7px; cursor:pointer; }
   .msg .rbtn:hover { color:var(--fg); border-color:var(--accent); }
   .reacts { display:flex; gap:4px; flex-wrap:wrap; margin-top:5px; }
   .reacts .rx { background:#0d1117; border:1px solid var(--border); border-radius:999px; font-size:13px; padding:1px 7px; cursor:pointer; line-height:1.5; }
@@ -178,7 +178,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v67 · доступ к директории</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v68 · кнопки + архив + диагностика CLI</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -606,8 +606,12 @@ function selectAgent(id){
   currentAgent = staffAgents.filter(function(a){ return a.id===id; })[0]; if(!currentAgent) return;
   document.querySelectorAll('.staff-item').forEach(function(x){ x.classList.remove('active'); });
   var c=$('st_'+id); if(c) c.classList.add('active');
-  $('chatHead').innerHTML='<span>'+escapeHtml(shortName(currentAgent.name)+' — '+roleOf(currentAgent))+'</span><button id="chatClear" type="button" title="Удалить всю историю переписки с этим сотрудником" style="float:right;font:inherit;font-size:12px;font-weight:600;color:var(--muted);background:#1b232c;border:1px solid var(--border);border-radius:7px;padding:3px 9px;cursor:pointer">🗑 Очистить чат</button>';
+  var hbtn='font:inherit;font-size:12px;font-weight:600;color:var(--muted);background:#1b232c;border:1px solid var(--border);border-radius:7px;padding:3px 9px;cursor:pointer';
+  $('chatHead').innerHTML='<span>'+escapeHtml(shortName(currentAgent.name)+' — '+roleOf(currentAgent))+'</span>'
+    +'<button id="chatClear" type="button" title="Удалить всю историю переписки с этим сотрудником" style="float:right;'+hbtn+'">🗑 Очистить чат</button>'
+    +'<button id="chatDlWs" type="button" title="Скачать рабочую папку сотрудника архивом (.tar.gz) — все файлы, что он создал/получил" style="float:right;margin-right:6px;'+hbtn+'">📦 Папка</button>';
   var cb=$('chatClear'); if(cb) cb.addEventListener('click', clearChatThread);
+  var dw=$('chatDlWs'); if(dw) dw.addEventListener('click', function(){ downloadWorkspace(currentAgent.id); });
   $('chatInput').disabled=false; $('chatSend').disabled=false; $('chatClip').disabled=false; var mic=$('chatMic'); if(mic) mic.disabled=false; $('chatInput').focus();
   chatReplyTo=null; renderReplyChip();
   chatAttachments=[]; workspaceFiles=[]; renderAttach(null);
@@ -764,6 +768,13 @@ function downloadText(filename, text){
     setTimeout(function(){ URL.revokeObjectURL(url); a.remove(); }, 120);
   }catch(e){}
 }
+// Download the agent's whole workspace (everything it created/received) as .tar.gz.
+function downloadWorkspace(aid){
+  if(!aid) return;
+  var a=document.createElement('a'); a.href='/orgs/'+ORG+'/agents/'+aid+'/workspace/archive';
+  a.download=(currentAgent?shortName(currentAgent.name):'workspace')+'-workspace.tar.gz';
+  document.body.appendChild(a); a.click(); setTimeout(function(){ a.remove(); },150);
+}
 function renderChat(){
   if(!currentAgent) return; var log=$('chatLog');
   // Stick-to-bottom: only auto-scroll if the user is already near the bottom, so
@@ -785,15 +796,16 @@ function renderChat(){
     if(parts.quote) inner+='<div class="quote">'+escapeHtml(parts.quote)+'</div>';
     inner+=mdLite(parts.body);
     el.innerHTML=inner;
-    if(!m.pending){ var rb=document.createElement('button'); rb.className='rbtn reply'; rb.textContent='↩ ответить';
-      rb.addEventListener('click', (function(msg){ return function(){ setReplyTarget(msg); }; })(m)); el.appendChild(rb);
-      var cpb=document.createElement('button'); cpb.className='rbtn copy'; cpb.textContent='⧉ копировать';
-      cpb.addEventListener('click', (function(msg,btn){ return function(){ copyMsgText(msg,btn); }; })(m,cpb)); el.appendChild(cpb);
-      if(m.role!=='me'){ var dlb=document.createElement('button'); dlb.className='rbtn copy'; dlb.textContent='⬇ скачать';
-        dlb.addEventListener('click', (function(msg){ return function(){ downloadText(slugFile(currentAgent?shortName(currentAgent.name):'ответ'), (splitQuote(msg.text).body)||msg.text||''); }; })(m)); el.appendChild(dlb); } }
-    // reaction button (only for persisted messages with a server id)
-    if(!m.pending && m.id){ var eb=document.createElement('button'); eb.className='rbtn react'; eb.textContent='☺ реакция';
-      eb.addEventListener('click', (function(msg,btn){ return function(ev){ ev.stopPropagation(); openEmojiPop(btn,msg); }; })(m,eb)); el.appendChild(eb); }
+    if(!m.pending){ var acts=document.createElement('div'); acts.className='macts';
+      var rb=document.createElement('button'); rb.className='rbtn'; rb.textContent='↩'; rb.title='Ответить';
+      rb.addEventListener('click', (function(msg){ return function(){ setReplyTarget(msg); }; })(m)); acts.appendChild(rb);
+      var cpb=document.createElement('button'); cpb.className='rbtn'; cpb.textContent='⧉'; cpb.title='Копировать';
+      cpb.addEventListener('click', (function(msg,btn){ return function(){ copyMsgText(msg,btn); }; })(m,cpb)); acts.appendChild(cpb);
+      if(m.role!=='me'){ var dlb=document.createElement('button'); dlb.className='rbtn'; dlb.textContent='⬇'; dlb.title='Скачать ответ';
+        dlb.addEventListener('click', (function(msg){ return function(){ downloadText(slugFile(currentAgent?shortName(currentAgent.name):'ответ'), (splitQuote(msg.text).body)||msg.text||''); }; })(m)); acts.appendChild(dlb); }
+      if(m.id){ var eb=document.createElement('button'); eb.className='rbtn'; eb.textContent='☺'; eb.title='Реакция';
+        eb.addEventListener('click', (function(msg,btn){ return function(ev){ ev.stopPropagation(); openEmojiPop(btn,msg); }; })(m,eb)); acts.appendChild(eb); }
+      el.appendChild(acts); }
     // existing reactions
     if(m.reactions && m.reactions.length){ var rr=document.createElement('div'); rr.className='reacts';
       m.reactions.forEach(function(em){ var chip=document.createElement('span'); chip.className='rx'; chip.textContent=em; chip.title='убрать реакцию';

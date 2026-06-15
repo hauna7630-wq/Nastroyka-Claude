@@ -20,7 +20,8 @@ describe('isPlaceholderText', () => {
 describe('humanizeRunError', () => {
   it('maps known failures to actionable Russian reasons', () => {
     expect(humanizeRunError('claude CLI timed out')).toMatch(/таймаут/i);
-    expect(humanizeRunError('claude CLI exited 137: killed')).toMatch(/кодом 137/);
+    expect(humanizeRunError('claude CLI exited 137: killed')).toMatch(/код 137/);
+    expect(humanizeRunError('claude CLI exited 137: killed')).toMatch(/killed/);
     expect(humanizeRunError('spawn claude ENOENT')).toMatch(/CLI не найден/);
     expect(humanizeRunError('Run exceeded max iterations (5)')).toMatch(/лимит шагов/);
     expect(humanizeRunError(EMPTY_OUTPUT_ERROR)).toMatch(/пустой ответ/);
