@@ -39,19 +39,21 @@ function build() {
 }
 
 describe('Delegation — coordinator hands a task to a named employee', () => {
-  it('routes "поручи Kodrin: <task>" to Kodrin\'s inbox without running the current agent', async () => {
+  it('routes "поручи Kodrin: <task>" to Kodrin and AUTO-STARTS it (result streams back)', async () => {
     const { cp } = build();
     const r = await cp.sendChatMessage({ orgId: 'org_1', agentId: 'orch_1', text: 'поручи Kodrin: написать парсер CSV' });
     expect(r.delegated).toBe(true);
     expect(r.to).toBe('Kodrin');
-    expect(r.runId).toBe(''); // no LLM run for the current agent
+    expect(r.runId).toBe(''); // no LLM run for the current agent…
+    expect(r.childRunId).toBeTruthy(); // …but the colleague's run is started for the client to stream
 
     const inbox = await cp.listAssignments('org_1', 'coder_1');
     expect(inbox).toHaveLength(1);
     expect(inbox[0].task).toBe('написать парсер CSV');
     expect(inbox[0].from).toBe('Arkesha');
-    expect(inbox[0].status).toBe('queued');
-    expect(inbox[0].started).toBe(false);
+    expect(inbox[0].started).toBe(true); // auto-started, not dormant
+    // The in-memory queue runs synchronously, so it has already completed.
+    expect(inbox[0].status).toBe('succeeded');
   });
 
   it('does not delegate a plain message (normal chat run proceeds)', async () => {

@@ -7,6 +7,7 @@
 import { transition } from '../domain/runStateMachine';
 import { Queue } from '../ports/queue';
 import { dispatchRun, DispatchDeps } from '../agent/dispatch';
+import { processHandoffs } from '../agent/handoff';
 import { emit } from '../events/bus';
 
 export interface WorkerDeps extends DispatchDeps {
@@ -24,6 +25,13 @@ export function startWorker(deps: WorkerDeps): void {
     const attempt = await repo.incrementRunAttempts(job.runId);
     try {
       await dispatchRun(job.runId, deps);
+      // Follow-up: if the agent's reply handed work off to a colleague, create +
+      // auto-start that assignment. Best-effort — never fail the completed run.
+      try {
+        await processHandoffs(deps, job.runId);
+      } catch {
+        /* hand-off is a follow-up, not a precondition */
+      }
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
 

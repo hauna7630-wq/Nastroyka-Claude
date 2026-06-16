@@ -322,7 +322,7 @@ export class ControlPlane {
     replyTo?: { role: 'user' | 'agent'; text: string };
     // Work mode: false = «Подтверждение» (agent proposes, no execution).
     autoRun?: boolean;
-  }): Promise<{ runId: string; status: string; message: ChatMessageRecord; delegated?: boolean; reply?: string; to?: string }> {
+  }): Promise<{ runId: string; status: string; message: ChatMessageRecord; delegated?: boolean; reply?: string; to?: string; childRunId?: string }> {
     const { repo } = this.deps;
     const atts =
       args.attachments && args.attachments.length
@@ -342,9 +342,8 @@ export class ControlPlane {
 
     const text = args.text?.trim() || 'Изучи приложенные файлы и дай краткие выводы.';
 
-    // Delegation: "поручи <Имя>: <задача>" routes the task to that employee's
-    // inbox (a dormant assignment run) instead of running the current agent. The
-    // current agent just confirms — no LLM call needed.
+    // Delegation: "поручи <Имя>: <задача>" hands the task to that colleague and
+    // AUTO-STARTS it — the result streams back into this chat (no manual «Приступить»).
     if (!atts.length) {
       const roster = await repo.listAgents(args.orgId);
       const deleg = this.parseDelegation(text, roster);
@@ -356,16 +355,16 @@ export class ControlPlane {
           text,
           runId: randomUUID(),
         });
-        await this.createAssignment({
+        const { runId: childRunId } = await this.createAssignment({
           orgId: args.orgId,
           toAgentId: deleg.agent.id,
           from: this.shortNameOf(agent.name),
           task: deleg.task,
+          autoStart: true,
         });
         const to = this.shortNameOf(deleg.agent.name);
         const reply =
-          'Передал(а) поручение: ' + to + ' — «' + deleg.task + '». Оно появилось у него в разделе ' +
-          '«📥 Поручения» — открой его чат и нажми «Приступить».';
+          'Передал(а): ' + to + ' — «' + deleg.task + '» (выполняет, результат появится здесь).';
         await repo.appendChatMessage({
           orgId: args.orgId,
           agentId: args.agentId,
@@ -373,7 +372,7 @@ export class ControlPlane {
           text: reply,
           runId: randomUUID(),
         });
-        return { runId: '', status: 'delegated', message: userMsg, delegated: true, reply, to };
+        return { runId: '', status: 'delegated', message: userMsg, delegated: true, reply, to, childRunId };
       }
     }
 
@@ -466,34 +465,15 @@ export class ControlPlane {
     return { agent, task };
   }
 
-  // Agent-initiated hand-off: an agent that decides a task belongs to a colleague
-  // emits, on its own line, `ПОРУЧЕНИЕ <Имя>: <задача>`. We parse ONLY this exact
-  // capitalised directive (not the conversational `поручи Имя:`) so an agent
-  // mentioning delegation in prose never creates a spurious assignment.
-  parseHandoffs(
-    text: string,
-    agents: Agent[],
-  ): Array<{ agent: Agent; task: string; line: string }> {
-    const out: Array<{ agent: Agent; task: string; line: string }> = [];
-    const re = /^[\s>*-]*ПОРУЧЕНИЕ\s+([A-Za-zА-Яа-яЁё]+)\s*:\s*(.+?)\s*$/gm;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(text || '')) !== null) {
-      const lc = m[1].toLowerCase();
-      const agent = agents.find((a) => this.shortNameOf(a.name).toLowerCase() === lc);
-      const task = (m[2] || '').trim();
-      if (agent && task) out.push({ agent, task, line: m[0] });
-    }
-    return out;
-  }
-
   async createAssignment(args: {
     orgId: string;
     toAgentId: string;
     from: string;
     task: string;
     runId?: string;
+    autoStart?: boolean;
   }): Promise<{ runId: string; agentName: string }> {
-    const { repo } = this.deps;
+    const { repo, queue } = this.deps;
     const org = await repo.getOrg(args.orgId);
     if (!org) throw new NotFoundError(`org ${args.orgId}`);
     const agent = await repo.getAgent(args.toAgentId);
@@ -507,23 +487,26 @@ export class ControlPlane {
     }
     const runId = args.runId ?? randomUUID();
     const prompt =
-      'Тебе поручение от ' + args.from + ' (координатор команды). Выполни его полностью и дай ' +
+      'Тебе поручение от ' + args.from + ' (коллега по команде). Выполни его полностью и дай ' +
       'готовый результат.\n\nЗадача:\n' + args.task;
+    // autoStart: enqueue immediately so the colleague actually does the work and
+    // the result streams back into the chat — no manual «Приступить».
     await repo.createRun({
       id: runId,
       orgId: args.orgId,
       agentId: args.toAgentId,
-      status: 'queued', // dormant: NOT enqueued until «Приступить»
-      input: { prompt, assignment: true, from: args.from, task: args.task, chat: true },
+      status: 'queued',
+      input: { prompt, assignment: true, from: args.from, task: args.task, chat: true, started: !!args.autoStart },
       attempts: 0,
     });
     await repo.audit({
       orgId: args.orgId,
       runId,
       actor: 'control-plane',
-      action: 'assignment.created',
+      action: args.autoStart ? 'assignment.auto_started' : 'assignment.created',
       meta: { from: args.from, to: agent.name },
     });
+    if (args.autoStart) await queue.enqueue({ runId });
     return { runId, agentName: agent.name };
   }
 
@@ -690,12 +673,13 @@ export class ControlPlane {
       const run = await repo.getRun(m.runId);
       if (!run) continue;
       if (run.status === 'succeeded') {
-        const text = await this.applyHandoffs(orgId, agentId, m.runId, outputToReplyText(run.output));
+        // The worker already cleaned hand-off directives out of run.output and
+        // auto-started any delegated assignments, so the stored output is final.
         await repo.appendChatReplyIfAbsent({
           orgId,
           agentId,
           role: 'agent',
-          text,
+          text: outputToReplyText(run.output),
           runId: m.runId,
         });
         replied.add(m.runId);
@@ -708,46 +692,6 @@ export class ControlPlane {
       }
     }
     return pending;
-  }
-
-  // When an agent's reply contains `ПОРУЧЕНИЕ <Имя>: <задача>` directives, create
-  // the assignment(s) for the named colleague(s) and replace each directive line
-  // with a human confirmation. Idempotent: the assignment runId is derived from the
-  // source run + colleague, so a racing history fetch can't double-create. Returns
-  // the cleaned reply text to persist.
-  private async applyHandoffs(
-    orgId: string,
-    fromAgentId: string,
-    sourceRunId: string,
-    text: string,
-  ): Promise<string> {
-    const { repo } = this.deps;
-    const handoffs = this.parseHandoffs(text, await repo.listAgents(orgId));
-    if (!handoffs.length) return text;
-    const fromAgent = await repo.getAgent(fromAgentId);
-    const fromName = fromAgent ? this.shortNameOf(fromAgent.name) : 'Коллега';
-    let out = text;
-    for (const h of handoffs) {
-      if (h.agent.id === fromAgentId) continue; // never delegate to self
-      const to = this.shortNameOf(h.agent.name);
-      try {
-        await this.createAssignment({
-          orgId,
-          toAgentId: h.agent.id,
-          from: fromName,
-          task: h.task,
-          runId: sourceRunId + '::deleg::' + h.agent.id,
-        });
-        const note =
-          '📥 Передал(а) поручение: ' + to + ' — «' + h.task + '». Оно появилось у него в ' +
-          'разделе «📥 Поручения» — открой его чат и нажми «Приступить».';
-        out = out.replace(h.line, note);
-      } catch {
-        // a failed hand-off must not lose the agent's reply; drop the directive line
-        out = out.replace(h.line, '');
-      }
-    }
-    return out.replace(/\n{3,}/g, '\n\n').trim();
   }
 
   // --- Observability ---

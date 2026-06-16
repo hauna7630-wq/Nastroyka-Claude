@@ -1,6 +1,6 @@
 name: Deploy
 
-# Deploy marker: v71 — каждый сотрудник знает всю команду (живой ростер в системном промпте) и может передать дело коллеге директивой «ПОРУЧЕНИЕ Имя: задача» — оно падает тому в «Поручения»; конец «не знаю, кто такой Kodrin».
+# Deploy marker: v72 — переданная коллеге задача запускается САМА (без «Приступить») и её результат приходит обратно в тот же чат; цепочка передач с лимитом глубины (AGENT_DELEG_MAX_DEPTH). Плюс: у Iskara убран нерабочий на CLI-пути http_request (веб-поиск/выборка остаются).
 # Builds both app images, pushes them to GHCR, then SSHes to the host and brings
 # the stack up. Each app applies its own migrations on startup.
 # Trigger manually, or on push to a release branch. Configure the secrets listed

@@ -12,6 +12,7 @@ import { finalTurn } from '../src/adapters/model.mock';
 import { ModelProvider } from '../src/ports/model';
 import { ModelTurn, Agent, Org } from '../src/domain/types';
 import { RichDocumentParser } from '../src/adapters/documents.rich';
+import { parseHandoffDirectives, processHandoffs } from '../src/agent/handoff';
 
 const ORG: Org = { id: 'org_1', name: 'Acme' };
 const AGENT: Agent = {
@@ -173,45 +174,79 @@ describe('Control Plane — DLQ requeue', () => {
   });
 });
 
-// Model whose reply hands a task off to a colleague via the directive.
-class HandoffModel implements ModelProvider {
-  async complete(): Promise<ModelTurn> {
-    return { ...finalTurn('Это профиль Kodrin, передаю ему.\nПОРУЧЕНИЕ Kodrin: сделай REST API') };
-  }
-}
-
-describe('Control Plane — team awareness & hand-off', () => {
-  it('parseHandoffs reads the strict directive and ignores conversational prose', () => {
-    const { cp } = build({ model: new FinalModel() });
+describe('hand-off parser & processHandoffs (agent/handoff.ts)', () => {
+  it('parseHandoffDirectives reads the strict directive and ignores conversational prose', () => {
     const kodrin: Agent = { id: 'k', orgId: 'org_1', name: 'Kodrin — Разработчик', type: 'coder', systemPrompt: 'x' };
     const roster: Agent[] = [{ ...AGENT }, kodrin];
-    const hits = cp.parseHandoffs('ПОРУЧЕНИЕ Kodrin: сделай API', roster);
+    const hits = parseHandoffDirectives('ПОРУЧЕНИЕ Kodrin: сделай API', roster);
     expect(hits).toHaveLength(1);
     expect(hits[0].agent.id).toBe('k');
     expect(hits[0].task).toBe('сделай API');
     // a mention of the lowercase delegation phrase in prose must NOT fire
-    expect(cp.parseHandoffs('можешь написать «поручи Kodrin: …»', roster)).toEqual([]);
+    expect(parseHandoffDirectives('можешь написать «поручи Kodrin: …»', roster)).toEqual([]);
   });
 
-  it('an agent reply with a directive creates a dormant assignment, cleans the text, and is idempotent', async () => {
-    const { cp } = build({ model: new HandoffModel() });
-    const kodrin = await cp.createAgent({ orgId: 'org_1', name: 'Kodrin — Разработчик', type: 'coder', systemPrompt: 'x' });
+  // A queue that only records what was enqueued, so processHandoffs can be tested
+  // in isolation without actually executing the child run.
+  function recordingSetup() {
+    const repo = new InMemoryRepository();
+    repo.seedOrg({ ...ORG });
+    repo.seedAgent({ ...AGENT }); // Researcher = the delegator
+    repo.seedAgent({ id: 'k', orgId: 'org_1', name: 'Kodrin — Разработчик', type: 'coder', systemPrompt: 'x' });
+    const enqueued: string[] = [];
+    const queue = { enqueue: async (j: { runId: string }) => { enqueued.push(j.runId); }, process: () => {}, reset: () => {}, close: async () => {} };
+    return { repo, queue, enqueued };
+  }
 
-    const { runId } = await cp.sendChatMessage({ orgId: 'org_1', agentId: 'agent_1', text: 'помоги kodrin' });
-    // Backfill materializes the reply AND creates the assignment.
-    const hist = await cp.getChatHistory({ orgId: 'org_1', agentId: 'agent_1' });
-    const reply = hist.messages.find((m) => m.role === 'agent' && m.runId === runId);
-    expect(reply?.text).toMatch(/Передал\(а\) поручение: Kodrin/);
-    expect(reply?.text).not.toMatch(/ПОРУЧЕНИЕ Kodrin:/);
+  async function seedParent(repo: InMemoryRepository, opts: { output: string; depth?: number }) {
+    const runId = 'parent_1';
+    await repo.createRun({
+      id: runId,
+      orgId: 'org_1',
+      agentId: 'agent_1',
+      status: 'succeeded',
+      input: { chat: true, prompt: 'x', ...(opts.depth !== undefined ? { delegDepth: opts.depth } : {}) },
+      output: opts.output,
+      attempts: 1,
+    });
+    return runId;
+  }
 
-    const inbox = await cp.listAssignments('org_1', kodrin.id);
-    expect(inbox).toHaveLength(1);
-    expect(inbox[0].task).toBe('сделай REST API');
-    expect(inbox[0].from).toBe('Researcher');
+  it('creates + AUTO-STARTS a colleague assignment, cleans the reply, records handoffs, idempotent', async () => {
+    const { repo, queue, enqueued } = recordingSetup();
+    const runId = await seedParent(repo, { output: 'Передаю Kodrin.\nПОРУЧЕНИЕ Kodrin: сделай REST API' });
 
-    // A second history fetch must not double-create the assignment.
-    await cp.getChatHistory({ orgId: 'org_1', agentId: 'agent_1' });
-    expect(await cp.listAssignments('org_1', kodrin.id)).toHaveLength(1);
+    await processHandoffs({ repo, queue }, runId);
+
+    const childId = runId + '::deleg::k';
+    const child = await repo.getRun(childId);
+    expect(child).toBeTruthy();
+    expect((child!.input as { assignment?: boolean }).assignment).toBe(true);
+    expect((child!.input as { started?: boolean }).started).toBe(true); // auto-started
+    expect((child!.input as { task?: string }).task).toBe('сделай REST API');
+    expect((child!.input as { delegDepth?: number }).delegDepth).toBe(1);
+    expect(enqueued).toEqual([childId]); // actually enqueued, not dormant
+
+    const parent = await repo.getRun(runId);
+    expect((parent!.input as { handoffs?: unknown[] }).handoffs).toHaveLength(1);
+    expect(String(parent!.output)).toMatch(/Передал\(а\): Kodrin .*выполняет/);
+    expect(String(parent!.output)).not.toMatch(/ПОРУЧЕНИЕ Kodrin:/);
+
+    // Idempotent: a second pass must not create a second child or re-enqueue.
+    await processHandoffs({ repo, queue }, runId);
+    expect(enqueued).toEqual([childId]);
+  });
+
+  it('stops the chain at the depth limit instead of creating another assignment', async () => {
+    const { repo, queue, enqueued } = recordingSetup();
+    // Default AGENT_DELEG_MAX_DEPTH = 3; a run already at depth 3 may not delegate further.
+    const runId = await seedParent(repo, { output: 'ПОРУЧЕНИЕ Kodrin: ещё шаг', depth: 3 });
+
+    await processHandoffs({ repo, queue }, runId);
+
+    expect(await repo.getRun(runId + '::deleg::k')).toBeNull();
+    expect(enqueued).toEqual([]);
+    expect(String((await repo.getRun(runId))!.output)).toMatch(/лимит цепочки/);
   });
 });
 

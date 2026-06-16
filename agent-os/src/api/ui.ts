@@ -178,7 +178,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v71 · сотрудники знают команду и передают дела через «Поручения»</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v72 · переданная задача запускается сама, результат приходит в чат</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -890,12 +890,27 @@ function setReplyFailed(aid,idx,runId,reason){
 // One authoritative poll per run. activeRuns dedupes so a second poll (e.g. from
 // loadChatHistory resuming the same pending run) can't stack and ping-pong.
 var activeRuns={};
+// A completed run may have handed work off to colleagues (run.input.handoffs).
+// Surface each colleague's task as its own live bubble in THIS chat and poll it,
+// so the delegated result streams back where the user is (chains render too, as
+// each child's own completion spawns its grandchildren).
+function spawnHandoffBubbles(aid, run){
+  var hs = run && run.input && run.input.handoffs; if(!hs || !hs.length) return;
+  hs.forEach(function(h){
+    if(!h || !h.runId || activeRuns[h.runId]) return;
+    if(!chatThreads[aid]) chatThreads[aid]=[];
+    chatThreads[aid].push({role:'them', pending:true, runId:h.runId, status:'📎 '+(h.to||'коллега')+' выполняет поручение…'});
+    var idx=chatThreads[aid].length-1; saveChat();
+    if(currentAgent && currentAgent.id===aid) renderChat();
+    streamChatTokens(aid, h.runId, idx); pollRun(aid, h.runId, idx);
+  });
+}
 function pollRun(aid, runId, idx, tries){
   tries = tries||0;
   if(tries===0){ if(activeRuns[runId]) return; activeRuns[runId]=true; }
   api('/runs/'+runId).then(function(r){
     var run = r && r.run; var st = run && run.status;
-    if(st==='succeeded'){ delete activeRuns[runId]; setReply(aid,idx, replyText(run.output)); return; }
+    if(st==='succeeded'){ delete activeRuns[runId]; setReply(aid,idx, replyText(run.output)); spawnHandoffBubbles(aid, run); return; }
     if(st==='failed'||st==='canceled'){ delete activeRuns[runId]; setReplyFailed(aid,idx,runId, (r&&r.errorHuman)||'Не удалось выполнить задачу.'); return; }
     if(st==='paused'){ setBubbleStatus(aid,idx, (r&&r.errorHuman)||'нужно ваше решение'); }
     else { setBubbleStatus(aid,idx, tries<2?'в очереди':('думает'+(tries>30?' ('+Math.floor(tries*3/60)+' мин)':''))); }
@@ -1057,6 +1072,12 @@ $('chatForm').addEventListener('submit', async function(e){
   if(resp && resp.delegated){
     setReply(aid, idx, resp.reply || ('Поручение передано'+(resp.to?(' '+resp.to):'')));
     if(resp.message && resp.message.id && chatThreads[aid][idx-1]){ chatThreads[aid][idx-1].id=resp.message.id; saveChat(); }
+    // Auto-started delegation: stream the colleague's result straight into this chat.
+    if(resp.childRunId && !activeRuns[resp.childRunId]){
+      chatThreads[aid].push({role:'them', pending:true, runId:resp.childRunId, status:'📎 '+(resp.to||'коллега')+' выполняет поручение…'});
+      var cidx=chatThreads[aid].length-1; saveChat(); renderChat();
+      streamChatTokens(aid, resp.childRunId, cidx); pollRun(aid, resp.childRunId, cidx);
+    }
     loadAssignments(aid); return;
   }
   if(!resp||!resp.runId){ setReplyFailed(aid,idx,null,'Ошибка: '+((resp&&resp.error)||'не удалось запустить')); return; }
