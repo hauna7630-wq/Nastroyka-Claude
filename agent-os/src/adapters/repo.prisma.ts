@@ -268,6 +268,12 @@ export class PrismaRepository implements Repository {
         status,
         ...(patch.output !== undefined ? { output: patch.output as any } : {}),
         ...(patch.error !== undefined ? { error: patch.error } : {}),
+        // Persist input/attempts when patched: the hand-off flow records
+        // `input.handoffs` (child run ids) and `input.started` via a same-status
+        // patch — dropping them here silently broke delegation on Postgres while
+        // the in-memory adapter (used by tests) kept working.
+        ...(patch.input !== undefined ? { input: patch.input as any } : {}),
+        ...(patch.attempts !== undefined ? { attempts: patch.attempts } : {}),
       },
     });
   }

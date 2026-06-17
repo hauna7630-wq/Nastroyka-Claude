@@ -361,6 +361,8 @@ export class ControlPlane {
           from: this.shortNameOf(agent.name),
           task: deleg.task,
           autoStart: true,
+          depth: 1, // user "поручи" is already the first hop
+          fromAgentId: args.agentId, // seed chain to block a bounce-back
         });
         const to = this.shortNameOf(deleg.agent.name);
         const reply =
@@ -472,6 +474,11 @@ export class ControlPlane {
     task: string;
     runId?: string;
     autoStart?: boolean;
+    // Delegation chain bookkeeping so an onward hand-off from the colleague is
+    // bounded: a user "поручи" is already hop 1 (not 0), and the delegating
+    // agent is seeded into the chain to block a bounce-back.
+    depth?: number;
+    fromAgentId?: string;
   }): Promise<{ runId: string; agentName: string }> {
     const { repo, queue } = this.deps;
     const org = await repo.getOrg(args.orgId);
@@ -496,7 +503,16 @@ export class ControlPlane {
       orgId: args.orgId,
       agentId: args.toAgentId,
       status: 'queued',
-      input: { prompt, assignment: true, from: args.from, task: args.task, chat: true, started: !!args.autoStart },
+      input: {
+        prompt,
+        assignment: true,
+        from: args.from,
+        task: args.task,
+        chat: true,
+        started: !!args.autoStart,
+        delegDepth: args.depth ?? 1,
+        chain: args.fromAgentId ? [args.fromAgentId] : [],
+      },
       attempts: 0,
     });
     await repo.audit({

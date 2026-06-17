@@ -198,14 +198,19 @@ describe('hand-off parser & processHandoffs (agent/handoff.ts)', () => {
     return { repo, queue, enqueued };
   }
 
-  async function seedParent(repo: InMemoryRepository, opts: { output: string; depth?: number }) {
+  async function seedParent(repo: InMemoryRepository, opts: { output: string; depth?: number; chain?: string[] }) {
     const runId = 'parent_1';
     await repo.createRun({
       id: runId,
       orgId: 'org_1',
       agentId: 'agent_1',
       status: 'succeeded',
-      input: { chat: true, prompt: 'x', ...(opts.depth !== undefined ? { delegDepth: opts.depth } : {}) },
+      input: {
+        chat: true,
+        prompt: 'x',
+        ...(opts.depth !== undefined ? { delegDepth: opts.depth } : {}),
+        ...(opts.chain !== undefined ? { chain: opts.chain } : {}),
+      },
       output: opts.output,
       attempts: 1,
     });
@@ -225,6 +230,8 @@ describe('hand-off parser & processHandoffs (agent/handoff.ts)', () => {
     expect((child!.input as { started?: boolean }).started).toBe(true); // auto-started
     expect((child!.input as { task?: string }).task).toBe('сделай REST API');
     expect((child!.input as { delegDepth?: number }).delegDepth).toBe(1);
+    expect(child!.parentRunId).toBe(runId); // linked to parent so chains survive a reload
+    expect((child!.input as { chain?: string[] }).chain).toEqual(['agent_1']); // delegator seeded into the chain
     expect(enqueued).toEqual([childId]); // actually enqueued, not dormant
 
     const parent = await repo.getRun(runId);
@@ -247,6 +254,19 @@ describe('hand-off parser & processHandoffs (agent/handoff.ts)', () => {
     expect(await repo.getRun(runId + '::deleg::k')).toBeNull();
     expect(enqueued).toEqual([]);
     expect(String((await repo.getRun(runId))!.output)).toMatch(/лимит цепочки/);
+  });
+
+  it('refuses to hand back to a colleague already in the chain (no A→B→A loop)', async () => {
+    const { repo, queue, enqueued } = recordingSetup();
+    // Kodrin ('k') already delegated to us earlier in this chain; bouncing the
+    // task back to Kodrin must be refused even though the depth budget allows it.
+    const runId = await seedParent(repo, { output: 'ПОРУЧЕНИЕ Kodrin: верни мне обратно', depth: 1, chain: ['k'] });
+
+    await processHandoffs({ repo, queue }, runId);
+
+    expect(await repo.getRun(runId + '::deleg::k')).toBeNull();
+    expect(enqueued).toEqual([]);
+    expect(String((await repo.getRun(runId))!.output)).toMatch(/уже в этой цепочке/);
   });
 });
 

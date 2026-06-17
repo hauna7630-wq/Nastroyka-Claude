@@ -1,6 +1,6 @@
 name: Deploy
 
-# Deploy marker: v72 — переданная коллеге задача запускается САМА (без «Приступить») и её результат приходит обратно в тот же чат; цепочка передач с лимитом глубины (AGENT_DELEG_MAX_DEPTH). Плюс: у Iskara убран нерабочий на CLI-пути http_request (веб-поиск/выборка остаются).
+# Deploy marker: v73 — фикс: результат поручения реально возвращается в чат на проде (Postgres-адаптер сохранял только status/output/error и терял input.handoffs → делегирование «молчало»). Child-ран связан с родителем (parentRunId), цепочка не обнуляет глубину на user-пути «поручи», защита от циклов A→B→A (chain).
 # Builds both app images, pushes them to GHCR, then SSHes to the host and brings
 # the stack up. Each app applies its own migrations on startup.
 # Trigger manually, or on push to a release branch. Configure the secrets listed

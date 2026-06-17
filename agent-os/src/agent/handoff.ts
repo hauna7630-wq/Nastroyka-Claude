@@ -51,6 +51,7 @@ function assignmentInput(args: {
   from: string;
   originAgentId: string;
   depth: number;
+  chain: string[];
 }): Record<string, unknown> {
   const prompt =
     'Тебе поручение от ' + args.from + ' (коллега по команде). Выполни его полностью и дай ' +
@@ -63,6 +64,9 @@ function assignmentInput(args: {
     chat: true,
     originAgentId: args.originAgentId,
     delegDepth: args.depth,
+    // Agent ids already in this delegation chain — used to refuse A→B→A loops
+    // that the depth limit alone would let run to the full budget.
+    chain: args.chain,
     started: true, // auto-run: enqueued right away, no «Приступить»
   };
 }
@@ -84,6 +88,12 @@ export async function processHandoffs(deps: HandoffDeps, runId: string): Promise
   if (!directives.length) return;
 
   const depth = typeof input.delegDepth === 'number' ? input.delegDepth : 0;
+  // Agents already in this chain (excluding the current one). The child's chain
+  // adds the current agent so a colleague can't delegate back to anyone upstream.
+  const chain: string[] = Array.isArray(input.chain)
+    ? (input.chain as unknown[]).filter((x): x is string => typeof x === 'string')
+    : [];
+  const childChain = chain.includes(run.agentId) ? chain : [...chain, run.agentId];
   const fromAgent = await repo.getAgent(run.agentId);
   const fromName = fromAgent ? shortNameOf(fromAgent.name) : 'Коллега';
 
@@ -96,6 +106,12 @@ export async function processHandoffs(deps: HandoffDeps, runId: string): Promise
       cleaned = cleaned.replace(d.line, '(дальше передавать нельзя — достигнут лимит цепочки поручений)');
       continue;
     }
+    // Cycle guard: refuse to hand back to anyone already in the chain. The depth
+    // limit alone would let A→B→A→B… run to the full budget (real model runs).
+    if (chain.includes(d.agent.id)) {
+      cleaned = cleaned.replace(d.line, '(не передаю ' + to + ' — он(а) уже в этой цепочке поручений)');
+      continue;
+    }
     const childId = runId + '::deleg::' + d.agent.id;
     try {
       const child: Run = {
@@ -103,7 +119,14 @@ export async function processHandoffs(deps: HandoffDeps, runId: string): Promise
         orgId: run.orgId,
         agentId: d.agent.id,
         status: 'queued',
-        input: assignmentInput({ task: d.task, from: fromName, originAgentId: run.agentId, depth: depth + 1 }),
+        parentRunId: runId,
+        input: assignmentInput({
+          task: d.task,
+          from: fromName,
+          originAgentId: run.agentId,
+          depth: depth + 1,
+          chain: childChain,
+        }),
         attempts: 0,
       };
       await repo.createRun(child); // idempotent by id
