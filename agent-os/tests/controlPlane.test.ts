@@ -268,6 +268,56 @@ describe('hand-off parser & processHandoffs (agent/handoff.ts)', () => {
     expect(enqueued).toEqual([]);
     expect(String((await repo.getRun(runId))!.output)).toMatch(/уже в этой цепочке/);
   });
+
+  it('two distinct tasks to the SAME colleague create two runs (no silent drop)', async () => {
+    const { repo, queue, enqueued } = recordingSetup();
+    const runId = await seedParent(repo, {
+      output: 'ПОРУЧЕНИЕ Kodrin: сделай парсер\nПОРУЧЕНИЕ Kodrin: и напиши тесты',
+    });
+
+    await processHandoffs({ repo, queue }, runId);
+
+    const first = await repo.getRun(runId + '::deleg::k');
+    const second = await repo.getRun(runId + '::deleg::k::1');
+    expect((first!.input as { task?: string }).task).toBe('сделай парсер');
+    expect((second!.input as { task?: string }).task).toBe('и напиши тесты');
+    expect(enqueued).toEqual([runId + '::deleg::k', runId + '::deleg::k::1']);
+  });
+
+  it('does NOT fire on a blockquoted/example directive, and cleans repeated lines', () => {
+    const roster: Agent[] = [{ ...AGENT }, { id: 'k', orgId: 'org_1', name: 'Kodrin — Разработчик', type: 'coder', systemPrompt: 'x' }];
+    // A quoted example must not be treated as a real command.
+    expect(parseHandoffDirectives('> ПОРУЧЕНИЕ Kodrin: сделай X', roster)).toEqual([]);
+    // …but a bold/bulleted real directive still parses.
+    expect(parseHandoffDirectives('* ПОРУЧЕНИЕ Kodrin: сделай X', roster)).toHaveLength(1);
+  });
+
+  it('flags an ambiguous name (two colleagues share it) instead of routing to the first', async () => {
+    const { repo, queue, enqueued } = recordingSetup();
+    repo.seedAgent({ id: 'k2', orgId: 'org_1', name: 'Kodrin — Тестировщик', type: 'coder', systemPrompt: 'x' });
+    const runId = await seedParent(repo, { output: 'ПОРУЧЕНИЕ Kodrin: сделай что-нибудь' });
+
+    await processHandoffs({ repo, queue }, runId);
+
+    expect(await repo.getRun(runId + '::deleg::k')).toBeNull();
+    expect(await repo.getRun(runId + '::deleg::k2')).toBeNull();
+    expect(enqueued).toEqual([]);
+    expect(String((await repo.getRun(runId))!.output)).toMatch(/уточни, кому именно/);
+  });
+
+  it('records an audit entry when a hand-off fails instead of swallowing the error', async () => {
+    const { repo } = recordingSetup();
+    const badQueue = { enqueue: async () => { throw new Error('queue down'); }, process: () => {}, reset: () => {}, close: async () => {} };
+    const runId = await seedParent(repo, { output: 'ПОРУЧЕНИЕ Kodrin: сделай API' });
+
+    await processHandoffs({ repo, queue: badQueue }, runId);
+
+    const failed = repo.auditLog.find((a) => a.action === 'assignment.failed');
+    expect(failed).toBeTruthy();
+    expect(String((failed!.meta as { error?: string }).error)).toMatch(/queue down/);
+    // the raw directive markup is still cleaned out of the reply
+    expect(String((await repo.getRun(runId))!.output)).not.toMatch(/ПОРУЧЕНИЕ Kodrin:/);
+  });
 });
 
 describe('Control Plane — document extraction (Doc-1)', () => {

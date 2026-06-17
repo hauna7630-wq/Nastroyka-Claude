@@ -27,20 +27,36 @@ function shortNameOf(name: string): string {
   return name.split(' — ')[0];
 }
 
+// Replace EVERY occurrence of a literal line (not just the first, as
+// String.replace(string,…) would) — a model that repeats the directive must not
+// leave a second raw `ПОРУЧЕНИЕ …` line visible in the reply.
+function replaceLine(text: string, line: string, repl: string): string {
+  return line ? text.split(line).join(repl) : text;
+}
+
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 // Parse ONLY the exact capitalised directive on its own line (not the
 // conversational `поручи Имя:`), so prose mentioning delegation never fires.
+// Leading spaces/tabs and markdown emphasis/bullet markers are tolerated, but a
+// blockquote (`>`) is NOT — a quoted/example directive must not trigger a real
+// hand-off. `ambiguous` flags a name shared by several colleagues so the caller
+// can ask the user to disambiguate instead of silently routing to the first.
 export function parseHandoffDirectives(
   text: string,
   agents: Agent[],
-): Array<{ agent: Agent; task: string; line: string }> {
-  const out: Array<{ agent: Agent; task: string; line: string }> = [];
-  const re = /^[\s>*-]*ПОРУЧЕНИЕ\s+([A-Za-zА-Яа-яЁё]+)\s*:\s*(.+?)\s*$/gm;
+): Array<{ agent: Agent; task: string; line: string; ambiguous?: boolean }> {
+  const out: Array<{ agent: Agent; task: string; line: string; ambiguous?: boolean }> = [];
+  const re = /^[ \t*-]*ПОРУЧЕНИЕ\s+([A-Za-zА-Яа-яЁё]+)\s*:\s*(.+?)\s*$/gm;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text || '')) !== null) {
     const lc = m[1].toLowerCase();
-    const agent = agents.find((a) => shortNameOf(a.name).toLowerCase() === lc);
+    const matches = agents.filter((a) => shortNameOf(a.name).toLowerCase() === lc);
     const task = (m[2] || '').trim();
-    if (agent && task) out.push({ agent, task, line: m[0] });
+    if (!matches.length || !task) continue;
+    out.push({ agent: matches[0], task, line: m[0], ambiguous: matches.length > 1 });
   }
   return out;
 }
@@ -99,20 +115,31 @@ export async function processHandoffs(deps: HandoffDeps, runId: string): Promise
 
   let cleaned = text;
   const handoffs: Array<{ runId: string; to: string; task: string }> = [];
+  // Per-colleague occurrence counter: two distinct tasks to the SAME colleague in
+  // one reply must each get their own run, not collapse onto one deterministic id
+  // (which silently dropped the second task). First occurrence keeps the bare id
+  // for backward-compat; later ones are suffixed.
+  const seen = new Map<string, number>();
 
   for (const d of directives) {
     const to = shortNameOf(d.agent.name);
+    if (d.ambiguous) {
+      cleaned = replaceLine(cleaned, d.line, '(уточни, кому именно: в команде несколько сотрудников по имени «' + to + '»)');
+      continue;
+    }
     if (depth + 1 > delegMaxDepth()) {
-      cleaned = cleaned.replace(d.line, '(дальше передавать нельзя — достигнут лимит цепочки поручений)');
+      cleaned = replaceLine(cleaned, d.line, '(дальше передавать нельзя — достигнут лимит цепочки поручений)');
       continue;
     }
     // Cycle guard: refuse to hand back to anyone already in the chain. The depth
     // limit alone would let A→B→A→B… run to the full budget (real model runs).
     if (chain.includes(d.agent.id)) {
-      cleaned = cleaned.replace(d.line, '(не передаю ' + to + ' — он(а) уже в этой цепочке поручений)');
+      cleaned = replaceLine(cleaned, d.line, '(не передаю ' + to + ' — он(а) уже в этой цепочке поручений)');
       continue;
     }
-    const childId = runId + '::deleg::' + d.agent.id;
+    const n = seen.get(d.agent.id) ?? 0;
+    seen.set(d.agent.id, n + 1);
+    const childId = runId + '::deleg::' + d.agent.id + (n > 0 ? '::' + n : '');
     try {
       const child: Run = {
         id: childId,
@@ -139,10 +166,22 @@ export async function processHandoffs(deps: HandoffDeps, runId: string): Promise
         meta: { from: fromName, to: d.agent.name, depth: depth + 1 },
       });
       handoffs.push({ runId: childId, to, task: d.task });
-      cleaned = cleaned.replace(d.line, '📥 Передал(а): ' + to + ' — «' + d.task + '» (выполняет…)');
-    } catch {
-      // best-effort: drop the directive line so the user never sees raw markup
-      cleaned = cleaned.replace(d.line, '');
+      cleaned = replaceLine(cleaned, d.line, '📥 Передал(а): ' + to + ' — «' + d.task + '» (выполняет…)');
+    } catch (err) {
+      // best-effort: drop the directive line so the user never sees raw markup,
+      // but record WHY in the audit log instead of swallowing the error silently.
+      cleaned = replaceLine(cleaned, d.line, '');
+      try {
+        await repo.audit({
+          orgId: run.orgId,
+          runId,
+          actor: 'handoff',
+          action: 'assignment.failed',
+          meta: { to: d.agent.name, depth: depth + 1, error: errMessage(err) },
+        });
+      } catch {
+        /* audit itself is best-effort — never fail the parent run over a follow-up */
+      }
     }
   }
 

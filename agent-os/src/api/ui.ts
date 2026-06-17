@@ -178,7 +178,7 @@ export const COORDINATOR_HTML = /* html */ `<!doctype html>
 </head>
 <body>
 <aside id="side">
-  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v73 · результат поручения реально возвращается в чат (фикс Postgres)</span></div>
+  <div class="logo">🤖 <span class="ltext">agent-os</span> <span class="vbadge" style="color:#2ea043;font-size:11px;font-weight:600">v74 · надёжность делегирования: дубли, тёзки, цитаты, аудит сбоев, SSE-cleanup</span></div>
   <button class="newtask" id="sideNew">+ Новая задача</button>
   <nav class="snav">
     <button data-tab="coord" class="active">🏢 Офис</button>
@@ -442,6 +442,7 @@ function pollTeam(rid){ var t=tasks[rid]; if(!t) return;
   }).catch(function(){ t.pollTimer=setTimeout(function(){ pollTeam(rid); },4000); });
 }
 function startTaskStream(rid){ var t=tasks[rid]; if(!t || typeof EventSource==='undefined') return;
+  if(t.es){ try{ t.es.close(); }catch(e){} } // never orphan a previous stream on re-entry
   var es=new EventSource('/runs/'+rid+'/events'); t.es=es;
   es.addEventListener('orchestration.planned',function(ev){ var d; try{ d=JSON.parse(ev.data).data; }catch(e){ return; }
     t.planSubtasks=d.subtasks||[]; t.statusText='Команда собрана: '+t.planSubtasks.map(function(s){ return s.agentType; }).join(' → ');
@@ -466,6 +467,12 @@ function startTaskStream(rid){ var t=tasks[rid]; if(!t || typeof EventSource==='
   ['run.failed','run.needs_human'].forEach(function(tp){ es.addEventListener(tp,function(ev){ var e2; try{ e2=JSON.parse(ev.data); }catch(e){ return; } if(e2.runId!==rid) return;
     t.done=true; t.status=(tp==='run.needs_human')?'needs_human':'failed'; if(rid!==selectedTask) t.seen=false;
     if(rid===selectedTask) renderTaskDetail(rid); renderTaskBar(); try{ es.close(); }catch(e){} }); });
+  // Bound auto-reconnect (see streamChatTokens): stop hammering a dead run after a
+  // few failed reconnects; the task still completes server-side and a poll/refresh
+  // reflects it. onopen resets so a healthy stream isn't penalised for a blip.
+  var errs=0;
+  es.onopen=function(){ errs=0; };
+  es.onerror=function(){ if(++errs>=3){ try{ es.close(); }catch(e){} } };
 }
 // Work mode (глобальный, localStorage): Автомат — агенты реально выполняют код/
 // инструменты; Подтверждение — только предлагают (исполнение придержано).
@@ -876,7 +883,13 @@ function streamChatTokens(aid,runId,idx){
   });
   var done=function(){ stopChatStream(aid,idx); };
   ['run.succeeded','run.failed','run.needs_human','run.dead_lettered'].forEach(function(t){ src.addEventListener(t,done); });
-  src.onerror=function(){ /* keep buffered poll as the safety net */ };
+  // Bound auto-reconnect: a dead/404 run would otherwise make EventSource retry
+  // forever (an open socket per stale stream). After a few failed reconnects give
+  // up and let pollRun be the safety net; onopen resets the counter so transient
+  // blips don't count against a healthy stream.
+  var errs=0;
+  src.onopen=function(){ errs=0; };
+  src.onerror=function(){ if(++errs>=3) stopChatStream(aid,idx); };
 }
 // Honest failure: show the real reason + a «Повторить» button (no silent giving up).
 function setReplyFailed(aid,idx,runId,reason){
@@ -2013,6 +2026,13 @@ try { var savedTasks=JSON.parse(localStorage.getItem('agentos_active_tasks')||'[
   if(savedTasks&&savedTasks.length){ savedTasks.forEach(function(it,i){ if(it&&it.id) startTask(it.id, it.label||'', i===0); }); }
   else { var legacy=localStorage.getItem('agentos_last_task'); if(legacy) startTask(legacy,'',true); }
 } catch(e){}
+// Release every open EventSource and interval/timer when the page goes away, so
+// we don't leave dangling SSE sockets or typing intervals behind on navigation.
+window.addEventListener('pagehide', function(){
+  try{ Object.keys(chatStreams).forEach(function(k){ try{ chatStreams[k].close(); }catch(e){} }); }catch(e){}
+  try{ Object.keys(chatTyping).forEach(function(k){ clearInterval(chatTyping[k]); }); }catch(e){}
+  try{ Object.keys(tasks).forEach(function(rid){ var t=tasks[rid]; if(!t) return; if(t.es){ try{ t.es.close(); }catch(e){} } if(t.pollTimer) clearTimeout(t.pollTimer); }); }catch(e){}
+});
 </script>
 </body>
 </html>`;

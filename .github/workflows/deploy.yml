@@ -1,6 +1,6 @@
 name: Deploy
 
-# Deploy marker: v73 — фикс: результат поручения реально возвращается в чат на проде (Postgres-адаптер сохранял только status/output/error и терял input.handoffs → делегирование «молчало»). Child-ран связан с родителем (parentRunId), цепочка не обнуляет глубину на user-пути «поручи», защита от циклов A→B→A (chain).
+# Deploy marker: v74 — полировка делегирования: два разных поручения одному коллеге создают два рана (не теряется второе); директива в цитате «> ПОРУЧЕНИЕ» больше не срабатывает; повторная строка-директива вычищается целиком; неоднозначное имя (несколько тёзок) просит уточнить вместо молчаливого выбора первого; сбой передачи пишется в аудит, а не глотается; на клиенте — ограничение реконнектов SSE и cleanup потоков/таймеров на уходе со страницы.
 # Builds both app images, pushes them to GHCR, then SSHes to the host and brings
 # the stack up. Each app applies its own migrations on startup.
 # Trigger manually, or on push to a release branch. Configure the secrets listed
